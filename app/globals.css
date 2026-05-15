@@ -1,0 +1,253 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Nexus Dark Theme - Always dark */
+  --background: oklch(0.12 0.02 260);
+  --foreground: oklch(0.95 0.01 90);
+  --card: oklch(0.15 0.02 260);
+  --card-foreground: oklch(0.95 0.01 90);
+  --popover: oklch(0.13 0.02 260);
+  --popover-foreground: oklch(0.95 0.01 90);
+  --primary: oklch(0.78 0.14 75);
+  --primary-foreground: oklch(0.15 0.02 260);
+  --secondary: oklch(0.20 0.02 260);
+  --secondary-foreground: oklch(0.90 0.01 90);
+  --muted: oklch(0.22 0.02 260);
+  --muted-foreground: oklch(0.65 0.02 90);
+  --accent: oklch(0.75 0.12 75);
+  --accent-foreground: oklch(0.15 0.02 260);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.95 0.01 90);
+  --border: oklch(0.28 0.02 260);
+  --input: oklch(0.20 0.02 260);
+  --ring: oklch(0.78 0.14 75);
+  --radius: 0.75rem;
+  
+  /* Nexus Custom Colors */
+  --nexus-gold: oklch(0.78 0.14 75);
+  --nexus-gold-dim: oklch(0.65 0.10 75);
+  --nexus-gold-bright: oklch(0.88 0.16 75);
+  --nexus-navy: oklch(0.12 0.02 260);
+  --nexus-navy-light: oklch(0.18 0.02 260);
+  --nexus-glass: oklch(0.18 0.02 260 / 0.6);
+  --nexus-glass-border: oklch(0.35 0.02 260);
+}
+
+.dark {
+  --background: oklch(0.12 0.02 260);
+  --foreground: oklch(0.95 0.01 90);
+  --card: oklch(0.15 0.02 260);
+  --card-foreground: oklch(0.95 0.01 90);
+  --popover: oklch(0.13 0.02 260);
+  --popover-foreground: oklch(0.95 0.01 90);
+  --primary: oklch(0.78 0.14 75);
+  --primary-foreground: oklch(0.15 0.02 260);
+  --secondary: oklch(0.20 0.02 260);
+  --secondary-foreground: oklch(0.90 0.01 90);
+  --muted: oklch(0.22 0.02 260);
+  --muted-foreground: oklch(0.65 0.02 90);
+  --accent: oklch(0.75 0.12 75);
+  --accent-foreground: oklch(0.15 0.02 260);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.95 0.01 90);
+  --border: oklch(0.28 0.02 260);
+  --input: oklch(0.20 0.02 260);
+  --ring: oklch(0.78 0.14 75);
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  
+  /* Nexus Theme Colors */
+  --color-nexus-gold: var(--nexus-gold);
+  --color-nexus-gold-dim: var(--nexus-gold-dim);
+  --color-nexus-gold-bright: var(--nexus-gold-bright);
+  --color-nexus-navy: var(--nexus-navy);
+  --color-nexus-navy-light: var(--nexus-navy-light);
+  --color-nexus-glass: var(--nexus-glass);
+  --color-nexus-glass-border: var(--nexus-glass-border);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Nexus Custom Utilities */
+@layer utilities {
+  .glow-gold {
+    box-shadow: 0 0 20px oklch(0.78 0.14 75 / 0.3),
+                0 0 40px oklch(0.78 0.14 75 / 0.15),
+                0 0 60px oklch(0.78 0.14 75 / 0.05);
+  }
+  
+  .glow-gold-intense {
+    box-shadow: 0 0 30px oklch(0.78 0.14 75 / 0.5),
+                0 0 60px oklch(0.78 0.14 75 / 0.3),
+                0 0 100px oklch(0.78 0.14 75 / 0.15);
+  }
+  
+  .text-glow-gold {
+    text-shadow: 0 0 10px oklch(0.78 0.14 75 / 0.5),
+                 0 0 20px oklch(0.78 0.14 75 / 0.3);
+  }
+  
+  .glass-card {
+    background: oklch(0.18 0.02 260 / 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid oklch(0.35 0.02 260);
+  }
+  
+  .glass-card-hover {
+    background: oklch(0.18 0.02 260 / 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid oklch(0.35 0.02 260);
+    transition: all 0.3s ease;
+  }
+  
+  .glass-card-hover:hover {
+    background: oklch(0.20 0.02 260 / 0.7);
+    border-color: oklch(0.45 0.04 75);
+  }
+  
+  .orbital-ring {
+    animation: orbit 20s linear infinite;
+  }
+  
+  .orbital-ring-reverse {
+    animation: orbit 25s linear infinite reverse;
+  }
+  
+  .pulse-gold {
+    animation: pulseGold 2s ease-in-out infinite;
+  }
+  
+  .float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .shimmer {
+    animation: shimmer 3s ease-in-out infinite;
+  }
+}
+
+@keyframes orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulseGold {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px oklch(0.78 0.14 75 / 0.3),
+                0 0 40px oklch(0.78 0.14 75 / 0.15);
+  }
+  50% {
+    box-shadow: 0 0 40px oklch(0.78 0.14 75 / 0.5),
+                0 0 80px oklch(0.78 0.14 75 / 0.25);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.5s ease-out forwards;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+/* Stagger delays for lists */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
