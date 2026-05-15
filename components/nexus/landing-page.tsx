@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { OrbitalBackground } from './golden-ring'
 import { Calendar, Users, MapPin, CheckCircle, Sparkles, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { features } from '@/lib/mock-data'
+
 
 interface LandingPageProps {
   onGetStarted: () => void
@@ -176,32 +176,40 @@ function CalendarPreviewSection() {
 }
 
 function FeaturesSection() {
-  const featureIcons = {
-    calendar: Calendar,
-    sliders: () => (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-      </svg>
-    ),
-    'map-pin': MapPin,
-    sparkles: Sparkles,
-  }
+  const featureData = [
+    {
+      icon: <Calendar className="w-6 h-6" />,
+      title: "Calendars",
+      description: "We find when everyone is actually free."
+    },
+    {
+      icon: <Users className="w-6 h-6" />,
+      title: "Preferences", 
+      description: "We factor in food, budget, and more."
+    },
+    {
+      icon: <MapPin className="w-6 h-6" />,
+      title: "Location",
+      description: "We choose spots that work for everyone."
+    },
+    {
+      icon: <Sparkles className="w-6 h-6" />,
+      title: "AI Magic",
+      description: "We do the heavy lifting so you don't have to."
+    }
+  ]
   
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {features.map((feature, i) => {
-        const Icon = featureIcons[feature.icon as keyof typeof featureIcons] || Calendar
-        
-        return (
-          <GlassCard key={feature.title} className="text-center p-6">
-            <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center mx-auto mb-4 text-muted-foreground">
-              {typeof Icon === 'function' && Icon.prototype ? <Icon className="w-6 h-6" /> : Icon}
-            </div>
-            <h3 className="font-medium mb-2">{feature.title}</h3>
-            <p className="text-sm text-muted-foreground">{feature.description}</p>
-          </GlassCard>
-        )
-      })}
+      {featureData.map((feature) => (
+        <GlassCard key={feature.title} className="text-center p-6">
+          <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center mx-auto mb-4 text-muted-foreground">
+            {feature.icon}
+          </div>
+          <h3 className="font-medium mb-2">{feature.title}</h3>
+          <p className="text-sm text-muted-foreground">{feature.description}</p>
+        </GlassCard>
+      ))}
     </div>
   )
 }
