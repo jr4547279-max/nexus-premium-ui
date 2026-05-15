@@ -21,7 +21,7 @@ export function BottomNav({ activeTab, onTabChange, className }: BottomNavProps)
     <nav className={cn(
       'fixed bottom-0 left-0 right-0 z-50',
       'glass-card border-t border-border/50',
-      'px-6 py-3 pb-safe',
+      'px-4 py-2 pb-safe',
       className
     )}>
       <div className="max-w-md mx-auto flex items-center justify-around">
@@ -34,7 +34,7 @@ export function BottomNav({ activeTab, onTabChange, className }: BottomNavProps)
               key={item.id}
               onClick={() => onTabChange(item.id)}
               className={cn(
-                'flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300',
+                'flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-all duration-300',
                 'hover:bg-muted/50',
                 isActive && 'text-primary'
               )}
@@ -44,14 +44,11 @@ export function BottomNav({ activeTab, onTabChange, className }: BottomNavProps)
                 isActive ? 'text-primary' : 'text-muted-foreground'
               )} />
               <span className={cn(
-                'text-xs transition-colors',
+                'text-[10px] transition-colors',
                 isActive ? 'text-primary font-medium' : 'text-muted-foreground'
               )}>
                 {item.label}
               </span>
-              {isActive && (
-                <div className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
-              )}
             </button>
           )
         })}
@@ -84,15 +81,15 @@ export function TopHeader({
   return (
     <header className={cn(
       'sticky top-0 z-40 glass-card border-b border-border/50',
-      'px-4 py-3',
+      'px-4 py-2.5',
       className
     )}>
       <div className="max-w-md mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {showBack ? (
             <button 
               onClick={onBack}
-              className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"
+              className="p-1.5 -ml-1.5 rounded-full hover:bg-muted/50 transition-colors"
             >
               <svg 
                 className="w-5 h-5" 
@@ -107,16 +104,16 @@ export function TopHeader({
             <img 
               src={userAvatar} 
               alt="Profile" 
-              className="w-9 h-9 rounded-full border-2 border-primary/30"
+              className="w-8 h-8 rounded-full border-2 border-primary/30"
             />
           ) : null}
-          <h1 className="text-lg font-medium">{title}</h1>
+          <h1 className="text-base font-medium">{title}</h1>
         </div>
         
         {showNotifications && (
           <button 
             onClick={onNotificationClick}
-            className="relative p-2 rounded-full hover:bg-muted/50 transition-colors"
+            className="relative p-1.5 rounded-full hover:bg-muted/50 transition-colors"
           >
             <svg 
               className="w-5 h-5" 
@@ -127,7 +124,7 @@ export function TopHeader({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
             {notificationCount > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full" />
             )}
           </button>
         )}

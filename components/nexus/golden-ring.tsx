@@ -11,11 +11,11 @@ interface GoldenRingProps {
 }
 
 const sizeMap = {
-  sm: 'w-16 h-16',
-  md: 'w-24 h-24',
-  lg: 'w-32 h-32',
-  xl: 'w-48 h-48',
-  hero: 'w-64 h-64 md:w-80 md:h-80',
+  sm: 'w-12 h-12',
+  md: 'w-20 h-20',
+  lg: 'w-28 h-28',
+  xl: 'w-40 h-40',
+  hero: 'w-52 h-52 md:w-64 md:h-64',
 }
 
 export function GoldenRing({ 

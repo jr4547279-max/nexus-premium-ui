@@ -95,20 +95,20 @@ export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="px-6 py-4">
+      <header className="px-5 py-3">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <button 
             onClick={handlePrev}
-            className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"
+            className="p-1.5 -ml-1.5 rounded-full hover:bg-muted/50 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <span className="text-sm text-muted-foreground">
-            {currentStep + 1} of {onboardingSteps.length}
+          <span className="text-xs text-muted-foreground">
+            {currentStep + 1} / {onboardingSteps.length}
           </span>
           <button 
             onClick={onComplete}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             Skip
           </button>
@@ -116,8 +116,8 @@ export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
       </header>
 
       {/* Progress Bar */}
-      <div className="px-6">
-        <div className="max-w-md mx-auto h-1 bg-muted rounded-full overflow-hidden">
+      <div className="px-5">
+        <div className="max-w-md mx-auto h-0.5 bg-muted rounded-full overflow-hidden">
           <div 
             className="h-full bg-primary transition-all duration-500 ease-out"
             style={{ width: `${progress}%` }}
@@ -126,46 +126,46 @@ export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
       </div>
 
       {/* Content */}
-      <main className="flex-1 flex flex-col px-6 py-8">
+      <main className="flex-1 flex flex-col px-5 py-5">
         <div className="max-w-md mx-auto w-full flex-1 flex flex-col">
           {/* Golden Ring */}
-          <div className="flex justify-center mb-8">
-            <GoldenRing size="md" intensity="subtle" />
+          <div className="flex justify-center mb-5">
+            <GoldenRing size="sm" intensity="subtle" />
           </div>
 
           {/* Question */}
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-medium mb-2">{step.title}</h1>
-            <p className="text-muted-foreground">{step.subtitle}</p>
+          <div className="text-center mb-5">
+            <h1 className="text-xl font-medium mb-1">{step.title}</h1>
+            <p className="text-muted-foreground text-sm">{step.subtitle}</p>
           </div>
 
-          {/* Options */}
-          <div className="grid grid-cols-2 gap-3 flex-1">
+          {/* Options - Compact Grid */}
+          <div className="grid grid-cols-2 gap-2.5 flex-1 content-start">
             {step.options.map((option) => (
               <GlassCard
                 key={option.id}
                 hover
                 onClick={() => toggleSelection(option.id)}
                 className={cn(
-                  'flex flex-col items-center justify-center gap-3 p-6 transition-all duration-300',
+                  'flex flex-col items-center justify-center gap-2 p-4 transition-all duration-300 relative',
                   isSelected(option.id) && 'border-primary bg-primary/5 glow-gold'
                 )}
               >
                 <div className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+                  'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
                   isSelected(option.id) ? 'bg-primary/20 text-primary' : 'bg-muted/50 text-muted-foreground'
                 )}>
-                  {iconMap[option.icon] || <Check className="w-5 h-5" />}
+                  {iconMap[option.icon] || <Check className="w-4 h-4" />}
                 </div>
                 <span className={cn(
-                  'text-sm font-medium text-center transition-colors',
+                  'text-xs font-medium text-center transition-colors leading-tight',
                   isSelected(option.id) && 'text-primary'
                 )}>
                   {option.label}
                 </span>
                 {isSelected(option.id) && (
-                  <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                    <Check className="w-3 h-3 text-primary-foreground" />
+                  <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                    <Check className="w-2.5 h-2.5 text-primary-foreground" />
                   </div>
                 )}
               </GlassCard>
@@ -175,11 +175,11 @@ export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
           {/* Continue Button */}
           <Button 
             onClick={handleNext}
-            className="w-full h-14 mt-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
+            className="w-full h-11 mt-5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold text-sm"
             disabled={(selections[step.id] || []).length === 0}
           >
             {isLastStep ? 'Complete Setup' : 'Continue'}
-            <ChevronRight className="w-5 h-5 ml-2" />
+            <ChevronRight className="w-4 h-4 ml-1.5" />
           </Button>
         </div>
       </main>
