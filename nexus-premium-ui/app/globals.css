@@ -252,13 +252,19 @@
   50% { opacity: 1; transform: scale(1.2); }
 }
 
-.animate-weather-float { animation: weather-float linear infinite; }
-.animate-weather-rain { animation: weather-rain linear infinite; }
-.animate-weather-drift { animation: weather-drift linear infinite; }
+.animate-weather-float     { animation: weather-float linear infinite; }
+.animate-weather-rain      { animation: weather-rain linear infinite; }
+.animate-weather-drift     { animation: weather-drift linear infinite; }
 .animate-weather-lightning { animation: weather-lightning 5s infinite; }
-.animate-weather-snow { animation: weather-snow linear infinite; }
+.animate-weather-snow      { animation: weather-snow linear infinite; }
 .animate-weather-fog-drift { animation: weather-fog-drift ease-in-out infinite; }
-.animate-weather-twinkle { animation: weather-twinkle ease-in-out infinite; }
+.animate-weather-twinkle   { animation: weather-twinkle ease-in-out infinite; }
+.animate-weather-fade-in   { animation: weather-fade-in 0.6s ease-out both; }
+
+@keyframes weather-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 
 /* Stagger delays for lists */
 .stagger-1 { animation-delay: 0.1s; }
