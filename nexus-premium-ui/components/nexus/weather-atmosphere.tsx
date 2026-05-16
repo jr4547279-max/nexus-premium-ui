@@ -34,169 +34,226 @@ export function WeatherAtmosphere({
 }: WeatherAtmosphereProps) {
   const intensityValue = useMemo(() => {
     switch (intensity) {
-      case 'subtle':   return 0.4
-      case 'medium':   return 0.7
+      case 'subtle':   return 0.55
+      case 'medium':   return 0.80
       case 'dramatic': return 1.0
-      default:         return 0.4
+      default:         return 0.55
     }
   }, [intensity])
 
   const particles = useMemo(() => {
     const base = condition.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
       + (intensity === 'subtle' ? 0 : intensity === 'medium' ? 500 : 1000)
-    return makeParticles(100, base)
+    return makeParticles(120, base)
   }, [condition, intensity])
 
-  const rainCount = intensity === 'dramatic' ? 80 : intensity === 'medium' ? 50 : 30
-  const snowCount = intensity === 'dramatic' ? 100 : 50
+  const rainCount   = intensity === 'dramatic' ? 90 : intensity === 'medium' ? 60 : 40
+  const snowCount   = intensity === 'dramatic' ? 100 : intensity === 'medium' ? 70 : 50
 
-  const renderWeatherEffect = () => {
+  const renderEffect = () => {
     switch (condition) {
+
+      /* ── CLEAR: warm gold ambient glow + drifting motes ─────────────── */
       case 'clear':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute inset-0 bg-radial-[at_50%_50%] from-nexus-gold/10 via-transparent to-transparent opacity-50" />
-            {particles.slice(0, 15).map((p, i) => (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 bg-radial-[at_50%_40%] from-yellow-500/20 via-amber-500/5 to-transparent" />
+            <div className="absolute top-[30%] left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-yellow-400/10 blur-[100px] rounded-full" />
+            {particles.slice(0, 24).map((p, i) => (
               <div
                 key={i}
-                className="absolute w-1 h-1 bg-nexus-gold/30 rounded-full animate-weather-float"
+                className="absolute rounded-full animate-weather-float"
                 style={{
-                  left: `${p.r1 * 100}%`,
-                  top: `${p.r2 * 100}%`,
-                  animationDelay: `${p.r3 * 5}s`,
-                  animationDuration: `${10 + p.r1 * 10}s`,
-                  opacity: intensityValue * (0.2 + p.r2 * 0.3),
+                  width:  `${3 + p.r3 * 4}px`,
+                  height: `${3 + p.r3 * 4}px`,
+                  background: `oklch(0.78 0.14 75 / ${intensityValue * (0.3 + p.r2 * 0.5)})`,
+                  left:   `${p.r1 * 100}%`,
+                  top:    `${p.r2 * 100}%`,
+                  animationDelay:    `${p.r3 * 6}s`,
+                  animationDuration: `${8 + p.r1 * 12}s`,
                 }}
               />
             ))}
           </div>
         )
 
+      /* ── SUNSET: warm orange-gold horizon glow ───────────────────────── */
       case 'sunset':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute inset-0 bg-linear-to-t from-orange-500/20 via-nexus-gold/5 to-transparent opacity-60" />
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 bg-linear-to-t from-orange-600/40 via-amber-500/15 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 h-[55%] bg-linear-to-t from-orange-700/30 via-amber-400/10 to-transparent" />
             <div
-              className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-nexus-gold/10 blur-[120px] rounded-full animate-pulse"
-              style={{ animationDuration: '8s', opacity: intensityValue }}
+              className="absolute left-1/2 -translate-x-1/2 w-[700px] h-[400px] bg-amber-400/20 blur-[120px] rounded-full animate-pulse"
+              style={{ bottom: '-10%', animationDuration: '6s', opacity: intensityValue }}
             />
-            <div className="absolute top-10 right-10 w-32 h-32 bg-nexus-gold/5 blur-3xl rounded-full" />
+            <div className="absolute top-[10%] left-1/2 -translate-x-1/2 w-[300px] h-[300px] bg-orange-300/10 blur-[80px] rounded-full" style={{ opacity: intensityValue * 0.7 }} />
+            {particles.slice(0, 8).map((p, i) => (
+              <div
+                key={i}
+                className="absolute rounded-full blur-sm animate-weather-float"
+                style={{
+                  width: `${60 + p.r1 * 80}px`,
+                  height: `${40 + p.r2 * 60}px`,
+                  background: `oklch(0.75 0.18 60 / ${intensityValue * 0.12})`,
+                  left:  `${p.r3 * 90}%`,
+                  top:   `${40 + p.r1 * 40}%`,
+                  animationDelay:    `${p.r2 * 4}s`,
+                  animationDuration: `${12 + p.r3 * 8}s`,
+                }}
+              />
+            ))}
           </div>
         )
 
+      /* ── RAIN: blue-grey overlay + falling streaks ───────────────────── */
       case 'rain':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none bg-black/20">
+          <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ background: `rgba(10,20,40,${intensityValue * 0.35})` }}>
+            <div className="absolute inset-0 bg-linear-to-b from-slate-900/20 to-slate-800/10" />
             {particles.slice(0, rainCount).map((p, i) => (
               <div
                 key={i}
-                className="absolute w-[1px] h-12 bg-linear-to-b from-transparent via-blue-200/30 to-transparent animate-weather-rain"
+                className="absolute animate-weather-rain"
                 style={{
-                  left: `${p.r1 * 100}%`,
-                  top: `-${p.r2 * 20}%`,
-                  animationDelay: `${p.r3 * 2}s`,
-                  animationDuration: `${0.5 + p.r1 * 0.5}s`,
-                  opacity: intensityValue,
+                  width: '1.5px',
+                  height: `${28 + p.r1 * 28}px`,
+                  background: `linear-gradient(to bottom, transparent, rgba(147,197,253,${intensityValue * (0.4 + p.r2 * 0.4)}), transparent)`,
+                  left:  `${p.r1 * 100}%`,
+                  top:   `-${p.r2 * 20}%`,
+                  animationDelay:    `${p.r3 * 2}s`,
+                  animationDuration: `${0.4 + p.r1 * 0.5}s`,
+                  transform: 'rotate(10deg)',
                 }}
               />
             ))}
           </div>
         )
 
+      /* ── CLOUDY: drifting soft cloud masses ──────────────────────────── */
       case 'cloudy':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {particles.slice(0, 5).map((p, i) => (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 bg-linear-to-b from-slate-700/15 via-transparent to-transparent" />
+            {particles.slice(0, 6).map((p, i) => (
               <div
                 key={i}
-                className="absolute bg-white/5 blur-[100px] rounded-full animate-weather-drift"
+                className="absolute rounded-full blur-[80px] animate-weather-drift"
                 style={{
-                  width: `${300 + p.r1 * 400}px`,
-                  height: `${200 + p.r2 * 300}px`,
-                  left: `${-20 + p.r3 * 120}%`,
-                  top: `${p.r1 * 80}%`,
-                  animationDelay: `${p.r2 * 10}s`,
-                  animationDuration: `${30 + p.r3 * 30}s`,
-                  opacity: intensityValue * 0.5,
+                  width:  `${350 + p.r1 * 400}px`,
+                  height: `${180 + p.r2 * 220}px`,
+                  background: `rgba(148,163,184,${intensityValue * (0.12 + p.r3 * 0.1)})`,
+                  left:  `${-20 + p.r3 * 100}%`,
+                  top:   `${p.r1 * 70}%`,
+                  animationDelay:    `${p.r2 * 8}s`,
+                  animationDuration: `${25 + p.r3 * 30}s`,
                 }}
               />
             ))}
           </div>
         )
 
+      /* ── STORM: dark overlay + lightning + heavy rain ────────────────── */
       case 'storm':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none bg-black/30">
-            <div className="absolute inset-0 animate-weather-lightning" style={{ opacity: intensityValue * 0.3 }} />
-            {particles.slice(0, 60).map((p, i) => (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ background: `rgba(5,10,20,${intensityValue * 0.55})` }}>
+            <div className="absolute inset-0 animate-weather-lightning" style={{ opacity: intensityValue * 0.6 }} />
+            <div className="absolute inset-0 bg-linear-to-b from-indigo-950/30 via-transparent to-slate-950/20" />
+            {particles.slice(0, 70).map((p, i) => (
               <div
                 key={i}
-                className="absolute w-[1px] h-16 bg-blue-100/20 animate-weather-rain"
+                className="absolute animate-weather-rain"
                 style={{
-                  left: `${p.r1 * 100}%`,
-                  top: `-${p.r2 * 20}%`,
-                  animationDelay: `${p.r3 * 1}s`,
-                  animationDuration: `${0.4 + p.r1 * 0.3}s`,
+                  width: '1px',
+                  height: `${22 + p.r1 * 22}px`,
+                  background: `linear-gradient(to bottom, transparent, rgba(199,210,254,${intensityValue * (0.3 + p.r2 * 0.4)}), transparent)`,
+                  left:  `${p.r1 * 100}%`,
+                  top:   `-${p.r2 * 20}%`,
+                  animationDelay:    `${p.r3 * 1}s`,
+                  animationDuration: `${0.3 + p.r1 * 0.3}s`,
+                  transform: 'rotate(12deg)',
                 }}
               />
             ))}
           </div>
         )
 
+      /* ── SNOW: white floating flakes ─────────────────────────────────── */
       case 'snow':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 bg-linear-to-b from-slate-800/20 via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-radial-[at_50%_0%] from-blue-100/5 to-transparent" />
             {particles.slice(0, snowCount).map((p, i) => (
               <div
                 key={i}
-                className="absolute w-1.5 h-1.5 bg-white/40 rounded-full blur-[1px] animate-weather-snow"
+                className="absolute rounded-full animate-weather-snow"
                 style={{
-                  left: `${p.r1 * 100}%`,
-                  top: `-${p.r2 * 10}%`,
-                  animationDelay: `${p.r3 * 5}s`,
-                  animationDuration: `${5 + p.r1 * 5}s`,
-                  opacity: intensityValue * (0.5 + p.r2 * 0.5),
+                  width:  `${2 + p.r3 * 4}px`,
+                  height: `${2 + p.r3 * 4}px`,
+                  background: `rgba(255,255,255,${intensityValue * (0.5 + p.r2 * 0.5)})`,
+                  boxShadow: `0 0 ${3 + p.r1 * 4}px rgba(200,220,255,${intensityValue * 0.4})`,
+                  left:  `${p.r1 * 100}%`,
+                  top:   `-${p.r2 * 10}%`,
+                  animationDelay:    `${p.r3 * 6}s`,
+                  animationDuration: `${4 + p.r1 * 6}s`,
                 }}
               />
             ))}
           </div>
         )
 
+      /* ── FOG: layered drifting mist bands ────────────────────────────── */
       case 'fog':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {particles.slice(0, 4).map((p, i) => (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 bg-linear-to-b from-slate-600/10 via-slate-500/5 to-transparent" />
+            {[0, 1, 2, 3, 4].map((i) => (
               <div
                 key={i}
-                className="absolute inset-x-0 h-[40%] bg-white/5 blur-[80px] animate-weather-fog-drift"
+                className="absolute inset-x-0 animate-weather-fog-drift"
                 style={{
-                  top: `${20 + i * 15}%`,
-                  animationDelay: `${i * 2}s`,
-                  animationDuration: `${20 + p.r1 * 10}s`,
-                  opacity: intensityValue * 0.4,
+                  height: '35%',
+                  background: `rgba(200,210,220,${intensityValue * (0.08 + i * 0.025)})`,
+                  filter: 'blur(40px)',
+                  top:  `${10 + i * 16}%`,
+                  animationDelay:    `${i * 2.5}s`,
+                  animationDuration: `${18 + particles[i].r1 * 12}s`,
                 }}
               />
             ))}
           </div>
         )
 
+      /* ── NIGHT: deep dark + twinkling stars + moon glow ─────────────── */
       case 'night':
         return (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none bg-black/40">
-            {particles.slice(0, 40).map((p, i) => (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ background: `rgba(0,5,20,${intensityValue * 0.55})` }}>
+            <div className="absolute inset-0 bg-radial-[at_70%_15%] from-indigo-100/8 via-transparent to-transparent" />
+            {particles.slice(0, 55).map((p, i) => (
               <div
                 key={i}
-                className="absolute w-0.5 h-0.5 bg-white rounded-full animate-weather-twinkle"
+                className="absolute rounded-full animate-weather-twinkle"
                 style={{
+                  width:  `${1 + Math.round(p.r3 * 2)}px`,
+                  height: `${1 + Math.round(p.r3 * 2)}px`,
+                  background: i % 8 === 0 ? `rgba(255,230,160,${intensityValue * (0.6 + p.r1 * 0.4)})` : `rgba(255,255,255,${intensityValue * (0.4 + p.r1 * 0.6)})`,
+                  boxShadow: p.r3 > 0.7 ? `0 0 ${3 + p.r1 * 4}px rgba(255,255,255,0.6)` : 'none',
                   left: `${p.r1 * 100}%`,
-                  top: `${p.r2 * 100}%`,
-                  animationDelay: `${p.r3 * 5}s`,
-                  animationDuration: `${2 + p.r1 * 3}s`,
-                  opacity: p.r2,
+                  top:  `${p.r2 * 75}%`,
+                  animationDelay:    `${p.r3 * 5}s`,
+                  animationDuration: `${2 + p.r1 * 4}s`,
                 }}
               />
             ))}
-            <div className="absolute inset-0 bg-radial-[at_50%_20%] from-nexus-gold/5 via-transparent to-transparent" />
+            <div
+              className="absolute rounded-full blur-[60px]"
+              style={{
+                width: '200px', height: '200px',
+                background: `rgba(200,210,255,${intensityValue * 0.12})`,
+                top: '8%', right: '12%',
+              }}
+            />
           </div>
         )
 
@@ -206,15 +263,17 @@ export function WeatherAtmosphere({
   }
 
   return (
-    <div className={cn('relative min-h-screen w-full bg-nexus-navy overflow-hidden', className)}>
+    <div className={cn('relative min-h-screen w-full bg-nexus-navy', className)}>
+      {/* Weather background — absolute so it's correctly contained and never clipped by fixed quirks */}
       <div
-        key={`${condition}-${intensity}`}
-        className="fixed inset-0 z-0 pointer-events-none motion-reduce:hidden animate-weather-fade-in"
+        key={`${condition}::${intensity}`}
+        className="absolute inset-0 z-0 pointer-events-none motion-reduce:hidden animate-weather-fade-in overflow-hidden"
       >
-        {renderWeatherEffect()}
+        {renderEffect()}
       </div>
 
-      <div className="relative z-10 w-full">
+      {/* Content layer */}
+      <div className="relative z-10 w-full min-h-screen">
         {children}
       </div>
     </div>
