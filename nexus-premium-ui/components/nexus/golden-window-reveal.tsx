@@ -1,14 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { NexusLogoAnimated } from './nexus-logo'
 import { TopHeader } from './navigation'
 import { GlassCard, AvatarStack } from './glass-card'
 import { GoldenRing, OrbitalBackground } from './golden-ring'
 import { Button } from '@/components/ui/button'
-import {
-  Sparkles, Check, Clock, MapPin, Car,
-  ChevronRight, Calendar
-} from 'lucide-react'
+import { Sparkles, Check, Clock, Car, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups, mockVenue } from '@/lib/mock-data'
 
@@ -28,41 +26,78 @@ const FALLBACK_GOLDEN_WINDOW = {
   avgTravelTime: 20,
 }
 
-export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenWindowRevealProps) {
-  const group = mockGroups.find(g => g.id === groupId) ?? mockGroups[0]
-  const goldenWindow = group.goldenWindow ?? FALLBACK_GOLDEN_WINDOW
+const SEARCH_STEPS = [
+  'Checking everyone\'s calendars…',
+  'Analysing your preferences…',
+  'Finding the perfect spot…',
+  'Golden Window found ✨',
+]
 
-  const [revealed, setRevealed] = useState(false)
-  const [showVenue, setShowVenue] = useState(false)
+// ─── Searching / loading phase ────────────────────────────────────────────────
+function SearchingScreen({ onBack, step }: { onBack: () => void; step: number }) {
+  return (
+    <div className="min-h-screen bg-background">
+      <OrbitalBackground className="min-h-screen flex flex-col">
+        <TopHeader title="" showBack onBack={onBack} showNotifications={false} />
 
-  useEffect(() => {
-    const timer1 = setTimeout(() => setRevealed(true), 400)
-    const timer2 = setTimeout(() => setShowVenue(true), 1200)
-    return () => {
-      clearTimeout(timer1)
-      clearTimeout(timer2)
-    }
-  }, [])
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-10">
+          {/* Floating animated Nexus ring — the "beautiful animation" */}
+          <div className="float">
+            <NexusLogoAnimated className="w-52 h-52" />
+          </div>
 
-  /* ── time display helpers ── */
+          {/* Status steps — fade each in as search progresses */}
+          <div className="space-y-2 min-h-[80px]">
+            {SEARCH_STEPS.map((text, i) => (
+              <p
+                key={i}
+                className={cn(
+                  'text-sm transition-all duration-500',
+                  i <= step
+                    ? i === step
+                      ? 'opacity-100 text-foreground translate-y-0'
+                      : 'opacity-40 text-muted-foreground translate-y-0'
+                    : 'opacity-0 translate-y-2 pointer-events-none'
+                )}
+              >
+                {text}
+              </p>
+            ))}
+          </div>
+        </div>
+      </OrbitalBackground>
+    </div>
+  )
+}
+
+// ─── Results phase ────────────────────────────────────────────────────────────
+function ResultsScreen({
+  group,
+  goldenWindow,
+  onBack,
+  onConfirm,
+  revealed,
+  showVenue,
+}: {
+  group: (typeof mockGroups)[0]
+  goldenWindow: typeof FALLBACK_GOLDEN_WINDOW
+  onBack: () => void
+  onConfirm: () => void
+  revealed: boolean
+  showVenue: boolean
+}) {
   const timeParts = goldenWindow.time.split(' ')
-  const timeMain = timeParts[0]   // e.g. "7:00"
-  const timeSuffix = timeParts[1] // e.g. "PM"
+  const timeMain = timeParts[0]
+  const timeSuffix = timeParts[1] ?? ''
 
   return (
     <div className="min-h-screen bg-background">
       <OrbitalBackground className="min-h-screen">
-
-        <TopHeader
-          title=""
-          showBack
-          onBack={onBack}
-          showNotifications={false}
-        />
+        <TopHeader title="" showBack onBack={onBack} showNotifications={false} />
 
         <main className="px-4 py-4 max-w-md mx-auto pb-8">
 
-          {/* ── Title ── */}
+          {/* Title */}
           <div className={cn(
             'text-center mb-5 transition-all duration-700',
             revealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
@@ -71,21 +106,18 @@ export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenW
               <Sparkles className="w-3 h-3 text-primary" />
               <span className="text-xs text-primary font-medium">Golden Window Found</span>
             </div>
-            <h1 className="text-xl font-semibold">
-              {group.name}
-            </h1>
+            <h1 className="text-xl font-semibold">{group.name}</h1>
             <p className="text-muted-foreground text-sm mt-1">
               Everyone is free and within {goldenWindow.avgTravelTime} min.
             </p>
           </div>
 
-          {/* ── Main card ── */}
+          {/* Main card */}
           <div className={cn(
             'transition-all duration-700 delay-200',
             revealed ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
           )}>
             <GlassCard glow className="p-4 text-center relative overflow-hidden">
-              {/* Badge */}
               <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-primary/20 text-primary text-[10px] font-semibold rounded-full tracking-wide">
                 BEST MATCH
               </div>
@@ -121,9 +153,9 @@ export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenW
             </GlassCard>
           </div>
 
-          {/* ── Stats row ── */}
+          {/* Stats row */}
           <div className={cn(
-            'flex justify-center gap-5 my-4 transition-all duration-700 delay-400',
+            'flex justify-center gap-5 my-4 transition-all duration-700 delay-300',
             revealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
           )}>
             <div className="text-center">
@@ -142,13 +174,11 @@ export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenW
             </div>
           </div>
 
-          {/* ── Venue + CTA — fade in after venue delay ── */}
+          {/* Venue + CTA */}
           <div className={cn(
-            'space-y-4 transition-all duration-700 delay-600',
+            'space-y-4 transition-all duration-700 delay-500',
             showVenue ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
           )}>
-
-            {/* Recommended Spot */}
             <div>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
                 Recommended Spot
@@ -160,8 +190,8 @@ export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenW
                     alt={mockVenue.name}
                     className="w-16 h-16 rounded-lg object-cover shrink-0"
                     onError={(e) => {
-                      const target = e.target as HTMLImageElement
-                      target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSIjMUYyOTM3Ii8+PHBhdGggZD0iTTI0IDI0aDMuNXYxNkgyNHptOC41IDBIMzZ2MTZoLTMuNXoiIGZpbGw9IiM0QjU1NjMiLz48L3N2Zz4='
+                      (e.target as HTMLImageElement).src =
+                        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSIjMUYyOTM3Ii8+PHBhdGggZD0iTTI0IDI0aDMuNXYxNkgyNHptOC41IDBIMzZ2MTZoLTMuNXoiIGZpbGw9IiM0QjU1NjMiLz48L3N2Zz4='
                     }}
                   />
                   <div className="flex-1 min-w-0">
@@ -224,5 +254,49 @@ export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenW
         </main>
       </OrbitalBackground>
     </div>
+  )
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+export function GoldenWindowReveal({ groupId = '1', onBack, onConfirm }: GoldenWindowRevealProps) {
+  const group = mockGroups.find(g => g.id === groupId) ?? mockGroups[0]
+  const goldenWindow = group.goldenWindow ?? FALLBACK_GOLDEN_WINDOW
+
+  // Searching phase state
+  const [isSearching, setIsSearching] = useState(true)
+  const [step, setStep] = useState(0)
+
+  // Results phase state
+  const [revealed, setRevealed] = useState(false)
+  const [showVenue, setShowVenue] = useState(false)
+
+  useEffect(() => {
+    const timers = [
+      // Step through status messages
+      setTimeout(() => setStep(1), 750),
+      setTimeout(() => setStep(2), 1500),
+      setTimeout(() => setStep(3), 2200),
+      // Transition out of searching at 2.8 s
+      setTimeout(() => setIsSearching(false), 2800),
+      // Stagger the results reveal
+      setTimeout(() => setRevealed(true), 3200),
+      setTimeout(() => setShowVenue(true), 4000),
+    ]
+    return () => timers.forEach(clearTimeout)
+  }, [])
+
+  if (isSearching) {
+    return <SearchingScreen onBack={onBack} step={step} />
+  }
+
+  return (
+    <ResultsScreen
+      group={group}
+      goldenWindow={goldenWindow}
+      onBack={onBack}
+      onConfirm={onConfirm}
+      revealed={revealed}
+      showVenue={showVenue}
+    />
   )
 }
