@@ -5,6 +5,7 @@ import { NexusLogoAnimated, NexusLogo } from './nexus-logo'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
 import { OrbitalBackground } from './golden-ring'
+import { WeatherAtmosphere } from './weather-atmosphere'
 import { Calendar, Users, MapPin, CheckCircle, Sparkles, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -17,7 +18,7 @@ interface LandingPageProps {
 
 export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
   return (
-    <div className="min-h-screen bg-background overflow-hidden">
+    <WeatherAtmosphere condition="clear" intensity="subtle" className="bg-background">
       <OrbitalBackground className="min-h-screen">
         {/* Header */}
         <header className="relative z-10 px-6 py-4">
@@ -101,7 +102,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
           </div>
         </footer>
       </OrbitalBackground>
-    </div>
+    </WeatherAtmosphere>
   )
 }
 
