@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { NexusLogoAnimated } from './nexus-logo'
 import { OrbitalBackground } from './golden-ring'
-import { WeatherAtmosphere } from './weather-atmosphere'
 import { LandingPage } from './landing-page'
 import { AuthScreen } from './auth-screen'
 import { OnboardingFlow } from './onboarding-flow'
@@ -28,13 +27,13 @@ type Screen =
 
 function NexusAppLoading() {
   return (
-    <WeatherAtmosphere condition="clear" intensity="subtle" className="bg-background">
+    <div className="min-h-screen bg-background">
       <OrbitalBackground className="min-h-screen flex flex-col items-center justify-center">
         <div className="float">
           <NexusLogoAnimated className="w-48 h-48" />
         </div>
       </OrbitalBackground>
-    </WeatherAtmosphere>
+    </div>
   )
 }
 
