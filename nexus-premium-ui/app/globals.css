@@ -215,6 +215,51 @@
 .animate-scale-in    { animation: scaleIn  0.5s ease-out forwards; }
 .animate-glow-pulse  { animation: glowPulse 3s ease-in-out infinite; }
 
+/* Weather Animations */
+@keyframes weather-float {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-20px) translateX(10px); }
+}
+@keyframes weather-rain {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(1000%); }
+}
+@keyframes weather-drift {
+  0% { transform: translateX(-20%); }
+  100% { transform: translateX(120%); }
+}
+@keyframes weather-lightning {
+  0%, 95%, 100% { background: transparent; }
+  96% { background: rgba(255, 255, 255, 0.1); }
+  97% { background: transparent; }
+  98% { background: rgba(255, 255, 255, 0.2); }
+  99% { background: transparent; }
+}
+@keyframes weather-snow {
+  0% { transform: translateY(-10%) translateX(0); }
+  25% { transform: translateY(20%) translateX(15px); }
+  50% { transform: translateY(50%) translateX(-15px); }
+  75% { transform: translateY(80%) translateX(15px); }
+  100% { transform: translateY(110%) translateX(0); }
+}
+@keyframes weather-fog-drift {
+  0% { transform: translateX(-10%) scaleX(1); }
+  50% { transform: translateX(10%) scaleX(1.1); }
+  100% { transform: translateX(-10%) scaleX(1); }
+}
+@keyframes weather-twinkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.animate-weather-float { animation: weather-float linear infinite; }
+.animate-weather-rain { animation: weather-rain linear infinite; }
+.animate-weather-drift { animation: weather-drift linear infinite; }
+.animate-weather-lightning { animation: weather-lightning 5s infinite; }
+.animate-weather-snow { animation: weather-snow linear infinite; }
+.animate-weather-fog-drift { animation: weather-fog-drift ease-in-out infinite; }
+.animate-weather-twinkle { animation: weather-twinkle ease-in-out infinite; }
+
 /* Stagger delays for lists */
 .stagger-1 { animation-delay: 0.1s; }
 .stagger-2 { animation-delay: 0.2s; }
