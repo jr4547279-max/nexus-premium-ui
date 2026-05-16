@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups, mockVenue } from '@/lib/mock-data'
+import { toast } from 'sonner'
 
 interface GroupDetailProps {
   groupId: string
@@ -180,8 +181,12 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               </GlassCard>
             ))}
             
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
+              onClick={() => toast('Invite Member — coming soon', {
+                description: 'Member invitations via link or email will be available at launch.',
+                icon: '👥',
+              })}
               className="w-full h-12 border-dashed border-border/50 text-muted-foreground"
             >
               <Plus className="w-4 h-4 mr-2" />

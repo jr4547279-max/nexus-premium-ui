@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { OrbitalBackground, GoldenRing } from './golden-ring'
 import { Eye, EyeOff, Mail, Lock, ArrowLeft, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 interface AuthScreenProps {
   onBack: () => void
@@ -116,7 +117,14 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                 </div>
 
                 {mode === 'login' && (
-                  <button type="button" className="text-xs text-primary hover:underline">
+                  <button
+                    type="button"
+                    onClick={() => toast('Password reset — coming soon', {
+                      description: 'For now, any email and password will sign you in.',
+                      icon: '🔑',
+                    })}
+                    className="text-xs text-primary hover:underline"
+                  >
                     Forgot password?
                   </button>
                 )}
@@ -149,7 +157,14 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
 
               {/* Social Login */}
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" className="h-10 border-border/50 hover:bg-muted/50 text-sm">
+                <Button
+                  variant="outline"
+                  onClick={() => toast('Google sign-in — coming soon', {
+                    description: 'Use email and password to sign in for now.',
+                    icon: '🔜',
+                  })}
+                  className="h-10 border-border/50 hover:bg-muted/50 text-sm"
+                >
                   <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -158,7 +173,14 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                   </svg>
                   Google
                 </Button>
-                <Button variant="outline" className="h-10 border-border/50 hover:bg-muted/50 text-sm">
+                <Button
+                  variant="outline"
+                  onClick={() => toast('Apple sign-in — coming soon', {
+                    description: 'Use email and password to sign in for now.',
+                    icon: '🔜',
+                  })}
+                  className="h-10 border-border/50 hover:bg-muted/50 text-sm"
+                >
                   <svg className="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0012 2z"/>
                   </svg>

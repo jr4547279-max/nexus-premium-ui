@@ -1,15 +1,16 @@
 'use client'
 
 import { useState } from 'react'
+import { useTheme } from 'next-themes'
+import { toast } from 'sonner'
 import { TopHeader, BottomNav } from './navigation'
 import { GlassCard } from './glass-card'
-import { GoldenRing } from './golden-ring'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { 
-  Calendar, Bell, Lock, User, ChevronRight, 
+import {
+  Calendar, Bell, Lock, User, ChevronRight,
   LogOut, Moon, Globe, Shield, CreditCard,
-  Trash2, HelpCircle
+  Trash2, HelpCircle, Check
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockUser } from '@/lib/mock-data'
@@ -20,23 +21,38 @@ interface ProfileScreenProps {
   onLogout: () => void
 }
 
+const LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' },
+  { code: 'es', label: 'Español' },
+  { code: 'de', label: 'Deutsch' },
+]
+
 export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenProps) {
+  const { resolvedTheme, setTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
+
   const [notifications, setNotifications] = useState(true)
-  const [darkMode, setDarkMode] = useState(true)
+  const [showLangPicker, setShowLangPicker] = useState(false)
+  const [selectedLang, setSelectedLang] = useState('en')
+
+  const currentLang = LANGUAGES.find(l => l.code === selectedLang)!
+
+  const comingSoon = (label: string) =>
+    toast(`${label} — coming soon`, {
+      description: 'This feature will be available in a future update.',
+      icon: '🔜',
+    })
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
-      <TopHeader 
-        title="Profile"
-        showNotifications={false}
-      />
+      <TopHeader title="Profile" showNotifications={false} />
 
       <main className="px-4 py-4 max-w-md mx-auto">
         {/* Profile Header */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative mb-3">
-            <img 
+            <img
               src={mockUser.avatar}
               alt={mockUser.name}
               className="w-20 h-20 rounded-full border-4 border-primary/30"
@@ -75,14 +91,18 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
                     </div>
                     <div>
                       <p className="font-medium text-xs">{calendar}</p>
-                      <p className="text-[10px] text-muted-foreground">Synced</p>
+                      <p className="text-[10px] text-muted-foreground">Synced • mock data</p>
                     </div>
                   </div>
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 </div>
               </GlassCard>
             ))}
-            <Button variant="outline" className="w-full h-9 border-dashed border-border/50 text-muted-foreground text-xs">
+            <Button
+              variant="outline"
+              onClick={() => comingSoon('Add Calendar')}
+              className="w-full h-9 border-dashed border-border/50 text-muted-foreground text-xs"
+            >
               <Calendar className="w-3.5 h-3.5 mr-1.5" />
               Add Calendar
             </Button>
@@ -95,33 +115,67 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
             Preferences
           </h2>
           <GlassCard className="divide-y divide-border/30 p-0">
-            <SettingsRow 
+            <SettingsRow
               icon={<Bell className="w-4 h-4" />}
               label="Notifications"
               action={
-                <Switch 
-                  checked={notifications} 
+                <Switch
+                  checked={notifications}
                   onCheckedChange={setNotifications}
                 />
               }
             />
-            <SettingsRow 
+            <SettingsRow
               icon={<Moon className="w-4 h-4" />}
               label="Dark mode"
               action={
-                <Switch 
-                  checked={darkMode} 
-                  onCheckedChange={setDarkMode}
+                <Switch
+                  checked={isDark}
+                  onCheckedChange={(val) => setTheme(val ? 'dark' : 'light')}
                 />
               }
             />
-            <SettingsRow 
-              icon={<Globe className="w-4 h-4" />}
-              label="Language"
-              value="English"
-              hasChevron
-            />
-            <SettingsRow 
+            {/* Language row — inline picker */}
+            <div>
+              <SettingsRow
+                icon={<Globe className="w-4 h-4" />}
+                label="Language"
+                value={currentLang.label}
+                hasChevron
+                onClick={() => setShowLangPicker(!showLangPicker)}
+              />
+              {showLangPicker && (
+                <div className="px-3 pb-2 space-y-1">
+                  {LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.code}
+                      onClick={() => {
+                        setSelectedLang(lang.code)
+                        setShowLangPicker(false)
+                        if (lang.code !== 'en') {
+                          toast(`Language set to ${lang.label}`, {
+                            description: 'UI localisation coming in a future update.',
+                            icon: '🌐',
+                          })
+                        }
+                      }}
+                      className={cn(
+                        'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors',
+                        selectedLang === lang.code
+                          ? 'bg-primary/10 text-primary'
+                          : 'hover:bg-muted/50 text-muted-foreground'
+                      )}
+                    >
+                      <span>{lang.label}</span>
+                      {selectedLang === lang.code && (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <SettingsRow
               icon={<User className="w-4 h-4" />}
               label="Edit preferences"
               hasChevron
@@ -136,20 +190,23 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
             Privacy & Security
           </h2>
           <GlassCard className="divide-y divide-border/30 p-0">
-            <SettingsRow 
+            <SettingsRow
               icon={<Lock className="w-4 h-4" />}
               label="Privacy settings"
               hasChevron
+              onClick={() => comingSoon('Privacy settings')}
             />
-            <SettingsRow 
+            <SettingsRow
               icon={<Shield className="w-4 h-4" />}
               label="Data & permissions"
               hasChevron
+              onClick={() => comingSoon('Data & permissions')}
             />
-            <SettingsRow 
+            <SettingsRow
               icon={<CreditCard className="w-4 h-4" />}
               label="Billing"
               hasChevron
+              onClick={() => comingSoon('Billing')}
             />
           </GlassCard>
         </div>
@@ -160,23 +217,25 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
             Support
           </h2>
           <GlassCard className="divide-y divide-border/30 p-0">
-            <SettingsRow 
+            <SettingsRow
               icon={<HelpCircle className="w-4 h-4" />}
               label="Help center"
               hasChevron
+              onClick={() => comingSoon('Help center')}
             />
-            <SettingsRow 
+            <SettingsRow
               icon={<Trash2 className="w-4 h-4 text-destructive" />}
               label="Delete account"
               labelClass="text-destructive"
               hasChevron
+              onClick={() => comingSoon('Account deletion')}
             />
           </GlassCard>
         </div>
 
         {/* Logout */}
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           onClick={onLogout}
           className="w-full h-9 border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 text-sm"
         >
@@ -184,15 +243,13 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
           Sign out
         </Button>
 
-        {/* Version */}
         <p className="text-center text-[10px] text-muted-foreground mt-4">
           Nexus v1.0.0
         </p>
       </main>
 
-      {/* Bottom Navigation */}
-      <BottomNav 
-        activeTab="profile" 
+      <BottomNav
+        activeTab="profile"
         onTabChange={(tab) => {
           if (tab === 'home') onNavigate('home')
           if (tab === 'groups') onNavigate('groups')
@@ -216,9 +273,11 @@ interface SettingsRowProps {
 function SettingsRow({ icon, label, value, action, hasChevron, labelClass, onClick }: SettingsRowProps) {
   return (
     <div
-      className="flex items-center justify-between p-3"
+      className={cn(
+        'flex items-center justify-between p-3',
+        onClick && 'cursor-pointer hover:bg-muted/20 transition-colors'
+      )}
       onClick={onClick}
-      style={onClick ? { cursor: 'pointer' } : undefined}
     >
       <div className="flex items-center gap-2.5">
         <div className="text-muted-foreground">{icon}</div>

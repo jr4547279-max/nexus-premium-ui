@@ -4,36 +4,36 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Nexus Dark Theme - Always dark */
-  --background: oklch(0.12 0.02 260);
-  --foreground: oklch(0.95 0.01 90);
-  --card: oklch(0.15 0.02 260);
-  --card-foreground: oklch(0.95 0.01 90);
-  --popover: oklch(0.13 0.02 260);
-  --popover-foreground: oklch(0.95 0.01 90);
-  --primary: oklch(0.78 0.14 75);
-  --primary-foreground: oklch(0.15 0.02 260);
-  --secondary: oklch(0.20 0.02 260);
-  --secondary-foreground: oklch(0.90 0.01 90);
-  --muted: oklch(0.22 0.02 260);
-  --muted-foreground: oklch(0.65 0.02 90);
-  --accent: oklch(0.75 0.12 75);
-  --accent-foreground: oklch(0.15 0.02 260);
+  /* Nexus Light Theme */
+  --background: oklch(0.97 0.008 90);
+  --foreground: oklch(0.14 0.02 260);
+  --card: oklch(0.99 0.004 90);
+  --card-foreground: oklch(0.14 0.02 260);
+  --popover: oklch(0.96 0.005 90);
+  --popover-foreground: oklch(0.14 0.02 260);
+  --primary: oklch(0.65 0.14 75);
+  --primary-foreground: oklch(0.99 0.01 90);
+  --secondary: oklch(0.91 0.008 90);
+  --secondary-foreground: oklch(0.25 0.02 260);
+  --muted: oklch(0.91 0.008 90);
+  --muted-foreground: oklch(0.48 0.02 260);
+  --accent: oklch(0.65 0.12 75);
+  --accent-foreground: oklch(0.99 0.01 90);
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(0.95 0.01 90);
-  --border: oklch(0.28 0.02 260);
-  --input: oklch(0.20 0.02 260);
-  --ring: oklch(0.78 0.14 75);
+  --border: oklch(0.83 0.012 260);
+  --input: oklch(0.91 0.008 90);
+  --ring: oklch(0.65 0.14 75);
   --radius: 0.75rem;
-  
-  /* Nexus Custom Colors */
-  --nexus-gold: oklch(0.78 0.14 75);
-  --nexus-gold-dim: oklch(0.65 0.10 75);
-  --nexus-gold-bright: oklch(0.88 0.16 75);
+
+  /* Nexus Custom Colors — light */
+  --nexus-gold: oklch(0.65 0.14 75);
+  --nexus-gold-dim: oklch(0.55 0.10 75);
+  --nexus-gold-bright: oklch(0.75 0.16 75);
   --nexus-navy: oklch(0.12 0.02 260);
   --nexus-navy-light: oklch(0.18 0.02 260);
-  --nexus-glass: oklch(0.18 0.02 260 / 0.6);
-  --nexus-glass-border: oklch(0.35 0.02 260);
+  --nexus-glass: oklch(0.98 0.005 90 / 0.75);
+  --nexus-glass-border: oklch(0.82 0.012 260);
 }
 
 .dark {
@@ -56,6 +56,15 @@
   --border: oklch(0.28 0.02 260);
   --input: oklch(0.20 0.02 260);
   --ring: oklch(0.78 0.14 75);
+
+  /* Nexus Custom Colors — dark */
+  --nexus-gold: oklch(0.78 0.14 75);
+  --nexus-gold-dim: oklch(0.65 0.10 75);
+  --nexus-gold-bright: oklch(0.88 0.16 75);
+  --nexus-navy: oklch(0.12 0.02 260);
+  --nexus-navy-light: oklch(0.18 0.02 260);
+  --nexus-glass: oklch(0.18 0.02 260 / 0.6);
+  --nexus-glass-border: oklch(0.35 0.02 260);
 }
 
 @theme inline {
@@ -84,7 +93,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  
+
   /* Nexus Theme Colors */
   --color-nexus-gold: var(--nexus-gold);
   --color-nexus-gold-dim: var(--nexus-gold-dim);
@@ -111,115 +120,84 @@
                 0 0 40px oklch(0.78 0.14 75 / 0.15),
                 0 0 60px oklch(0.78 0.14 75 / 0.05);
   }
-  
+
   .glow-gold-intense {
     box-shadow: 0 0 30px oklch(0.78 0.14 75 / 0.5),
                 0 0 60px oklch(0.78 0.14 75 / 0.3),
                 0 0 100px oklch(0.78 0.14 75 / 0.15);
   }
-  
+
   .text-glow-gold {
     text-shadow: 0 0 10px oklch(0.78 0.14 75 / 0.5),
                  0 0 20px oklch(0.78 0.14 75 / 0.3);
   }
-  
+
   .glass-card {
-    background: oklch(0.18 0.02 260 / 0.6);
+    background: var(--nexus-glass);
     backdrop-filter: blur(12px);
-    border: 1px solid oklch(0.35 0.02 260);
+    border: 1px solid var(--nexus-glass-border);
   }
-  
+
   .glass-card-hover {
-    background: oklch(0.18 0.02 260 / 0.6);
+    background: var(--nexus-glass);
     backdrop-filter: blur(12px);
-    border: 1px solid oklch(0.35 0.02 260);
+    border: 1px solid var(--nexus-glass-border);
     transition: all 0.3s ease;
   }
-  
+
   .glass-card-hover:hover {
-    background: oklch(0.20 0.02 260 / 0.7);
-    border-color: oklch(0.45 0.04 75);
+    border-color: var(--nexus-gold-dim);
   }
-  
+
   .orbital-ring {
     animation: orbit 20s linear infinite;
   }
-  
+
   .orbital-ring-reverse {
     animation: orbit 25s linear infinite reverse;
   }
-  
+
   .pulse-gold {
     animation: pulseGold 2s ease-in-out infinite;
   }
-  
+
   .float {
     animation: float 6s ease-in-out infinite;
   }
-  
+
   .shimmer {
     animation: shimmer 3s ease-in-out infinite;
   }
 }
 
 @keyframes orbit {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 @keyframes pulseGold {
-  0%, 100% {
-    opacity: 0.5;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05);
-  }
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.05); }
 }
 
 @keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 @keyframes glowPulse {
@@ -233,17 +211,9 @@
   }
 }
 
-.animate-fade-in-up {
-  animation: fadeInUp 0.6s ease-out forwards;
-}
-
-.animate-scale-in {
-  animation: scaleIn 0.5s ease-out forwards;
-}
-
-.animate-glow-pulse {
-  animation: glowPulse 3s ease-in-out infinite;
-}
+.animate-fade-in-up  { animation: fadeInUp 0.6s ease-out forwards; }
+.animate-scale-in    { animation: scaleIn  0.5s ease-out forwards; }
+.animate-glow-pulse  { animation: glowPulse 3s ease-in-out infinite; }
 
 /* Stagger delays for lists */
 .stagger-1 { animation-delay: 0.1s; }

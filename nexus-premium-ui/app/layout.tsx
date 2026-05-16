@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from 'sonner'
+import { Providers } from '@/components/providers'
 import './globals.css'
 
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: '--font-inter'
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
 })
 
 export const metadata: Metadata = {
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#0f1729',
-  colorScheme: 'dark',
+  colorScheme: 'dark light',
 }
 
 export default function RootLayout({
@@ -25,10 +26,17 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark bg-background">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased min-h-screen bg-background`}>
-        {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        <Providers>
+          {children}
+          <Toaster
+            position="bottom-center"
+            toastOptions={{
+              style: { marginBottom: '72px' },
+            }}
+          />
+        </Providers>
       </body>
     </html>
   )
