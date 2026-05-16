@@ -39,18 +39,19 @@ function NexusAppLoading() {
 
 export function NexusApp() {
   const { session, loading, signOut } = useAuth()
-  const [currentScreen, setCurrentScreen] = useState<Screen | null>(null)
+  // Default to 'landing' immediately — auth resolves in the background
+  const [currentScreen, setCurrentScreen] = useState<Screen>('landing')
   const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
 
   const initializedRef = useRef(false)
 
-  /* ── Initial routing once auth check completes ── */
+  /* ── Once auth resolves, silently upgrade to 'home' if session exists ── */
   useEffect(() => {
     if (loading) return
     if (initializedRef.current) return
     initializedRef.current = true
-    setCurrentScreen(session ? 'home' : 'landing')
+    if (session) setCurrentScreen('home')
   }, [loading, session])
 
   /* ── Sign-out: send back to landing from anywhere ── */
@@ -60,20 +61,6 @@ export function NexusApp() {
       setCurrentScreen('landing')
     }
   }, [session, loading])
-
-  /* ── Safety net: force to landing if still stuck after 8s ── */
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (loading || currentScreen === null) {
-        initializedRef.current = true
-        setCurrentScreen('landing')
-      }
-    }, 8000)
-    return () => clearTimeout(t)
-  }, [])
-
-  /* ── Show loading ring while auth resolves ── */
-  if (loading || currentScreen === null) return <NexusAppLoading />
 
   /* ── Navigation helpers ── */
   const handleGroupClick = (groupId: string, from: Screen = 'home') => {
