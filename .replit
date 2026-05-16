@@ -33,7 +33,7 @@ args = "cd nexus-premium-ui && npm run dev"
 waitForPort = 3001
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
 [postMerge]
