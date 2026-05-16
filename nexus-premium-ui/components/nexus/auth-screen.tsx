@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useAuth } from '@/lib/auth-context'
 import { NexusLogo } from './nexus-logo'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
@@ -9,13 +10,31 @@ import { OrbitalBackground, GoldenRing } from './golden-ring'
 import { Eye, EyeOff, Mail, Lock, ArrowLeft, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import type { AuthError } from '@supabase/supabase-js'
 
 interface AuthScreenProps {
   onBack: () => void
   onSuccess: () => void
 }
 
+function friendlyError(error: AuthError): string {
+  switch ((error as { code?: string }).code) {
+    case 'invalid_credentials':    return 'Invalid email or password.'
+    case 'user_not_found':         return 'No account found with this email.'
+    case 'email_not_confirmed':    return 'Please verify your email before signing in.'
+    case 'user_already_exists':
+    case 'email_exists':           return 'An account with this email already exists.'
+    case 'weak_password':          return 'Password must be at least 6 characters.'
+    case 'over_request_rate_limit':return 'Too many attempts — please wait a moment.'
+    case 'signup_disabled':        return 'Sign-ups are currently disabled.'
+    case 'not_configured':         return error.message
+    default:                       return error.message || 'Something went wrong. Please try again.'
+  }
+}
+
 export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
+  const { signIn, signUp } = useAuth()
+
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('')
@@ -25,11 +44,40 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!email || !password) {
+      toast.error('Please fill in all fields.', { icon: '⚠️' })
+      return
+    }
+
     setIsLoading(true)
-    // Simulate auth delay
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsLoading(false)
-    onSuccess()
+    try {
+      if (mode === 'signup') {
+        const { error, needsEmailConfirm } = await signUp(email, password)
+        if (error) {
+          toast.error(friendlyError(error), { icon: '⚠️' })
+        } else if (needsEmailConfirm) {
+          toast.success('Account created!', {
+            description: 'Check your email for a confirmation link, then sign in.',
+            icon: '📧',
+            duration: 7000,
+          })
+          setMode('login')
+        } else {
+          toast.success('Welcome to Nexus!', { icon: '✨' })
+          onSuccess()
+        }
+      } else {
+        const { error } = await signIn(email, password)
+        if (error) {
+          toast.error(friendlyError(error), { icon: '⚠️' })
+        } else {
+          toast.success('Welcome back!', { icon: '✨' })
+          onSuccess()
+        }
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -38,7 +86,7 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
         {/* Header */}
         <header className="relative z-10 px-6 py-4">
           <div className="max-w-md mx-auto flex items-center">
-            <button 
+            <button
               onClick={onBack}
               className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"
             >
@@ -58,10 +106,9 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                 {mode === 'login' ? 'Welcome back' : 'Join Nexus'}
               </h1>
               <p className="text-muted-foreground text-xs mt-1 text-center">
-                {mode === 'login' 
-                  ? 'Sign in to continue aligning your plans' 
-                  : 'Create an account to start organizing'
-                }
+                {mode === 'login'
+                  ? 'Sign in to continue aligning your plans'
+                  : 'Create an account to start organising'}
               </p>
             </div>
 
@@ -80,7 +127,7 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                     />
                   </div>
                 )}
-                
+
                 <div className="space-y-1.5">
                   <label className="text-xs text-muted-foreground">Email</label>
                   <div className="relative">
@@ -91,6 +138,7 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="bg-muted/50 border-border/50 h-10 pl-9 text-sm"
+                      required
                     />
                   </div>
                 </div>
@@ -105,6 +153,7 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="bg-muted/50 border-border/50 h-10 pl-9 pr-9 text-sm"
+                      required
                     />
                     <button
                       type="button"
@@ -120,7 +169,7 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                   <button
                     type="button"
                     onClick={() => toast('Password reset — coming soon', {
-                      description: 'For now, any email and password will sign you in.',
+                      description: 'Contact support to reset your password for now.',
                       icon: '🔑',
                     })}
                     className="text-xs text-primary hover:underline"
@@ -129,15 +178,15 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                   </button>
                 )}
 
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold text-sm"
                   disabled={isLoading}
                 >
                   {isLoading ? (
                     <div className="flex items-center gap-2">
                       <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                      <span>{mode === 'login' ? 'Signing in...' : 'Creating...'}</span>
+                      <span>{mode === 'login' ? 'Signing in…' : 'Creating account…'}</span>
                     </div>
                   ) : (
                     <span>{mode === 'login' ? 'Sign in' : 'Create account'}</span>
@@ -155,10 +204,11 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                 </div>
               </div>
 
-              {/* Social Login */}
+              {/* Social Login — coming soon */}
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   variant="outline"
+                  type="button"
                   onClick={() => toast('Google sign-in — coming soon', {
                     description: 'Use email and password to sign in for now.',
                     icon: '🔜',
@@ -175,6 +225,7 @@ export function AuthScreen({ onBack, onSuccess }: AuthScreenProps) {
                 </Button>
                 <Button
                   variant="outline"
+                  type="button"
                   onClick={() => toast('Apple sign-in — coming soon', {
                     description: 'Use email and password to sign in for now.',
                     icon: '🔜',

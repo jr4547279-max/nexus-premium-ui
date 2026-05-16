@@ -1,6 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '@/lib/auth-context'
+import { NexusLogoAnimated } from './nexus-logo'
+import { OrbitalBackground } from './golden-ring'
 import { LandingPage } from './landing-page'
 import { AuthScreen } from './auth-screen'
 import { OnboardingFlow } from './onboarding-flow'
@@ -22,51 +25,70 @@ type Screen =
   | 'activity'
   | 'profile'
 
+function NexusAppLoading() {
+  return (
+    <div className="min-h-screen bg-background">
+      <OrbitalBackground className="min-h-screen flex flex-col items-center justify-center">
+        <div className="float">
+          <NexusLogoAnimated className="w-48 h-48" />
+        </div>
+      </OrbitalBackground>
+    </div>
+  )
+}
+
 export function NexusApp() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('landing')
+  const { session, loading, signOut } = useAuth()
+  const [currentScreen, setCurrentScreen] = useState<Screen | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
 
-  const handleGetStarted = () => {
-    setCurrentScreen('onboarding')
-  }
+  const initializedRef = useRef(false)
 
-  const handleLogin = () => {
-    setCurrentScreen('auth')
-  }
+  /* ── Initial routing once auth check completes ── */
+  useEffect(() => {
+    if (loading) return
+    if (initializedRef.current) return
+    initializedRef.current = true
+    setCurrentScreen(session ? 'home' : 'landing')
+  }, [loading, session])
 
-  const handleAuthSuccess = () => {
-    setCurrentScreen('home')
-  }
+  /* ── Sign-out: send back to landing from anywhere ── */
+  useEffect(() => {
+    if (!initializedRef.current) return
+    if (!loading && !session) {
+      setCurrentScreen('landing')
+    }
+  }, [session, loading])
 
-  const handleOnboardingComplete = () => {
-    setCurrentScreen('home')
-  }
+  /* ── Show loading ring while auth resolves ── */
+  if (loading || currentScreen === null) return <NexusAppLoading />
 
+  /* ── Navigation helpers ── */
   const handleGroupClick = (groupId: string, from: Screen = 'home') => {
     setSelectedGroupId(groupId)
     setPrevGroupScreen(from)
     setCurrentScreen('group-detail')
   }
 
-  const handleNavigate = (screen: string) => {
-    setCurrentScreen(screen as Screen)
-  }
+  const handleNavigate = (screen: string) => setCurrentScreen(screen as Screen)
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut()
     setCurrentScreen('landing')
   }
 
-  const handleConfirmBooking = () => {
-    setCurrentScreen('home')
+  const handleOnboardingComplete = () => {
+    setCurrentScreen(session ? 'home' : 'auth')
   }
 
+  /* ── Screen router ── */
   switch (currentScreen) {
     case 'landing':
       return (
         <LandingPage
-          onGetStarted={handleGetStarted}
-          onLogin={handleLogin}
+          onGetStarted={() => setCurrentScreen('onboarding')}
+          onLogin={() => setCurrentScreen('auth')}
         />
       )
 
@@ -74,7 +96,7 @@ export function NexusApp() {
       return (
         <AuthScreen
           onBack={() => setCurrentScreen('landing')}
-          onSuccess={handleAuthSuccess}
+          onSuccess={() => setCurrentScreen('home')}
         />
       )
 
@@ -117,7 +139,7 @@ export function NexusApp() {
         <GoldenWindowReveal
           groupId={selectedGroupId}
           onBack={() => setCurrentScreen('group-detail')}
-          onConfirm={handleConfirmBooking}
+          onConfirm={() => setCurrentScreen('home')}
         />
       )
 
@@ -141,8 +163,8 @@ export function NexusApp() {
     default:
       return (
         <LandingPage
-          onGetStarted={handleGetStarted}
-          onLogin={handleLogin}
+          onGetStarted={() => setCurrentScreen('onboarding')}
+          onLogin={() => setCurrentScreen('auth')}
         />
       )
   }
