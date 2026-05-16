@@ -35,10 +35,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
+    // Hard timeout — if Supabase never responds, unblock the app after 5s
+    const timeout = setTimeout(() => setLoading(false), 5000)
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session)
+        setLoading(false)
+      })
+      .catch(() => {
+        // getSession() rejected (bad keys, network error, etc.) — treat as unauthenticated
+        setLoading(false)
+      })
+      .finally(() => clearTimeout(timeout))
 
     const {
       data: { subscription },
@@ -47,7 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(timeout)
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signIn = useCallback(
