@@ -44,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false)
       })
       .catch(() => {
-        // getSession() rejected (bad keys, network error, etc.) — treat as unauthenticated
         setLoading(false)
       })
       .finally(() => clearTimeout(timeout))

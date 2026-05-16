@@ -61,6 +61,17 @@ export function NexusApp() {
     }
   }, [session, loading])
 
+  /* ── Safety net: force to landing if still stuck after 8s ── */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (loading || currentScreen === null) {
+        initializedRef.current = true
+        setCurrentScreen('landing')
+      }
+    }, 8000)
+    return () => clearTimeout(t)
+  }, [])
+
   /* ── Show loading ring while auth resolves ── */
   if (loading || currentScreen === null) return <NexusAppLoading />
 
