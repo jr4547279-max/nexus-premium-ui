@@ -72,10 +72,10 @@ export function NexusLogoAnimated({ className }: { className?: string }) {
   return (
     <div className={cn('relative w-64 h-64 md:w-80 md:h-80', className)}>
       {/* Outer glow */}
-      <div className="absolute inset-0 rounded-full bg-gradient-to-r from-amber-500/10 via-yellow-400/20 to-amber-600/10 blur-3xl animate-glow-pulse" />
+      <div className="absolute inset-0 rounded-full bg-gradient-to-r from-amber-500/10 via-yellow-400/20 to-amber-600/10 blur-3xl animate-glow-pulse pointer-events-none" />
       
       {/* Main golden ring */}
-      <svg viewBox="0 0 200 200" className="w-full h-full">
+      <svg viewBox="0 0 200 200" className="w-full h-full pointer-events-none">
         <defs>
           <linearGradient id="heroGoldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#b45309" />
@@ -118,7 +118,7 @@ export function NexusLogoAnimated({ className }: { className?: string }) {
       </svg>
       
       {/* Inner subtle orbital */}
-      <div className="absolute inset-12 rounded-full border border-amber-500/10 orbital-ring-reverse" />
+      <div className="absolute inset-12 rounded-full border border-amber-500/10 orbital-ring-reverse pointer-events-none" />
     </div>
   )
 }

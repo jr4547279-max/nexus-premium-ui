@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NexusLogoAnimated, NexusLogo } from './nexus-logo'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
@@ -17,20 +17,40 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
+  const [debugMsg, setDebugMsg] = useState('awaiting click…')
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const t = e.target as Element
+      const tag = t.tagName
+      const cls = (t.className || '').toString().slice(0, 40)
+      setDebugMsg(`hit: ${tag} — ${cls}`)
+    }
+    document.addEventListener('click', handler, true) // capture phase
+    return () => document.removeEventListener('click', handler, true)
+  }, [])
+
   return (
     <WeatherAtmosphere condition="clear" intensity="subtle" className="bg-background">
+      {/* TEMP click-debug label */}
+      <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[9999] bg-black/80 text-green-400 text-xs font-mono px-3 py-1 rounded-full pointer-events-none">
+        {debugMsg}
+      </div>
+
       <OrbitalBackground className="min-h-screen">
         {/* Header */}
         <header className="relative z-10 px-6 py-4">
           <div className="max-w-6xl mx-auto flex items-center justify-between">
             <NexusLogo size="sm" />
-            <Button 
-              variant="ghost" 
-              onClick={onLogin}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              Sign in
-            </Button>
+            <div className="relative z-20 pointer-events-auto">
+              <Button 
+                variant="ghost" 
+                onClick={() => { setDebugMsg('Sign in clicked ✓'); onLogin() }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Sign in
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -68,13 +88,15 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
               </div>
               
               {/* CTA Button */}
-              <Button 
-                onClick={onGetStarted}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 h-11 text-sm rounded-full glow-gold animate-fade-in-up stagger-5 opacity-0"
-              >
-                Get Started
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <div className="relative z-20 pointer-events-auto">
+                <Button 
+                  onClick={() => { setDebugMsg('Get Started clicked ✓'); onGetStarted() }}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 h-11 text-sm rounded-full glow-gold animate-fade-in-up stagger-5 opacity-0"
+                >
+                  Get Started
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
             </div>
 
             {/* Calendar Preview Section */}
@@ -159,9 +181,9 @@ function CalendarPreviewSection() {
       
       {/* Orbital Calendar Visualization */}
       <div className="relative h-64 hidden md:flex items-center justify-center">
-        <div className="absolute w-48 h-48 rounded-full border border-primary/20 orbital-ring" />
-        <div className="absolute w-36 h-36 rounded-full border border-primary/30 orbital-ring-reverse" />
-        <div className="absolute w-24 h-24 rounded-full border border-primary/40" />
+        <div className="absolute w-48 h-48 rounded-full border border-primary/20 orbital-ring pointer-events-none" />
+        <div className="absolute w-36 h-36 rounded-full border border-primary/30 orbital-ring-reverse pointer-events-none" />
+        <div className="absolute w-24 h-24 rounded-full border border-primary/40 pointer-events-none" />
         
         {/* Calendar Icon in center */}
         <div className="relative w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">

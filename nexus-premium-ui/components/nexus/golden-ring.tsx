@@ -92,9 +92,9 @@ export function OrbitalBackground({ className, children }: OrbitalBackgroundProp
       
       {/* Orbital rings */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-[600px] h-[600px] border border-amber-500/5 rounded-full orbital-ring" />
-        <div className="absolute w-[400px] h-[400px] border border-amber-500/10 rounded-full orbital-ring-reverse" />
-        <div className="absolute w-[200px] h-[200px] border border-amber-500/5 rounded-full orbital-ring" style={{ animationDuration: '15s' }} />
+        <div className="w-[600px] h-[600px] border border-amber-500/5 rounded-full orbital-ring pointer-events-none" />
+        <div className="absolute w-[400px] h-[400px] border border-amber-500/10 rounded-full orbital-ring-reverse pointer-events-none" />
+        <div className="absolute w-[200px] h-[200px] border border-amber-500/5 rounded-full orbital-ring pointer-events-none" style={{ animationDuration: '15s' }} />
       </div>
       
       {children}
