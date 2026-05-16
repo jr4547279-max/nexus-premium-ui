@@ -65,6 +65,7 @@ interface TopHeaderProps {
   notificationCount?: number
   onNotificationClick?: () => void
   userAvatar?: string
+  onAvatarClick?: () => void
   className?: string
 }
 
@@ -76,6 +77,7 @@ export function TopHeader({
   notificationCount = 0,
   onNotificationClick,
   userAvatar,
+  onAvatarClick,
   className,
 }: TopHeaderProps) {
   return (
@@ -101,11 +103,16 @@ export function TopHeader({
               </svg>
             </button>
           ) : userAvatar ? (
-            <img 
-              src={userAvatar} 
-              alt="Profile" 
-              className="w-8 h-8 rounded-full border-2 border-primary/30"
-            />
+            <button
+              onClick={onAvatarClick}
+              className="rounded-full focus:outline-none"
+            >
+              <img 
+                src={userAvatar} 
+                alt="Profile" 
+                className="w-8 h-8 rounded-full border-2 border-primary/30"
+              />
+            </button>
           ) : null}
           <h1 className="text-base font-medium">{title}</h1>
         </div>

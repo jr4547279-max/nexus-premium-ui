@@ -125,6 +125,7 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
               icon={<User className="w-4 h-4" />}
               label="Edit preferences"
               hasChevron
+              onClick={() => onNavigate('onboarding')}
             />
           </GlassCard>
         </div>
@@ -194,6 +195,7 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
         activeTab="profile" 
         onTabChange={(tab) => {
           if (tab === 'home') onNavigate('home')
+          if (tab === 'groups') onNavigate('groups')
           if (tab === 'activity') onNavigate('activity')
         }}
       />
@@ -208,11 +210,16 @@ interface SettingsRowProps {
   action?: React.ReactNode
   hasChevron?: boolean
   labelClass?: string
+  onClick?: () => void
 }
 
-function SettingsRow({ icon, label, value, action, hasChevron, labelClass }: SettingsRowProps) {
+function SettingsRow({ icon, label, value, action, hasChevron, labelClass, onClick }: SettingsRowProps) {
   return (
-    <div className="flex items-center justify-between p-3">
+    <div
+      className="flex items-center justify-between p-3"
+      onClick={onClick}
+      style={onClick ? { cursor: 'pointer' } : undefined}
+    >
       <div className="flex items-center gap-2.5">
         <div className="text-muted-foreground">{icon}</div>
         <span className={cn('font-medium text-xs', labelClass)}>{label}</span>

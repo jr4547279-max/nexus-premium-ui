@@ -11,11 +11,10 @@ import { mockUser, mockGroups, mockActivity, mockNotifications } from '@/lib/moc
 
 interface DashboardProps {
   onGroupClick: (groupId: string) => void
-  onCreateGroup: () => void
   onNavigate: (screen: string) => void
 }
 
-export function Dashboard({ onGroupClick, onCreateGroup, onNavigate }: DashboardProps) {
+export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
   const [activeTab, setActiveTab] = useState('home')
   const [showNotifications, setShowNotifications] = useState(false)
 
@@ -29,6 +28,7 @@ export function Dashboard({ onGroupClick, onCreateGroup, onNavigate }: Dashboard
       {/* Header */}
       <TopHeader 
         userAvatar={mockUser.avatar}
+        onAvatarClick={() => onNavigate('profile')}
         notificationCount={mockNotifications.filter(n => n.unread).length}
         onNotificationClick={() => setShowNotifications(!showNotifications)}
       />
@@ -152,7 +152,7 @@ export function Dashboard({ onGroupClick, onCreateGroup, onNavigate }: Dashboard
 
         {/* Create Group Button */}
         <Button 
-          onClick={onCreateGroup}
+          onClick={() => onNavigate('groups')}
           className="w-full h-10 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-sm"
         >
           <Plus className="w-4 h-4 mr-1.5" />
@@ -207,9 +207,10 @@ export function Dashboard({ onGroupClick, onCreateGroup, onNavigate }: Dashboard
         activeTab={activeTab} 
         onTabChange={(tab) => {
           setActiveTab(tab)
+          if (tab === 'home') onNavigate('home')
+          if (tab === 'groups') onNavigate('groups')
           if (tab === 'activity') onNavigate('activity')
           if (tab === 'profile') onNavigate('profile')
-          if (tab === 'groups') onNavigate('home')
         }}
       />
     </div>

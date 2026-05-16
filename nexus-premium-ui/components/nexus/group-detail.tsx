@@ -16,9 +16,10 @@ interface GroupDetailProps {
   groupId: string
   onBack: () => void
   onViewGoldenWindow: () => void
+  onNavigate?: (screen: string) => void
 }
 
-export function GroupDetail({ groupId, onBack, onViewGoldenWindow }: GroupDetailProps) {
+export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }: GroupDetailProps) {
   const group = mockGroups.find(g => g.id === groupId) || mockGroups[0]
   const [activeSection, setActiveSection] = useState<'members' | 'preferences'>('members')
 
@@ -42,7 +43,10 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow }: GroupDetail
             <h1 className="text-xl font-medium">{group.name}</h1>
             <p className="text-muted-foreground">{group.memberCount} members</p>
           </div>
-          <button className="p-2 rounded-full hover:bg-muted/50 transition-colors">
+          <button
+            onClick={() => onNavigate?.('profile')}
+            className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+          >
             <Settings className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
@@ -260,6 +264,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow }: GroupDetail
         {/* Find Window Button */}
         {!group.hasGoldenWindow && (
           <Button 
+            onClick={onViewGoldenWindow}
             className="w-full h-14 mt-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
           >
             <Sparkles className="w-5 h-5 mr-2" />

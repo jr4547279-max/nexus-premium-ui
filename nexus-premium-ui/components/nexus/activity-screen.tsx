@@ -126,6 +126,7 @@ export function ActivityScreen({ onBack, onNavigate }: ActivityScreenProps) {
         activeTab="activity" 
         onTabChange={(tab) => {
           if (tab === 'home') onNavigate('home')
+          if (tab === 'groups') onNavigate('groups')
           if (tab === 'profile') onNavigate('profile')
         }}
       />
