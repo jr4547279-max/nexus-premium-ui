@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { NexusLogoAnimated } from './nexus-logo'
-import { OrbitalBackground } from './golden-ring'
 import { LandingPage } from './landing-page'
 import { AuthScreen } from './auth-screen'
 import { OnboardingFlow } from './onboarding-flow'
@@ -25,29 +23,40 @@ type Screen =
   | 'activity'
   | 'profile'
 
-function NexusAppLoading() {
-  return (
-    <div className="min-h-screen bg-background">
-      <OrbitalBackground className="min-h-screen flex flex-col items-center justify-center">
-        <div className="float">
-          <NexusLogoAnimated className="w-48 h-48" />
-        </div>
-      </OrbitalBackground>
-    </div>
-  )
+function hashToScreen(hash: string): Screen | null {
+  switch (hash) {
+    case '#onboarding': return 'onboarding'
+    case '#auth':       return 'auth'
+    case '#home':       return 'home'
+    default:            return null
+  }
 }
 
 export function NexusApp() {
   const { session, loading, signOut } = useAuth()
-  // Default to 'landing' immediately — auth resolves in the background
   const [currentScreen, setCurrentScreen] = useState<Screen>('landing')
   const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
 
   const initializedRef = useRef(false)
-  // Track whether we had a session so we only redirect to landing on actual sign-out,
-  // not on initial auth resolution with no session (which would override button taps).
   const hadSessionRef = useRef(false)
+
+  /* ── Hash-based navigation (diagnostic + mobile fallback) ── */
+  useEffect(() => {
+    function onHashChange() {
+      const screen = hashToScreen(window.location.hash)
+      if (screen) {
+        console.log('[Nexus] hash navigation ->', screen)
+        setCurrentScreen(screen)
+        // Clear the hash so back-button doesn't fight state
+        history.replaceState(null, '', window.location.pathname)
+      }
+    }
+    // Fire once on mount in case the page loaded with a hash
+    onHashChange()
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
 
   /* ── Once auth resolves, silently upgrade to 'home' if session exists ── */
   useEffect(() => {
