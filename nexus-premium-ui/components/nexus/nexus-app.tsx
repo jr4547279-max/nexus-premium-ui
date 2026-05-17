@@ -11,8 +11,10 @@ import { GroupDetail } from './group-detail'
 import { GoldenWindowReveal } from './golden-window-reveal'
 import { ActivityScreen } from './activity-screen'
 import { ProfileScreen } from './profile-screen'
+import { GoldenRing } from './golden-ring'
 
 type Screen =
+  | 'resolving'
   | 'landing'
   | 'auth'
   | 'onboarding'
@@ -24,26 +26,46 @@ type Screen =
   | 'profile'
 
 export function NexusApp() {
-  const { session, loading, signOut } = useAuth()
-  const [currentScreen, setCurrentScreen] = useState<Screen>('landing')
+  const { session, loading, profile, profileLoading, signOut } = useAuth()
+  const [currentScreen, setCurrentScreen] = useState<Screen>('resolving')
   const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
 
   const initializedRef = useRef(false)
   const hadSessionRef = useRef(false)
 
-  /* ── Once auth resolves, silently upgrade to 'home' if session exists ── */
+  /* ── Initial auth resolution ── */
   useEffect(() => {
     if (loading) return
     if (initializedRef.current) return
     initializedRef.current = true
+
+    if (!session) {
+      // No session — show landing immediately
+      setCurrentScreen('landing')
+    }
+    // Session exists — stay on 'resolving' and wait for profile (handled below)
     if (session) {
       hadSessionRef.current = true
-      setCurrentScreen('home')
     }
   }, [loading, session])
 
-  /* ── Sign-out: only redirect to landing when user had a session and lost it ── */
+  /* ── Once profile is known, decide: onboarding or home ── */
+  useEffect(() => {
+    if (!initializedRef.current) return
+    if (currentScreen !== 'resolving') return
+    if (!session) return
+    if (profileLoading) return
+
+    // Profile settled — route based on onboarding status
+    if (profile?.onboarding_completed) {
+      setCurrentScreen('home')
+    } else {
+      setCurrentScreen('onboarding')
+    }
+  }, [currentScreen, session, profileLoading, profile])
+
+  /* ── Sign-out: redirect to landing when session is lost ── */
   useEffect(() => {
     if (!initializedRef.current) return
     if (!loading && !session && hadSessionRef.current) {
@@ -75,6 +97,18 @@ export function NexusApp() {
 
   /* ── Screen router ── */
   switch (currentScreen) {
+    case 'resolving':
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <GoldenRing size="md" intensity="subtle" />
+            <p className="text-muted-foreground text-xs tracking-widest animate-pulse">
+              NEXUS
+            </p>
+          </div>
+        </div>
+      )
+
     case 'landing':
       return (
         <LandingPage
