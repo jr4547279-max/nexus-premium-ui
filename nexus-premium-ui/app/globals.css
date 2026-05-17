@@ -113,6 +113,23 @@
   }
 }
 
+/* ── Hit-test diagnostic: kill pointer events on all pseudo-elements and
+   decorative/background elements so they never swallow taps ── */
+*::before,
+*::after {
+  pointer-events: none !important;
+}
+[data-decorative],
+.decorative,
+.background,
+.backdrop,
+.particles,
+.globe,
+canvas,
+svg {
+  pointer-events: none !important;
+}
+
 /* Nexus Custom Utilities */
 @layer utilities {
   .glow-gold {
