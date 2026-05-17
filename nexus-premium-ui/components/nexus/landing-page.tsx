@@ -1,13 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { NexusLogoAnimated, NexusLogo } from './nexus-logo'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
-import { OrbitalBackground } from './golden-ring'
-import { WeatherAtmosphere } from './weather-atmosphere'
 import { Calendar, Users, MapPin, CheckCircle, Sparkles, ArrowRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
 
@@ -17,45 +13,39 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
-  const [debugMsg, setDebugMsg] = useState('awaiting click…')
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const t = e.target as Element
-      const tag = t.tagName
-      const cls = (t.className || '').toString().slice(0, 40)
-      setDebugMsg(`hit: ${tag} — ${cls}`)
-    }
-    document.addEventListener('click', handler, true) // capture phase
-    return () => document.removeEventListener('click', handler, true)
-  }, [])
-
   return (
-    <WeatherAtmosphere condition="clear" intensity="subtle" className="bg-background">
-      {/* TEMP click-debug label */}
-      <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[9999] bg-black/80 text-green-400 text-xs font-mono px-3 py-1 rounded-full pointer-events-none">
-        {debugMsg}
+    <div className="relative min-h-screen bg-background overflow-hidden">
+      {/* Decorative ambient glows — pointer-events-none so they never intercept clicks */}
+      <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-amber-600/5 rounded-full blur-3xl" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-[600px] h-[600px] border border-amber-500/5 rounded-full orbital-ring" />
+          <div className="absolute w-[400px] h-[400px] border border-amber-500/10 rounded-full orbital-ring-reverse" />
+          <div className="absolute w-[200px] h-[200px] border border-amber-500/5 rounded-full orbital-ring" style={{ animationDuration: '15s' }} />
+        </div>
+        <div className="absolute inset-0 bg-radial-[at_50%_40%] from-yellow-500/10 via-amber-500/5 to-transparent" />
+        <div className="absolute top-[30%] left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-yellow-400/8 blur-[100px] rounded-full" />
       </div>
 
-      <OrbitalBackground className="min-h-screen">
+      {/* All content sits above z-10 — fully interactive */}
+      <div className="relative z-10">
         {/* Header */}
-        <header className="relative z-10 px-6 py-4">
+        <header className="px-6 py-4">
           <div className="max-w-6xl mx-auto flex items-center justify-between">
             <NexusLogo size="sm" />
-            <div className="relative z-20 pointer-events-auto">
-              <Button 
-                variant="ghost" 
-                onClick={() => { setDebugMsg('Sign in clicked ✓'); onLogin() }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Sign in
-              </Button>
-            </div>
+            <Button
+              variant="ghost"
+              onClick={onLogin}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Sign in
+            </Button>
           </div>
         </header>
 
         {/* Hero Section */}
-        <main className="relative z-10 px-5 py-8 md:py-16">
+        <main className="px-5 py-8 md:py-16">
           <div className="max-w-6xl mx-auto">
             {/* Hero Content */}
             <div className="flex flex-col items-center text-center">
@@ -63,40 +53,38 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
               <div className="mb-6 animate-fade-in-up">
                 <NexusLogoAnimated />
               </div>
-              
+
               {/* Brand Name */}
-              <h1 className="text-3xl md:text-5xl font-light tracking-[0.25em] mb-3 animate-fade-in-up stagger-1 opacity-0">
+              <h1 className="text-3xl md:text-5xl font-light tracking-[0.25em] mb-3 animate-fade-in-up stagger-1">
                 NEXUS
               </h1>
-              
+
               {/* Tagline */}
-              <p className="text-lg md:text-xl text-primary font-light mb-4 animate-fade-in-up stagger-2 opacity-0">
+              <p className="text-lg md:text-xl text-primary font-light mb-4 animate-fade-in-up stagger-2">
                 Plans, perfectly aligned.
               </p>
-              
+
               {/* Description */}
-              <p className="text-muted-foreground text-sm md:text-base max-w-sm mb-8 animate-fade-in-up stagger-3 opacity-0">
+              <p className="text-muted-foreground text-sm md:text-base max-w-sm mb-8 animate-fade-in-up stagger-3">
                 The AI assistant that finds the perfect time and place for everyone.
               </p>
-              
+
               {/* Feature Icons */}
-              <div className="flex items-center justify-center gap-5 md:gap-10 mb-8 animate-fade-in-up stagger-4 opacity-0">
+              <div className="flex items-center justify-center gap-5 md:gap-10 mb-8 animate-fade-in-up stagger-4">
                 <FeatureIcon icon={<Calendar className="w-4 h-4" />} label="Sync calendars" />
                 <FeatureIcon icon={<Users className="w-4 h-4" />} label="Align everyone" />
                 <FeatureIcon icon={<MapPin className="w-4 h-4" />} label="Find the spot" />
                 <FeatureIcon icon={<CheckCircle className="w-4 h-4" />} label="Confirm" />
               </div>
-              
+
               {/* CTA Button */}
-              <div className="relative z-20 pointer-events-auto">
-                <Button 
-                  onClick={() => { setDebugMsg('Get Started clicked ✓'); onGetStarted() }}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 h-11 text-sm rounded-full glow-gold animate-fade-in-up stagger-5 opacity-0"
-                >
-                  Get Started
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </div>
+              <Button
+                onClick={onGetStarted}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 h-11 text-sm rounded-full glow-gold animate-fade-in-up stagger-5"
+              >
+                Get Started
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
             </div>
 
             {/* Calendar Preview Section */}
@@ -112,7 +100,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
         </main>
 
         {/* Footer */}
-        <footer className="relative z-10 px-5 py-6 border-t border-border/30">
+        <footer className="px-5 py-6 border-t border-border/30">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-muted-foreground text-xs">
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
@@ -123,8 +111,8 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
             </p>
           </div>
         </footer>
-      </OrbitalBackground>
-    </WeatherAtmosphere>
+      </div>
+    </div>
   )
 }
 
@@ -156,7 +144,7 @@ function CalendarPreviewSection() {
             </p>
           </div>
         </div>
-        
+
         <Button
           variant="secondary"
           onClick={() => toast('Calendar sync — coming soon', {
@@ -173,31 +161,31 @@ function CalendarPreviewSection() {
           </svg>
           Connect Google Calendar
         </Button>
-        
+
         <p className="text-[10px] text-muted-foreground text-center mt-3">
           More options coming soon
         </p>
       </GlassCard>
-      
+
       {/* Orbital Calendar Visualization */}
-      <div className="relative h-64 hidden md:flex items-center justify-center">
-        <div className="absolute w-48 h-48 rounded-full border border-primary/20 orbital-ring pointer-events-none" />
-        <div className="absolute w-36 h-36 rounded-full border border-primary/30 orbital-ring-reverse pointer-events-none" />
-        <div className="absolute w-24 h-24 rounded-full border border-primary/40 pointer-events-none" />
-        
+      <div className="relative h-64 hidden md:flex items-center justify-center" aria-hidden="true">
+        <div className="pointer-events-none absolute w-48 h-48 rounded-full border border-primary/20 orbital-ring" />
+        <div className="pointer-events-none absolute w-36 h-36 rounded-full border border-primary/30 orbital-ring-reverse" />
+        <div className="pointer-events-none absolute w-24 h-24 rounded-full border border-primary/40" />
+
         {/* Calendar Icon in center */}
         <div className="relative w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
           <span className="text-lg font-bold text-white">31</span>
         </div>
-        
+
         {/* Floating avatars */}
-        <div className="absolute top-6 right-10 w-8 h-8 rounded-full overflow-hidden border-2 border-background float" style={{ animationDelay: '0s' }}>
+        <div className="pointer-events-none absolute top-6 right-10 w-8 h-8 rounded-full overflow-hidden border-2 border-background float" style={{ animationDelay: '0s' }}>
           <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face" alt="" className="w-full h-full object-cover" />
         </div>
-        <div className="absolute bottom-10 left-6 w-8 h-8 rounded-full overflow-hidden border-2 border-background float" style={{ animationDelay: '1s' }}>
+        <div className="pointer-events-none absolute bottom-10 left-6 w-8 h-8 rounded-full overflow-hidden border-2 border-background float" style={{ animationDelay: '1s' }}>
           <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face" alt="" className="w-full h-full object-cover" />
         </div>
-        <div className="absolute top-1/2 right-2 w-8 h-8 rounded-full overflow-hidden border-2 border-background float" style={{ animationDelay: '2s' }}>
+        <div className="pointer-events-none absolute top-1/2 right-2 w-8 h-8 rounded-full overflow-hidden border-2 border-background float" style={{ animationDelay: '2s' }}>
           <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face" alt="" className="w-full h-full object-cover" />
         </div>
       </div>
@@ -214,7 +202,7 @@ function FeaturesSection() {
     },
     {
       icon: <Users className="w-5 h-5" />,
-      title: "Preferences", 
+      title: "Preferences",
       description: "Factor in food, budget & more."
     },
     {
@@ -228,7 +216,7 @@ function FeaturesSection() {
       description: "We do the heavy lifting."
     }
   ]
-  
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {featureData.map((feature) => (
