@@ -6,6 +6,21 @@ export default function Home() {
   return (
     <>
       <NexusApp />
+      <a
+        href="/?tap-test=1"
+        style={{
+          position: "fixed",
+          top: 20,
+          left: 20,
+          zIndex: 2147483647,
+          background: "lime",
+          color: "black",
+          padding: 20,
+          fontSize: 20
+        }}
+      >
+        RAW LINK TEST
+      </a>
       <button
         style={{
           position: "fixed",
