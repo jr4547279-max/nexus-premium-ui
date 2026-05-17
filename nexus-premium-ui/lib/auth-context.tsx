@@ -10,17 +10,21 @@ import {
 } from 'react'
 import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
+import { type Profile, getProfile, ensureProfile } from './profile-service'
 
 interface AuthContextValue {
   session: Session | null
   user: User | null
+  profile: Profile | null
   loading: boolean
+  profileLoading: boolean
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>
   signUp: (email: string, password: string) => Promise<{
     error: AuthError | null
     needsEmailConfirm?: boolean
   }>
   signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -28,6 +32,23 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+
+  const loadProfile = useCallback(async (userId: string, email: string) => {
+    setProfileLoading(true)
+    try {
+      let p = await getProfile(userId)
+      if (!p) {
+        p = await ensureProfile(userId, email)
+      }
+      setProfile(p)
+    } catch {
+      // Non-fatal: profile table may not exist yet
+    } finally {
+      setProfileLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -35,31 +56,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Hard timeout — if Supabase never responds, unblock the app after 5s
     const timeout = setTimeout(() => setLoading(false), 5000)
 
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         setSession(session)
         setLoading(false)
+        if (session?.user) {
+          loadProfile(session.user.id, session.user.email ?? '')
+        }
       })
-      .catch(() => {
-        setLoading(false)
-      })
+      .catch(() => setLoading(false))
       .finally(() => clearTimeout(timeout))
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       setLoading(false)
+      if (session?.user) {
+        loadProfile(session.user.id, session.user.email ?? '')
+      } else {
+        setProfile(null)
+      }
     })
 
     return () => {
       clearTimeout(timeout)
       subscription.unsubscribe()
     }
-  }, [])
+  }, [loadProfile])
+
+  const refreshProfile = useCallback(async () => {
+    if (!session?.user) return
+    await loadProfile(session.user.id, session.user.email ?? '')
+  }, [session, loadProfile])
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -92,6 +121,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
       const { data, error } = await supabase.auth.signUp({ email, password })
+      if (!error && data.user) {
+        await ensureProfile(data.user.id, email)
+      }
       const needsEmailConfirm = !error && !data.session
       return { error, needsEmailConfirm }
     },
@@ -103,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await supabase.auth.signOut()
     }
     setSession(null)
+    setProfile(null)
   }, [])
 
   return (
@@ -110,10 +143,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         session,
         user: session?.user ?? null,
+        profile,
         loading,
+        profileLoading,
         signIn,
         signUp,
         signOut,
+        refreshProfile,
       }}
     >
       {children}

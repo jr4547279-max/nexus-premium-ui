@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import { useAuth } from '@/lib/auth-context'
+import { updateProfile } from '@/lib/profile-service'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
 import { GoldenRing } from './golden-ring'
@@ -41,9 +43,11 @@ const iconMap: Record<string, React.ReactNode> = {
 }
 
 export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
+  const { user, refreshProfile } = useAuth()
   const [currentStep, setCurrentStep] = useState(0)
   const [selections, setSelections] = useState<Record<string, string[]>>({})
-  
+  const [saving, setSaving] = useState(false)
+
   const step = onboardingSteps[currentStep]
   const isLastStep = currentStep === onboardingSteps.length - 1
   const progress = ((currentStep + 1) / onboardingSteps.length) * 100
@@ -51,33 +55,36 @@ export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
   const toggleSelection = (optionId: string) => {
     const currentSelections = selections[step.id] || []
     const isSingleSelect = step.id === 'travel' || step.id === 'budget' || step.id === 'vibe'
-    
+
     if (isSingleSelect) {
-      setSelections(prev => ({
-        ...prev,
-        [step.id]: [optionId]
-      }))
+      setSelections(prev => ({ ...prev, [step.id]: [optionId] }))
     } else {
       if (currentSelections.includes(optionId)) {
-        setSelections(prev => ({
-          ...prev,
-          [step.id]: currentSelections.filter(id => id !== optionId)
-        }))
+        setSelections(prev => ({ ...prev, [step.id]: currentSelections.filter(id => id !== optionId) }))
       } else {
-        setSelections(prev => ({
-          ...prev,
-          [step.id]: [...currentSelections, optionId]
-        }))
+        setSelections(prev => ({ ...prev, [step.id]: [...currentSelections, optionId] }))
       }
     }
   }
 
-  const isSelected = (optionId: string) => {
-    return (selections[step.id] || []).includes(optionId)
-  }
+  const isSelected = (optionId: string) => (selections[step.id] || []).includes(optionId)
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (isLastStep) {
+      if (user) {
+        setSaving(true)
+        try {
+          await updateProfile(user.id, {
+            onboarding_completed: true,
+            onboarding_answers: selections,
+          })
+          await refreshProfile()
+        } catch {
+          // Non-fatal — proceed even if save fails
+        } finally {
+          setSaving(false)
+        }
+      }
       onComplete()
     } else {
       setCurrentStep(prev => prev + 1)
@@ -173,13 +180,22 @@ export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
           </div>
 
           {/* Continue Button */}
-          <Button 
+          <Button
             onClick={handleNext}
             className="w-full h-11 mt-5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold text-sm"
-            disabled={(selections[step.id] || []).length === 0}
+            disabled={(selections[step.id] || []).length === 0 || saving}
           >
-            {isLastStep ? 'Complete Setup' : 'Continue'}
-            <ChevronRight className="w-4 h-4 ml-1.5" />
+            {saving ? (
+              <div className="flex items-center gap-2">
+                <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                <span>Saving…</span>
+              </div>
+            ) : (
+              <>
+                {isLastStep ? 'Complete Setup' : 'Continue'}
+                <ChevronRight className="w-4 h-4 ml-1.5" />
+              </>
+            )}
           </Button>
         </div>
       </main>

@@ -16,7 +16,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [activeTab, setActiveTab] = useState('home')
   const [showNotifications, setShowNotifications] = useState(false)
 
@@ -24,8 +24,9 @@ export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
   const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening'
 
   const emailPrefix = user?.email?.split('@')[0] ?? ''
-  const displayName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
-  const userInitial = (user?.email?.[0] ?? 'N').toUpperCase()
+  const emailName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
+  const displayName = profile?.display_name || emailName
+  const userInitial = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
 
   const goldenWindowGroup = mockGroups.find(g => g.hasGoldenWindow)
 
