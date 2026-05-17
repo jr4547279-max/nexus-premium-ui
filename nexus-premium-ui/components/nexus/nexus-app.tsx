@@ -45,20 +45,30 @@ export function NexusApp() {
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
 
   const initializedRef = useRef(false)
+  // Track whether we had a session so we only redirect to landing on actual sign-out,
+  // not on initial auth resolution with no session (which would override button taps).
+  const hadSessionRef = useRef(false)
 
   /* ── Once auth resolves, silently upgrade to 'home' if session exists ── */
   useEffect(() => {
     if (loading) return
     if (initializedRef.current) return
     initializedRef.current = true
-    if (session) setCurrentScreen('home')
+    if (session) {
+      hadSessionRef.current = true
+      setCurrentScreen('home')
+    }
   }, [loading, session])
 
-  /* ── Sign-out: send back to landing from anywhere ── */
+  /* ── Sign-out: only redirect to landing when user had a session and lost it ── */
   useEffect(() => {
     if (!initializedRef.current) return
-    if (!loading && !session) {
+    if (!loading && !session && hadSessionRef.current) {
+      hadSessionRef.current = false
       setCurrentScreen('landing')
+    }
+    if (session) {
+      hadSessionRef.current = true
     }
   }, [session, loading])
 
