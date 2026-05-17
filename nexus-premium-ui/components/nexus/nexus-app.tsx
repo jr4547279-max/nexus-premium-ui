@@ -23,15 +23,6 @@ type Screen =
   | 'activity'
   | 'profile'
 
-function hashToScreen(hash: string): Screen | null {
-  switch (hash) {
-    case '#onboarding': return 'onboarding'
-    case '#auth':       return 'auth'
-    case '#home':       return 'home'
-    default:            return null
-  }
-}
-
 export function NexusApp() {
   const { session, loading, signOut } = useAuth()
   const [currentScreen, setCurrentScreen] = useState<Screen>('landing')
@@ -40,23 +31,6 @@ export function NexusApp() {
 
   const initializedRef = useRef(false)
   const hadSessionRef = useRef(false)
-
-  /* ── Hash-based navigation (diagnostic + mobile fallback) ── */
-  useEffect(() => {
-    function onHashChange() {
-      const screen = hashToScreen(window.location.hash)
-      if (screen) {
-        console.log('[Nexus] hash navigation ->', screen)
-        setCurrentScreen(screen)
-        // Clear the hash so back-button doesn't fight state
-        history.replaceState(null, '', window.location.pathname)
-      }
-    }
-    // Fire once on mount in case the page loaded with a hash
-    onHashChange()
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
-  }, [])
 
   /* ── Once auth resolves, silently upgrade to 'home' if session exists ── */
   useEffect(() => {
