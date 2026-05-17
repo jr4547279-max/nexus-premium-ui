@@ -29,7 +29,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd nexus-premium-ui && pnpm run dev"
+args = "cd nexus-premium-ui && pnpm run build && pnpm run start"
 waitForPort = 5000
 
 [agent]
