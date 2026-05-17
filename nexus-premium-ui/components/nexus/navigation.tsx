@@ -65,6 +65,7 @@ interface TopHeaderProps {
   notificationCount?: number
   onNotificationClick?: () => void
   userAvatar?: string
+  userInitial?: string
   onAvatarClick?: () => void
   className?: string
 }
@@ -77,6 +78,7 @@ export function TopHeader({
   notificationCount = 0,
   onNotificationClick,
   userAvatar,
+  userInitial,
   onAvatarClick,
   className,
 }: TopHeaderProps) {
@@ -112,6 +114,13 @@ export function TopHeader({
                 alt="Profile" 
                 className="w-8 h-8 rounded-full border-2 border-primary/30"
               />
+            </button>
+          ) : userInitial ? (
+            <button
+              onClick={onAvatarClick}
+              className="w-8 h-8 rounded-full border-2 border-primary/30 bg-primary/10 flex items-center justify-center focus:outline-none"
+            >
+              <span className="text-xs font-medium text-primary">{userInitial}</span>
             </button>
           ) : null}
           <h1 className="text-base font-medium">{title}</h1>

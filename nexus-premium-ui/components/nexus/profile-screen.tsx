@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
+import { useAuth } from '@/lib/auth-context'
 import { TopHeader, BottomNav } from './navigation'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
@@ -29,8 +30,13 @@ const LANGUAGES = [
 ]
 
 export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenProps) {
+  const { user } = useAuth()
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
+
+  const emailPrefix = user?.email?.split('@')[0] ?? ''
+  const displayName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
+  const userInitial = (user?.email?.[0] ?? 'N').toUpperCase()
 
   const [notifications, setNotifications] = useState(true)
   const [showLangPicker, setShowLangPicker] = useState(false)
@@ -52,17 +58,15 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
         {/* Profile Header */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative mb-3">
-            <img
-              src={mockUser.avatar}
-              alt={mockUser.name}
-              className="w-20 h-20 rounded-full border-4 border-primary/30"
-            />
+            <div className="w-20 h-20 rounded-full border-4 border-primary/30 bg-primary/10 flex items-center justify-center">
+              <span className="text-2xl font-medium text-primary">{userInitial}</span>
+            </div>
             <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary flex items-center justify-center">
               <User className="w-3.5 h-3.5 text-primary-foreground" />
             </div>
           </div>
-          <h1 className="text-lg font-medium">{mockUser.name}</h1>
-          <p className="text-muted-foreground text-xs">{mockUser.email}</p>
+          <h1 className="text-lg font-medium">{displayName || 'Account'}</h1>
+          <p className="text-muted-foreground text-xs">{user?.email ?? ''}</p>
         </div>
 
         {/* Connected Calendars */}

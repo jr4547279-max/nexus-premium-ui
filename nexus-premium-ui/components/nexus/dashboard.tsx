@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import { useAuth } from '@/lib/auth-context'
 import { TopHeader, BottomNav } from './navigation'
 import { GlassCard, GroupCard, AvatarStack } from './glass-card'
 import { GoldenRing, GlowingDot } from './golden-ring'
 import { Button } from '@/components/ui/button'
 import { Plus, Sparkles, Calendar, Bell, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { mockUser, mockGroups, mockActivity, mockNotifications } from '@/lib/mock-data'
+import { mockGroups, mockActivity, mockNotifications } from '@/lib/mock-data'
 
 interface DashboardProps {
   onGroupClick: (groupId: string) => void
@@ -15,11 +16,16 @@ interface DashboardProps {
 }
 
 export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('home')
   const [showNotifications, setShowNotifications] = useState(false)
 
   const currentHour = new Date().getHours()
   const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening'
+
+  const emailPrefix = user?.email?.split('@')[0] ?? ''
+  const displayName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
+  const userInitial = (user?.email?.[0] ?? 'N').toUpperCase()
 
   const goldenWindowGroup = mockGroups.find(g => g.hasGoldenWindow)
 
@@ -27,7 +33,7 @@ export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
       <TopHeader 
-        userAvatar={mockUser.avatar}
+        userInitial={userInitial}
         onAvatarClick={() => onNavigate('profile')}
         notificationCount={mockNotifications.filter(n => n.unread).length}
         onNotificationClick={() => setShowNotifications(!showNotifications)}
@@ -71,7 +77,7 @@ export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
         {/* Greeting */}
         <div className="mb-5">
           <h1 className="text-xl font-medium">
-            {greeting}, {mockUser.name.split(' ')[0]}
+            {greeting}, {displayName || 'there'}
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             Ready to make something happen?
