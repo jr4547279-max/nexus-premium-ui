@@ -87,7 +87,7 @@ export function NexusApp() {
       return (
         <AuthScreen
           onBack={() => setCurrentScreen('landing')}
-          onSuccess={() => setCurrentScreen('home')}
+          onSuccess={() => setCurrentScreen('onboarding')}
         />
       )
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { updateProfile } from '@/lib/profile-service'
 import { GlassCard } from './glass-card'
@@ -43,10 +43,17 @@ const iconMap: Record<string, React.ReactNode> = {
 }
 
 export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
-  const { user, refreshProfile } = useAuth()
+  const { user, profile, profileLoading, refreshProfile } = useAuth()
   const [currentStep, setCurrentStep] = useState(0)
   const [selections, setSelections] = useState<Record<string, string[]>>({})
   const [saving, setSaving] = useState(false)
+
+  // Returning users who already completed onboarding skip straight to home
+  useEffect(() => {
+    if (!profileLoading && profile?.onboarding_completed) {
+      onComplete()
+    }
+  }, [profileLoading, profile, onComplete])
 
   const step = onboardingSteps[currentStep]
   const isLastStep = currentStep === onboardingSteps.length - 1
