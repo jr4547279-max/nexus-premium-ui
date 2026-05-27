@@ -20,6 +20,14 @@ import {
 import { InviteMemberModal } from './invite-member-modal'
 import { AvailabilityEditor } from './availability-editor'
 import { useAuth } from '@/lib/auth-context'
+import { getGroupAvailability } from '@/lib/availability-service'
+import {
+  computeGoldenWindows,
+  formatTime12h,
+  formatDuration,
+  dayLabel,
+  type GoldenWindow,
+} from '@/lib/golden-window'
 
 interface GroupDetailProps {
   groupId: string
@@ -57,21 +65,41 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const [realGroup, setRealGroup] = useState<Group | null>(null)
   const [realMembers, setRealMembers] = useState<GroupMember[]>([])
   const [loading, setLoading] = useState(realMode)
+  const [realWindows, setRealWindows] = useState<GoldenWindow[] | null>(null)
+  const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
 
   useEffect(() => {
     if (!realMode) return
     let cancelled = false
     setLoading(true)
-    Promise.all([getGroup(groupId), listGroupMembers(groupId)]).then(([g, m]) => {
+    setAvailabilityLoaded(false)
+    Promise.all([
+      getGroup(groupId),
+      listGroupMembers(groupId),
+      getGroupAvailability(groupId),
+    ]).then(([g, m, avail]) => {
       if (cancelled) return
       setRealGroup(g)
       setRealMembers(m)
+      const windows = computeGoldenWindows(
+        m.map((mem) => ({ id: mem.user_id, name: mem.display_name })),
+        avail.map((r) => ({
+          user_id: r.user_id,
+          day_of_week: r.day_of_week,
+          start_time: r.start_time,
+          end_time: r.end_time,
+        })),
+      )
+      setRealWindows(windows)
+      setAvailabilityLoaded(true)
       setLoading(false)
     })
     return () => {
       cancelled = true
     }
   }, [groupId, realMode])
+
+  const bestWindow = realWindows && realWindows[0] ? realWindows[0] : null
 
   // Derived view-model: same shape regardless of real vs mock.
   const name = realMode ? realGroup?.name ?? 'Loading…' : mockGroup.name
@@ -120,7 +148,70 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* Golden Window Banner (mock-only for now) */}
+        {/* Real Golden Window — computed from member availability */}
+        {realMode && bestWindow && (
+          <GlassCard
+            glow
+            className="mb-6 p-5 cursor-pointer"
+            onClick={onViewGoldenWindow}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-sm text-primary font-medium">Golden Window Found ✨</span>
+              </div>
+              <span className="text-xs px-2 py-1 bg-primary/20 text-primary rounded-full">
+                {bestWindow.label || 'BEST MATCH'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <GoldenRing size="md" intensity="normal" />
+              <div className="flex-1">
+                <p className="text-2xl font-bold">{formatTime12h(bestWindow.start_time)}</p>
+                <p className="text-muted-foreground">
+                  {dayLabel(bestWindow.day_of_week, bestWindow.days_until)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatDuration(bestWindow.duration_minutes)} • {formatTime12h(bestWindow.start_time)} – {formatTime12h(bestWindow.end_time)}
+                </p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </div>
+
+            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/30">
+              <AvatarStack avatars={avatars} max={5} />
+              <div className="flex items-center gap-1 text-emerald-500 text-sm">
+                <Check className="w-4 h-4" />
+                <span>
+                  {bestWindow.available_member_count} of {bestWindow.total_member_count} free
+                </span>
+              </div>
+            </div>
+          </GlassCard>
+        )}
+
+        {/* Real Golden Window — empty state when nobody (or only one) has overlapping availability */}
+        {realMode && availabilityLoaded && !bestWindow && (
+          <GlassCard className="mb-6 p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">No Golden Window yet</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Once two or more members share at least an hour of overlapping availability,
+              your group's best time will appear here. Add yours in the Availability tab.
+            </p>
+            <Button
+              onClick={() => setActiveSection('availability')}
+              className="mt-4 h-9 px-4 rounded-lg bg-primary/15 text-primary hover:bg-primary/25 text-xs font-medium"
+            >
+              Set your availability
+            </Button>
+          </GlassCard>
+        )}
+
+        {/* Golden Window Banner (mock-only — legacy demo groups) */}
         {showGoldenWindow && mockGroup.goldenWindow && (
           <GlassCard
             glow
@@ -180,6 +271,22 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 value={`${mockGroup.goldenWindow.avgTravelTime}min`}
                 variant="default"
                 icon={<Clock className="w-3 h-3" />}
+              />
+            </>
+          )}
+          {realMode && bestWindow && (
+            <>
+              <StatBadge
+                label="confidence"
+                value={`${bestWindow.confidence_score}%`}
+                variant="gold"
+                icon={<Sparkles className="w-3 h-3" />}
+              />
+              <StatBadge
+                label="fairness"
+                value={`${bestWindow.fairness_score}%`}
+                variant="default"
+                icon={<Check className="w-3 h-3" />}
               />
             </>
           )}
