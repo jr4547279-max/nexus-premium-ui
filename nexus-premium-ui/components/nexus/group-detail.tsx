@@ -32,6 +32,7 @@ import { VenueRecommendations } from './venue-recommendations'
 import { WeatherChip } from './weather-chip'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
 import { computeMidpoint } from '@/lib/venue-service'
+import { GoldenWindowSearching } from './golden-window-searching'
 
 interface GroupDetailProps {
   groupId: string
@@ -74,6 +75,21 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const [weather, setWeather] = useState<Weather | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
 
+  // Phase 6B — cinematic reveal state.
+  //
+  // We show the atmospheric searching overlay once per (group, session).
+  // After the first reveal, sessionStorage holds the flag so revisiting
+  // the group in the same tab loads instantly with no replay.
+  // Respect prefers-reduced-motion — skip the sequence entirely in that
+  // case so we never animate against the user's accessibility setting.
+  //
+  // revealMode tracks *how* we arrived at the revealed state so the JSX
+  // can decide whether to apply the scale/fade-in animation classes:
+  //   - 'cinematic' → first-ever visit, full animation
+  //   - 'instant'   → reduced-motion OR already-revealed-this-session, no animation
+  const [revealPhase, setRevealPhase] = useState<'init' | 'searching' | 'revealed'>('init')
+  const [revealMode, setRevealMode] = useState<'cinematic' | 'instant'>('cinematic')
+
   useEffect(() => {
     if (!realMode) return
     let cancelled = false
@@ -106,6 +122,56 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   }, [groupId, realMode])
 
   const bestWindow = realWindows && realWindows[0] ? realWindows[0] : null
+
+  // Phase 6B — drive the reveal sequence once a real Golden Window is
+  // computed. Three cases:
+  //   1. Already revealed this session → snap straight to 'revealed'.
+  //   2. Reduced-motion → snap straight to 'revealed' (no animation).
+  //   3. Fresh visit → show 'searching' for ~2.2 s, then 'revealed'.
+  useEffect(() => {
+    if (!realMode || !availabilityLoaded || !bestWindow) return
+    if (revealPhase === 'revealed') return
+
+    const storageKey = `nexus:revealed:${groupId}`
+    let alreadyRevealed = false
+    try {
+      alreadyRevealed =
+        typeof window !== 'undefined' &&
+        window.sessionStorage.getItem(storageKey) === '1'
+    } catch {
+      // sessionStorage can throw in restricted contexts — treat as not revealed.
+    }
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+    if (alreadyRevealed || prefersReducedMotion) {
+      // No replay, no animation — just render the final state immediately.
+      setRevealMode('instant')
+      setRevealPhase('revealed')
+      return
+    }
+
+    setRevealMode('cinematic')
+    setRevealPhase('searching')
+    const timer = setTimeout(() => {
+      setRevealPhase('revealed')
+      try {
+        window.sessionStorage.setItem(storageKey, '1')
+      } catch {
+        // sessionStorage can throw in private modes — non-fatal.
+      }
+    }, 2400)
+    return () => clearTimeout(timer)
+  }, [realMode, availabilityLoaded, bestWindow, groupId, revealPhase])
+
+  // Animation classes are only applied on the first cinematic reveal.
+  // Reduced-motion users and returning visitors get static, instant content.
+  const shouldAnimateReveal = revealMode === 'cinematic'
+
+  // Convenience flags read by the JSX below.
+  const showSearchingOverlay = realMode && bestWindow && revealPhase === 'searching'
+  const showRevealedContent = realMode && bestWindow && revealPhase === 'revealed'
 
   // Phase 6A — fetch real weather for the Golden Window slot. We have no
   // per-member coords yet, so the midpoint falls back to Eastbourne.
@@ -180,11 +246,20 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* Real Golden Window — computed from member availability */}
-        {realMode && bestWindow && (
+        {/* Phase 6B — cinematic searching overlay. Replaces the Golden
+            Window card on first visit only, then yields to the real card. */}
+        {showSearchingOverlay && <GoldenWindowSearching />}
+
+        {/* Real Golden Window — computed from member availability.
+            Wrapped in the reveal animation so it scales+fades in once
+            the searching phase ends. */}
+        {showRevealedContent && (
           <GlassCard
             glow
-            className="mb-6 p-5 cursor-pointer"
+            className={cn(
+              'mb-6 p-5 cursor-pointer',
+              shouldAnimateReveal && 'animate-scale-in',
+            )}
             onClick={onViewGoldenWindow}
           >
             <div className="flex items-center justify-between mb-4">
@@ -234,17 +309,23 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </GlassCard>
         )}
 
-        {/* Real venue recommendations — shown whenever a real Golden Window exists */}
-        {realMode && bestWindow && (
-          <VenueRecommendations
-            groupName={realGroup?.name ?? null}
-            goldenWindow={{
-              day_of_week: bestWindow.day_of_week,
-              start_time: bestWindow.start_time,
-              end_time: bestWindow.end_time,
-            }}
-            weather={weather}
-          />
+        {/* Real venue recommendations — fades up shortly after the
+            Golden Window card so the reveal feels staged, not all at once. */}
+        {showRevealedContent && (
+          <div
+            className={cn(shouldAnimateReveal && 'animate-fade-in-up opacity-0')}
+            style={shouldAnimateReveal ? { animationDelay: '300ms' } : undefined}
+          >
+            <VenueRecommendations
+              groupName={realGroup?.name ?? null}
+              goldenWindow={{
+                day_of_week: bestWindow.day_of_week,
+                start_time: bestWindow.start_time,
+                end_time: bestWindow.end_time,
+              }}
+              weather={weather}
+            />
+          </div>
         )}
 
         {/* Real Golden Window — empty state when nobody (or only one) has overlapping availability */}
