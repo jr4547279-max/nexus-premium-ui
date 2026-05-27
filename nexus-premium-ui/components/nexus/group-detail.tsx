@@ -18,6 +18,8 @@ import {
   type GroupMember,
 } from '@/lib/group-service'
 import { InviteMemberModal } from './invite-member-modal'
+import { AvailabilityEditor } from './availability-editor'
+import { useAuth } from '@/lib/auth-context'
 
 interface GroupDetailProps {
   groupId: string
@@ -48,7 +50,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const realMode = isUuid(groupId)
   const mockGroup = mockGroups.find((g) => g.id === groupId) || mockGroups[0]
 
-  const [activeSection, setActiveSection] = useState<'members' | 'preferences'>('members')
+  const { user } = useAuth()
+  const [activeSection, setActiveSection] = useState<'members' | 'availability' | 'preferences'>('members')
   const [inviteOpen, setInviteOpen] = useState(false)
 
   const [realGroup, setRealGroup] = useState<Group | null>(null)
@@ -195,6 +198,19 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           >
             Members
           </button>
+          {realMode && (
+            <button
+              onClick={() => setActiveSection('availability')}
+              className={cn(
+                'flex-1 py-3 rounded-xl text-sm font-medium transition-all',
+                activeSection === 'availability'
+                  ? 'bg-primary/10 text-primary border border-primary/30'
+                  : 'bg-muted/30 text-muted-foreground'
+              )}
+            >
+              Availability
+            </button>
+          )}
           <button
             onClick={() => setActiveSection('preferences')}
             className={cn(
@@ -207,6 +223,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             Preferences
           </button>
         </div>
+
+        {/* Availability (real groups only) */}
+        {realMode && activeSection === 'availability' && (
+          <AvailabilityEditor
+            groupId={groupId}
+            currentUserId={user?.id ?? null}
+          />
+        )}
 
         {/* Members List */}
         {activeSection === 'members' && (
