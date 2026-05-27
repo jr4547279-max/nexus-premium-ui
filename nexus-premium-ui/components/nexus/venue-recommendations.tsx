@@ -120,9 +120,9 @@ export function VenueRecommendations({
   return (
     <div className="mb-6 space-y-4">
       {/* ──────────────────────────────────────────────────────────────
-          Cinematic map section
+          Cinematic map section — fades in with a subtle scale on mount
           ────────────────────────────────────────────────────────────── */}
-      <GlassCard className="p-0 overflow-hidden relative">
+      <GlassCard className="p-0 overflow-hidden relative motion-safe:animate-scale-in">
         <div className="relative w-full bg-[radial-gradient(ellipse_at_center,#0c1626,#05080f)]" style={{ aspectRatio: '2 / 1' }}>
           {/* Static map image (server-proxied, dark-styled). If the Static
               Maps API is disabled, the <img> errors and we leave the
@@ -263,16 +263,23 @@ export function VenueRecommendations({
       ) : (
         <div className="space-y-2.5">
           {rankedVenues.slice(0, 5).map((v, idx) => (
-            <VenueCard
+            // Stagger each card upward — 120 ms between, starts after the
+            // map has had a beat to land. CSS keyframe runs once per mount.
+            <div
               key={`${v.name}-${v.address ?? idx}`}
-              venue={v}
-              isTopPick={idx === 0}
-              vote={votes[v.name] ?? 0}
-              onVote={(dir) =>
-                setVotes((p) => ({ ...p, [v.name]: p[v.name] === dir ? 0 : dir }))
-              }
-              onOpen={() => setSelectedVenue(v)}
-            />
+              className="motion-safe:animate-fade-in-up motion-safe:opacity-0"
+              style={{ animationDelay: `${200 + idx * 120}ms` }}
+            >
+              <VenueCard
+                venue={v}
+                isTopPick={idx === 0}
+                vote={votes[v.name] ?? 0}
+                onVote={(dir) =>
+                  setVotes((p) => ({ ...p, [v.name]: p[v.name] === dir ? 0 : dir }))
+                }
+                onOpen={() => setSelectedVenue(v)}
+              />
+            </div>
           ))}
         </div>
       )}

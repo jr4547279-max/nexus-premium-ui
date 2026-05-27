@@ -101,8 +101,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   // Venues are now their own gate — only render after the user presses the
   // explicit "Explore nearby fits" button (or taps the GW card as a
   // secondary path). Resets per group via the [groupId] cleanup effect.
+  //
+  // venuesPending is a brief intermediate state (~850 ms) where a
+  // "Searching nearby fits…" card sits in place of the venue section,
+  // giving the experience a deliberate, intelligent feel before the real
+  // venues animate in.
   const [venuesRevealed, setVenuesRevealed] = useState(false)
-  // Ref on the venue section so we can smooth-scroll to it on reveal.
+  const [venuesPending, setVenuesPending] = useState(false)
+  // Ref on the venue section wrapper so we can smooth-scroll to it on reveal.
   const venuesRef = useRef<HTMLDivElement | null>(null)
   // Timer IDs are held in a ref so the dedicated [groupId] cleanup effect
   // can clear them. We deliberately do NOT clear timers in the click
@@ -111,6 +117,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const revealTimersRef = useRef<{
     close?: ReturnType<typeof setTimeout>
     reveal?: ReturnType<typeof setTimeout>
+    venues?: ReturnType<typeof setTimeout>
   }>({})
 
   useEffect(() => {
@@ -175,10 +182,12 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     return () => {
       if (revealTimersRef.current.close) clearTimeout(revealTimersRef.current.close)
       if (revealTimersRef.current.reveal) clearTimeout(revealTimersRef.current.reveal)
+      if (revealTimersRef.current.venues) clearTimeout(revealTimersRef.current.venues)
       revealTimersRef.current = {}
       setRevealPhase('idle')
       setRevealMode('cinematic')
       setVenuesRevealed(false)
+      setVenuesPending(false)
     }
   }, [groupId])
 
@@ -220,21 +229,36 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     )
   }
 
-  // User-triggered: reveal venue recommendations and smooth-scroll to them.
-  // Idempotent — repeated calls after venues are visible just re-scroll.
+  // User-triggered: reveal venue recommendations with a brief cinematic
+  // "Searching nearby fits…" beat, then animate the real section in.
+  // Idempotent — repeated taps once venues are visible just re-scroll.
   const handleRevealVenues = () => {
-    if (!venuesRevealed) setVenuesRevealed(true)
-    // Scroll after the fade-in mount has had a frame to attach.
-    // 80ms covers both the initial mount and Strict Mode's double-effect.
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+    if (!venuesRevealed && !venuesPending) {
+      if (prefersReducedMotion) {
+        // No staged pending state — snap straight to venues.
+        setVenuesRevealed(true)
+      } else {
+        setVenuesPending(true)
+        revealTimersRef.current.venues = setTimeout(() => {
+          setVenuesRevealed(true)
+          setVenuesPending(false)
+        }, 850)
+      }
+    }
+    // Scroll right away to the loading card so the user follows the
+    // experience downward. For animated users we wait 80ms so the pending
+    // card mounts first; reduced-motion users scroll on the next tick.
+    const scrollDelay = prefersReducedMotion ? 0 : 80
     setTimeout(() => {
-      const prefersReducedMotion =
-        typeof window !== 'undefined' &&
-        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
       venuesRef.current?.scrollIntoView({
         behavior: prefersReducedMotion ? 'auto' : 'smooth',
         block: 'start',
       })
-    }, 80)
+    }, scrollDelay)
   }
 
   // Animation classes are only applied on the first cinematic reveal.
@@ -403,38 +427,58 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
         {/* Primary call-to-action — explicit, obvious, can't be missed.
             Only shown after the Golden Window is revealed and before the
-            user has opened venues. */}
-        {showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && (
-          <Button
-            onClick={handleRevealVenues}
-            className={cn(
-              'w-full h-14 mb-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold',
-              shouldAnimateReveal && 'animate-fade-in-up opacity-0',
-            )}
-            style={shouldAnimateReveal ? { animationDelay: '300ms' } : undefined}
-          >
-            <MapPin className="w-5 h-5 mr-2" />
-            Explore nearby fits
-          </Button>
-        )}
+            user has started exploring venues. */}
+        {showRevealedContent &&
+          revealPhase === 'revealed' &&
+          !venuesRevealed &&
+          !venuesPending && (
+            <Button
+              onClick={handleRevealVenues}
+              className={cn(
+                'w-full h-14 mb-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold',
+                shouldAnimateReveal && 'animate-fade-in-up opacity-0',
+              )}
+              style={shouldAnimateReveal ? { animationDelay: '300ms' } : undefined}
+            >
+              <MapPin className="w-5 h-5 mr-2" />
+              Explore nearby fits
+            </Button>
+          )}
 
-        {/* Real venue recommendations — only rendered once the user has
-            pressed "Explore nearby fits" (or tapped the GW card). Fades in. */}
-        {showRevealedContent && venuesRevealed && (
-          <div
-            ref={venuesRef}
-            className="animate-fade-in-up opacity-0 scroll-mt-20"
-            style={{ animationDelay: '0ms' }}
-          >
-            <VenueRecommendations
-              groupName={realGroup?.name ?? null}
-              goldenWindow={{
-                day_of_week: bestWindow.day_of_week,
-                start_time: bestWindow.start_time,
-                end_time: bestWindow.end_time,
-              }}
-              weather={weather}
-            />
+        {/* Venue section — wraps the pending state and the real recommendations
+            so smooth-scroll lands in the same place either way. */}
+        {showRevealedContent && (venuesPending || venuesRevealed) && (
+          <div ref={venuesRef} className="scroll-mt-20">
+            {venuesPending && (
+              <GlassCard className="mb-6 p-5 motion-safe:animate-fade-in-up motion-safe:opacity-0">
+                <div
+                  className="flex items-center gap-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="relative flex w-2.5 h-2.5">
+                    <span className="absolute inset-0 rounded-full bg-amber-400/50 animate-ping" />
+                    <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.7)]" />
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    Searching nearby fits…
+                  </span>
+                </div>
+              </GlassCard>
+            )}
+            {venuesRevealed && (
+              <div className="motion-safe:animate-fade-in-up motion-safe:opacity-0">
+                <VenueRecommendations
+                  groupName={realGroup?.name ?? null}
+                  goldenWindow={{
+                    day_of_week: bestWindow.day_of_week,
+                    start_time: bestWindow.start_time,
+                    end_time: bestWindow.end_time,
+                  }}
+                  weather={weather}
+                />
+              </div>
+            )}
           </div>
         )}
 
