@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TopHeader } from './navigation'
 import { GlassCard, AvatarStack, StatBadge } from './glass-card'
 import { GoldenRing } from './golden-ring'
@@ -87,8 +87,28 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   // can decide whether to apply the scale/fade-in animation classes:
   //   - 'cinematic' → first-ever visit, full animation
   //   - 'instant'   → reduced-motion OR already-revealed-this-session, no animation
-  const [revealPhase, setRevealPhase] = useState<'init' | 'searching' | 'revealed'>('init')
+  //
+  // 'closing' is a brief transitional phase where the full-screen overlay
+  // fades out over ~600 ms while the Golden Window card scale-ins
+  // underneath, producing a smooth crossfade handoff.
+  const [revealPhase, setRevealPhase] = useState<
+    'init' | 'searching' | 'closing' | 'revealed'
+  >('init')
   const [revealMode, setRevealMode] = useState<'cinematic' | 'instant'>('cinematic')
+  // Ref guard so the reveal effect is a one-shot per group. We can't rely
+  // on a `revealPhase === 'init'` check inside the effect because React
+  // tears down the timers in cleanup the moment phase transitions, then
+  // re-runs the effect (which would early-return and never reschedule).
+  // Timer IDs are held in a separate ref so the dedicated [groupId] cleanup
+  // effect can clear them. Under React 18 Strict Mode (dev), the
+  // mount → cleanup → mount cycle clears + reschedules the timers exactly
+  // once, which is safe — the second setup resets the guard and reschedules,
+  // so no stall remains and the visible timeline is unaffected.
+  const revealStartedRef = useRef(false)
+  const revealTimersRef = useRef<{
+    close?: ReturnType<typeof setTimeout>
+    reveal?: ReturnType<typeof setTimeout>
+  }>({})
 
   useEffect(() => {
     if (!realMode) return
@@ -130,7 +150,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   //   3. Fresh visit → show 'searching' for ~2.2 s, then 'revealed'.
   useEffect(() => {
     if (!realMode || !availabilityLoaded || !bestWindow) return
-    if (revealPhase === 'revealed') return
+    // One-shot per mount — never start the sequence twice.
+    if (revealStartedRef.current) return
+    revealStartedRef.current = true
 
     const storageKey = `nexus:revealed:${groupId}`
     let alreadyRevealed = false
@@ -154,24 +176,55 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
     setRevealMode('cinematic')
     setRevealPhase('searching')
-    const timer = setTimeout(() => {
-      setRevealPhase('revealed')
+
+    // Phase 6B adjustment — slower, more cinematic pacing.
+    //   0 ms      → searching overlay mounts, phrases begin rotating
+    //   3000 ms   → enter 'closing': overlay starts fading + Golden Window
+    //                card mounts underneath with scale-in (true crossfade)
+    //   3600 ms   → overlay unmounts, venue section is allowed to fade up
+    //   4200 ms   → venue recommendations finish their fade-up
+    //   ~4.2 s    → fully revealed
+    revealTimersRef.current.close = setTimeout(() => {
+      setRevealPhase('closing')
+      // Mark the session as revealed as soon as the card mounts —
+      // protects against the user navigating away mid-fade.
       try {
         window.sessionStorage.setItem(storageKey, '1')
       } catch {
         // sessionStorage can throw in private modes — non-fatal.
       }
-    }, 2400)
-    return () => clearTimeout(timer)
-  }, [realMode, availabilityLoaded, bestWindow, groupId, revealPhase])
+    }, 3000)
+    revealTimersRef.current.reveal = setTimeout(() => setRevealPhase('revealed'), 3600)
+
+    // No cleanup here on purpose. Clearing the timers on every effect
+    // teardown would strand the sequence under React Strict Mode (which
+    // runs mount → cleanup → mount in dev). The real cleanup lives in a
+    // separate effect keyed on `groupId` below.
+  }, [realMode, availabilityLoaded, bestWindow, groupId])
+
+  // Hard reset whenever the user switches to a different group, and on
+  // true unmount. This is the only place timers are cleared.
+  useEffect(() => {
+    return () => {
+      if (revealTimersRef.current.close) clearTimeout(revealTimersRef.current.close)
+      if (revealTimersRef.current.reveal) clearTimeout(revealTimersRef.current.reveal)
+      revealTimersRef.current = {}
+      revealStartedRef.current = false
+    }
+  }, [groupId])
 
   // Animation classes are only applied on the first cinematic reveal.
   // Reduced-motion users and returning visitors get static, instant content.
   const shouldAnimateReveal = revealMode === 'cinematic'
 
   // Convenience flags read by the JSX below.
-  const showSearchingOverlay = realMode && bestWindow && revealPhase === 'searching'
-  const showRevealedContent = realMode && bestWindow && revealPhase === 'revealed'
+  // The overlay stays mounted through 'closing' so it can fade out.
+  // The Golden Window card mounts at 'closing' too so it scale-ins
+  // *underneath* the fading overlay — that's the true crossfade.
+  const showSearchingOverlay =
+    realMode && bestWindow && (revealPhase === 'searching' || revealPhase === 'closing')
+  const showRevealedContent =
+    realMode && bestWindow && (revealPhase === 'closing' || revealPhase === 'revealed')
 
   // Phase 6A — fetch real weather for the Golden Window slot. We have no
   // per-member coords yet, so the midpoint falls back to Eastbourne.
@@ -246,9 +299,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* Phase 6B — cinematic searching overlay. Replaces the Golden
-            Window card on first visit only, then yields to the real card. */}
-        {showSearchingOverlay && <GoldenWindowSearching />}
+        {/* Phase 6B — full-screen cinematic searching overlay. Mounts only
+            on the first visit and fades out smoothly during 'closing'. */}
+        {showSearchingOverlay && (
+          <GoldenWindowSearching exiting={revealPhase === 'closing'} />
+        )}
 
         {/* Real Golden Window — computed from member availability.
             Wrapped in the reveal animation so it scales+fades in once
@@ -314,7 +369,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
         {showRevealedContent && (
           <div
             className={cn(shouldAnimateReveal && 'animate-fade-in-up opacity-0')}
-            style={shouldAnimateReveal ? { animationDelay: '300ms' } : undefined}
+            style={shouldAnimateReveal ? { animationDelay: '600ms' } : undefined}
           >
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
