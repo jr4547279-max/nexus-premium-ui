@@ -120,9 +120,12 @@ export function VenueRecommendations({
   return (
     <div className="mb-6 space-y-4">
       {/* ──────────────────────────────────────────────────────────────
-          Cinematic map section — fades in with a subtle scale on mount
+          Map section — renders immediately, no entry animation (the
+          `motion-safe:animate-*` variant did not actually wrap the
+          custom globals.css animation classes, only the `opacity-0`
+          twin, which left content invisible forever).
           ────────────────────────────────────────────────────────────── */}
-      <GlassCard className="p-0 overflow-hidden relative motion-safe:animate-scale-in">
+      <GlassCard className="p-0 overflow-hidden relative">
         <div className="relative w-full bg-[radial-gradient(ellipse_at_center,#0c1626,#05080f)]" style={{ aspectRatio: '2 / 1' }}>
           {/* Static map image (server-proxied, dark-styled). If the Static
               Maps API is disabled, the <img> errors and we leave the
@@ -239,7 +242,17 @@ export function VenueRecommendations({
 
       {loading ? (
         <GlassCard className="p-4">
-          <p className="text-xs text-muted-foreground">Finding spots near you…</p>
+          <div
+            className="flex items-center gap-3"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="relative flex w-2.5 h-2.5">
+              <span className="absolute inset-0 rounded-full bg-amber-400/50 animate-ping" />
+              <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.7)]" />
+            </span>
+            <p className="text-sm text-muted-foreground">Searching nearby fits…</p>
+          </div>
         </GlassCard>
       ) : error ? (
         <GlassCard className="p-4">
@@ -263,23 +276,16 @@ export function VenueRecommendations({
       ) : (
         <div className="space-y-2.5">
           {rankedVenues.slice(0, 5).map((v, idx) => (
-            // Stagger each card upward — 120 ms between, starts after the
-            // map has had a beat to land. CSS keyframe runs once per mount.
-            <div
+            <VenueCard
               key={`${v.name}-${v.address ?? idx}`}
-              className="motion-safe:animate-fade-in-up motion-safe:opacity-0"
-              style={{ animationDelay: `${200 + idx * 120}ms` }}
-            >
-              <VenueCard
-                venue={v}
-                isTopPick={idx === 0}
-                vote={votes[v.name] ?? 0}
-                onVote={(dir) =>
-                  setVotes((p) => ({ ...p, [v.name]: p[v.name] === dir ? 0 : dir }))
-                }
-                onOpen={() => setSelectedVenue(v)}
-              />
-            </div>
+              venue={v}
+              isTopPick={idx === 0}
+              vote={votes[v.name] ?? 0}
+              onVote={(dir) =>
+                setVotes((p) => ({ ...p, [v.name]: p[v.name] === dir ? 0 : dir }))
+              }
+              onOpen={() => setSelectedVenue(v)}
+            />
           ))}
         </div>
       )}
