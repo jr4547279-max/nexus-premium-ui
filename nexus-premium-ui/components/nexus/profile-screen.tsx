@@ -183,7 +183,10 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
               icon={<User className="w-4 h-4" />}
               label="Edit preferences"
               hasChevron
-              onClick={() => onNavigate('onboarding')}
+              onClick={() => {
+                console.log('[NEXUS] edit preferences clicked')
+                onNavigate('onboarding')
+              }}
             />
           </GlassCard>
         </div>

@@ -34,21 +34,26 @@ export function NexusApp() {
   const [onboardingReturnTo, setOnboardingReturnTo] = useState<Screen>('home')
 
   const initializedRef = useRef(false)
-  const hadSessionRef = useRef(false)
 
-  /* ── Initial auth resolution ── */
+  /* ── Initial auth resolution ──
+     Runs ONCE after Supabase finishes its first session check. We deliberately
+     do NOT add a “redirect to landing when session disappears” effect — that
+     auto-detector caused authenticated users to be bounced back to the landing
+     screen whenever Supabase emitted a transient null-session event on tab
+     focus / token refresh / button click. Explicit sign-out is handled by
+     handleLogout below. */
   useEffect(() => {
     if (loading) return
     if (initializedRef.current) return
     initializedRef.current = true
 
+    console.log('[NEXUS] init resolved', {
+      hasSession: !!session,
+      userId: session?.user?.id ?? null,
+    })
+
     if (!session) {
-      // No session — show landing immediately
       setCurrentScreen('landing')
-    }
-    // Session exists — stay on 'resolving' and wait for profile (handled below)
-    if (session) {
-      hadSessionRef.current = true
     }
   }, [loading, session])
 
@@ -59,25 +64,13 @@ export function NexusApp() {
     if (!session) return
     if (profileLoading) return
 
-    // Profile settled — route based on onboarding status
-    if (profile?.onboarding_completed) {
-      setCurrentScreen('home')
-    } else {
-      setCurrentScreen('onboarding')
-    }
+    const next = profile?.onboarding_completed ? 'home' : 'onboarding'
+    console.log('[NEXUS] profile resolved → route', {
+      next,
+      onboardingCompleted: profile?.onboarding_completed,
+    })
+    setCurrentScreen(next)
   }, [currentScreen, session, profileLoading, profile])
-
-  /* ── Sign-out: redirect to landing when session is lost ── */
-  useEffect(() => {
-    if (!initializedRef.current) return
-    if (!loading && !session && hadSessionRef.current) {
-      hadSessionRef.current = false
-      setCurrentScreen('landing')
-    }
-    if (session) {
-      hadSessionRef.current = true
-    }
-  }, [session, loading])
 
   /* ── Navigation helpers ── */
   const handleGroupClick = (groupId: string, from: Screen = 'home') => {
@@ -87,6 +80,7 @@ export function NexusApp() {
   }
 
   const handleNavigate = (screen: string) => {
+    console.log('[NEXUS] navigate', { from: currentScreen, to: screen })
     // Track where the user came from when entering onboarding so we can route
     // them back correctly (e.g. "Edit preferences" from profile should return
     // to profile, not to landing).
@@ -97,12 +91,14 @@ export function NexusApp() {
   }
 
   const handleCreateGroup = () => {
+    console.log('[NEXUS] create group clicked — showing toast, staying on', currentScreen)
     toast('Group creation — coming soon', {
       style: { background: 'rgba(15,23,41,0.95)', color: 'white', border: '1px solid rgba(255,255,255,0.1)' },
     })
   }
 
   const handleLogout = async () => {
+    console.log('[NEXUS] explicit logout')
     await signOut()
     setCurrentScreen('landing')
   }

@@ -78,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let loadedForUserId: string | null = null
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[AUTH] event', { event, hasSession: !!session, userId: session?.user?.id ?? null })
       setLoading(false)
 
       const uid = session?.user?.id ?? null
@@ -89,9 +90,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // the landing screen. For any non-SIGNED_OUT null event, keep the
         // previous session intact and do nothing.
         if (event === 'SIGNED_OUT') {
+          console.log('[AUTH] explicit SIGNED_OUT — clearing session/profile')
           loadedForUserId = null
           setSession(null)
           setProfile(null)
+        } else {
+          console.log('[AUTH] ignoring null-session event', event)
         }
         return
       }
