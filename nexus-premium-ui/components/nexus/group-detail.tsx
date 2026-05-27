@@ -194,7 +194,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
         {/* Real venue recommendations — shown whenever a real Golden Window exists */}
         {realMode && bestWindow && (
-          <VenueRecommendations groupName={realGroup?.name ?? null} />
+          <VenueRecommendations
+            groupName={realGroup?.name ?? null}
+            goldenWindow={{
+              day_of_week: bestWindow.day_of_week,
+              start_time: bestWindow.start_time,
+              end_time: bestWindow.end_time,
+            }}
+          />
         )}
 
         {/* Real Golden Window — empty state when nobody (or only one) has overlapping availability */}

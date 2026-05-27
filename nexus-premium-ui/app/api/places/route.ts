@@ -3,26 +3,26 @@ import { NextResponse } from 'next/server'
 /**
  * Phase 5: Google Places (New) text-search proxy.
  *
- * Why server-side? Keeps GOOGLE_PLACES_API_KEY out of the browser bundle and
- * lets us cache responses in memory. The browser hits /api/places only.
+ * Server-side only — keeps GOOGLE_PLACES_API_KEY out of the browser and
+ * caches responses in memory for an hour.
  *
  * Query params:
- *   vibe   — pub | drinks | food | coffee | activity   (default: drinks)
- *   lat    — search center latitude                    (default: Eastbourne)
- *   lng    — search center longitude                   (default: Eastbourne)
- *   radius — search radius in meters                    (default: 5000)
- *   limit  — how many venues to return                  (default: 6, max: 10)
+ *   vibe       — pub | drinks | food | coffee | activity   (default: drinks)
+ *   lat        — search center latitude                    (default: Eastbourne midpoint)
+ *   lng        — search center longitude                   (default: Eastbourne midpoint)
+ *   radius     — search radius in meters                   (default: 5000)
+ *   limit      — venues to return                          (default: 8, max: 12)
  *
- * Returns:
- *   { venues: Venue[], cached: boolean, fallback?: string }
+ * Response:
+ *   { venues: Venue[], cached: boolean, vibe, fallback?: string }
  */
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Eastbourne town centre — sensible UK fallback until we have member locations.
-const FALLBACK_LAT = 50.7686
-const FALLBACK_LNG = 0.2906
+export const FALLBACK_LAT = 50.7686
+export const FALLBACK_LNG = 0.2906
 
 const VIBE_QUERIES: Record<string, string> = {
   pub: 'traditional pubs',
@@ -36,9 +36,8 @@ interface CacheEntry {
   expiresAt: number
   payload: unknown
 }
-// In-memory cache. Resets per server boot — fine for v1.
 const CACHE = new Map<string, CacheEntry>()
-const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
+const CACHE_TTL_MS = 60 * 60 * 1000
 
 interface PlaceApiResponse {
   places?: Array<{
@@ -52,6 +51,7 @@ interface PlaceApiResponse {
     types?: string[]
     location?: { latitude?: number; longitude?: number }
     priceLevel?: string
+    photos?: Array<{ name?: string }>
   }>
   error?: { message?: string; status?: string }
 }
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
       {
         venues: [],
         error:
-          'Missing GOOGLE_PLACES_API_KEY. Add it in Secrets so the venue recommendations can load.',
+          'Missing GOOGLE_PLACES_API_KEY. Add it to Secrets and enable "Places API (New)" + "Maps Static API" in Google Cloud Console.',
       },
       { status: 500 },
     )
@@ -83,16 +83,18 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const vibeRaw = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
   const vibe = (VIBE_QUERIES[vibeRaw] ? vibeRaw : 'drinks') as keyof typeof VIBE_QUERIES
-  const lat = Number.parseFloat(url.searchParams.get('lat') ?? '') || FALLBACK_LAT
-  const lng = Number.parseFloat(url.searchParams.get('lng') ?? '') || FALLBACK_LNG
+  const latRaw = Number.parseFloat(url.searchParams.get('lat') ?? '')
+  const lngRaw = Number.parseFloat(url.searchParams.get('lng') ?? '')
+  const lat = Number.isFinite(latRaw) ? latRaw : FALLBACK_LAT
+  const lng = Number.isFinite(lngRaw) ? lngRaw : FALLBACK_LNG
   const radius = Math.min(
     20000,
     Math.max(500, Number.parseInt(url.searchParams.get('radius') ?? '5000', 10) || 5000),
   )
-  const limit = Math.min(10, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '6', 10) || 6))
+  const limit = Math.min(12, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '8', 10) || 8))
 
   const usedFallback =
-    !url.searchParams.get('lat') || !url.searchParams.get('lng')
+    !Number.isFinite(latRaw) || !Number.isFinite(lngRaw)
       ? 'Eastbourne (default search area — member locations not set up yet)'
       : undefined
 
@@ -120,6 +122,7 @@ export async function GET(req: Request) {
           'places.types',
           'places.location',
           'places.priceLevel',
+          'places.photos',
         ].join(','),
       },
       body: JSON.stringify({
@@ -156,10 +159,10 @@ export async function GET(req: Request) {
     const distance_km =
       placeLat != null && placeLng != null ? haversineKm(lat, lng, placeLat, placeLng) : null
 
-    // Lightweight score:
-    //   rating × log10(reviews+10)  → quality + popularity, capped sensibly
-    //   + 0.4 if open now
-    //   – 0.05 × distance_km        → modest distance penalty
+    // Lightweight composite score:
+    //   rating × log10(reviews+10)  → quality + popularity
+    //   + 0.4 if open now           → fits the Golden Window right now
+    //   – 0.05 × distance_km        → mild distance penalty from midpoint
     const rating = p.rating ?? 0
     const ratingCount = p.userRatingCount ?? 0
     const openNow = p.regularOpeningHours?.openNow ?? null
@@ -167,6 +170,11 @@ export async function GET(req: Request) {
       rating * Math.log10(ratingCount + 10) +
       (openNow === true ? 0.4 : 0) +
       (distance_km != null ? -0.05 * distance_km : 0)
+
+    const photoName = p.photos?.[0]?.name ?? null
+    const photo_url = photoName
+      ? `/api/places/photo?name=${encodeURIComponent(photoName)}&w=200&h=200`
+      : null
 
     return {
       name: p.displayName?.text ?? 'Unknown',
@@ -178,6 +186,9 @@ export async function GET(req: Request) {
       maps_url: p.googleMapsUri ?? null,
       price_level: p.priceLevel ?? null,
       distance_km,
+      lat: placeLat,
+      lng: placeLng,
+      photo_url,
       score,
     }
   })
