@@ -203,7 +203,7 @@ export async function GET(req: Request) {
 
     const photoName = p.photos?.[0]?.name ?? null
     const photo_url = photoName
-      ? `/api/places/photo?name=${encodeURIComponent(photoName)}&w=200&h=200`
+      ? `/nx/places/photo?name=${encodeURIComponent(photoName)}&w=200&h=200`
       : null
 
     return {

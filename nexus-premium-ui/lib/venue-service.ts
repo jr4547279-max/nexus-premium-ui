@@ -98,7 +98,7 @@ export async function fetchVenues(opts: {
   if (opts.limit != null) qs.set('limit', String(opts.limit))
 
   try {
-    const res = await fetch(`/api/places?${qs.toString()}`)
+    const res = await fetch(`/nx/places?${qs.toString()}`)
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('application/json')) {
       const text = await res.text().catch(() => '')
@@ -151,5 +151,5 @@ export function buildMapUrl(opts: {
   }
   if (pins.length > 0) qs.set('pins', pins.join('|'))
 
-  return `/api/places/map?${qs.toString()}`
+  return `/nx/places/map?${qs.toString()}`
 }
