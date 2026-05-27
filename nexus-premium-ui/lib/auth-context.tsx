@@ -23,6 +23,9 @@ interface AuthContextValue {
     error: AuthError | null
     needsEmailConfirm?: boolean
   }>
+  // Google OAuth — initiates a redirect to Google's consent screen.
+  // On return, /auth/callback exchanges the PKCE code for a Supabase session.
+  signInWithGoogle: () => Promise<{ error: AuthError | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }
@@ -130,6 +133,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // ---------------------------------------------------------------------------
+  // Google OAuth
+  // Calls supabase.auth.signInWithOAuth which redirects the browser to Google.
+  // After consent, Google redirects to /auth/callback?code=XXX where the PKCE
+  // code is exchanged for a real session, then the user is sent to the dashboard.
+  // The redirectTo must be listed as an allowed redirect URL in your Supabase
+  // project (Authentication → URL Configuration) and as an authorised redirect
+  // URI in Google Cloud Console (OAuth 2.0 Client → Authorised redirect URIs).
+  // ---------------------------------------------------------------------------
+  const signInWithGoogle = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      return {
+        error: {
+          message: 'Supabase is not configured yet. Add your secrets to enable real auth.',
+          code: 'not_configured',
+          name: 'AuthError',
+          status: 0,
+        } as unknown as AuthError,
+      }
+    }
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        // /auth/callback exchanges the PKCE code for a session, then → /
+        redirectTo: `${window.location.origin}/auth/callback`,
+        scopes: 'openid email profile',
+      },
+    })
+
+    // This only returns if an error occurred before the redirect.
+    // On success the browser navigates away and this line is never reached.
+    return { error }
+  }, [])
+
   const signOut = useCallback(async () => {
     if (isSupabaseConfigured) {
       await supabase.auth.signOut()
@@ -148,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileLoading,
         signIn,
         signUp,
+        signInWithGoogle,
         signOut,
         refreshProfile,
       }}
