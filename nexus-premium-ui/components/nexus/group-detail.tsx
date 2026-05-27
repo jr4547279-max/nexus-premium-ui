@@ -1,17 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TopHeader } from './navigation'
 import { GlassCard, AvatarStack, StatBadge } from './glass-card'
-import { GoldenRing, GlowingDot } from './golden-ring'
+import { GoldenRing } from './golden-ring'
 import { Button } from '@/components/ui/button'
-import { 
-  Users, Calendar, MapPin, ChevronRight, Sparkles, 
-  Clock, Check, AlertCircle, Plus, Settings 
+import {
+  Calendar, MapPin, ChevronRight, Sparkles,
+  Clock, Check, AlertCircle, Plus, Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { mockGroups, mockVenue } from '@/lib/mock-data'
-import { toast } from 'sonner'
+import { mockGroups } from '@/lib/mock-data'
+import {
+  getGroup,
+  listGroupMembers,
+  type Group,
+  type GroupMember,
+} from '@/lib/group-service'
+import { InviteMemberModal } from './invite-member-modal'
 
 interface GroupDetailProps {
   groupId: string
@@ -20,15 +26,72 @@ interface GroupDetailProps {
   onNavigate?: (screen: string) => void
 }
 
+/**
+ * Detect a UUID — real groups created via Supabase have UUID ids, mock groups
+ * use short numeric ids like "1", "2". Anything that isn't a UUID is treated
+ * as a mock id for the legacy demo data.
+ */
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+}
+
+function avatarFor(member: GroupMember) {
+  const seed = member.display_name || member.email || member.user_id
+  return `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(seed)}`
+}
+
+function displayNameFor(member: GroupMember) {
+  return member.display_name || member.email?.split('@')[0] || 'Member'
+}
+
 export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }: GroupDetailProps) {
-  const group = mockGroups.find(g => g.id === groupId) || mockGroups[0]
+  const realMode = isUuid(groupId)
+  const mockGroup = mockGroups.find((g) => g.id === groupId) || mockGroups[0]
+
   const [activeSection, setActiveSection] = useState<'members' | 'preferences'>('members')
+  const [inviteOpen, setInviteOpen] = useState(false)
+
+  const [realGroup, setRealGroup] = useState<Group | null>(null)
+  const [realMembers, setRealMembers] = useState<GroupMember[]>([])
+  const [loading, setLoading] = useState(realMode)
+
+  useEffect(() => {
+    if (!realMode) return
+    let cancelled = false
+    setLoading(true)
+    Promise.all([getGroup(groupId), listGroupMembers(groupId)]).then(([g, m]) => {
+      if (cancelled) return
+      setRealGroup(g)
+      setRealMembers(m)
+      setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [groupId, realMode])
+
+  // Derived view-model: same shape regardless of real vs mock.
+  const name = realMode ? realGroup?.name ?? 'Loading…' : mockGroup.name
+  const emoji = realMode ? realGroup?.emoji ?? '👥' : mockGroup.emoji
+  const memberCount = realMode ? realMembers.length : mockGroup.memberCount
+  const inviteCode = realMode ? realGroup?.invite_code ?? null : null
+
+  const avatars = realMode
+    ? realMembers.map((m) => ({
+        id: m.user_id,
+        name: displayNameFor(m),
+        avatar: avatarFor(m),
+        synced: false,
+      }))
+    : mockGroup.members
+
+  // Golden Window / preferences / sync indicators stay mock-only for now.
+  const showGoldenWindow = !realMode && mockGroup.hasGoldenWindow && mockGroup.goldenWindow
 
   return (
     <div className="min-h-screen bg-background pb-8">
-      {/* Header */}
-      <TopHeader 
-        title={group.name}
+      <TopHeader
+        title={name}
         showBack
         onBack={onBack}
         showNotifications={false}
@@ -38,11 +101,13 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
         {/* Group Header */}
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center text-3xl">
-            {group.emoji}
+            {emoji}
           </div>
           <div className="flex-1">
-            <h1 className="text-xl font-medium">{group.name}</h1>
-            <p className="text-muted-foreground">{group.memberCount} members</p>
+            <h1 className="text-xl font-medium">{name}</h1>
+            <p className="text-muted-foreground">
+              {loading ? 'Loading members…' : `${memberCount} member${memberCount === 1 ? '' : 's'}`}
+            </p>
           </div>
           <button
             onClick={() => onNavigate?.('profile')}
@@ -52,10 +117,10 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* Golden Window Banner */}
-        {group.hasGoldenWindow && group.goldenWindow && (
-          <GlassCard 
-            glow 
+        {/* Golden Window Banner (mock-only for now) */}
+        {showGoldenWindow && mockGroup.goldenWindow && (
+          <GlassCard
+            glow
             className="mb-6 p-5 cursor-pointer"
             onClick={onViewGoldenWindow}
           >
@@ -68,24 +133,24 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 BEST MATCH
               </span>
             </div>
-            
+
             <div className="flex items-center gap-4">
               <GoldenRing size="md" intensity="normal" />
               <div className="flex-1">
-                <p className="text-2xl font-bold">{group.goldenWindow.time}</p>
-                <p className="text-muted-foreground">{group.goldenWindow.date}</p>
+                <p className="text-2xl font-bold">{mockGroup.goldenWindow.time}</p>
+                <p className="text-muted-foreground">{mockGroup.goldenWindow.date}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {group.goldenWindow.duration} • {group.goldenWindow.time} - {group.goldenWindow.endTime}
+                  {mockGroup.goldenWindow.duration} • {mockGroup.goldenWindow.time} - {mockGroup.goldenWindow.endTime}
                 </p>
               </div>
               <ChevronRight className="w-5 h-5 text-muted-foreground" />
             </div>
-            
+
             <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/30">
-              <AvatarStack avatars={group.members} max={5} showSyncStatus />
+              <AvatarStack avatars={mockGroup.members} max={5} showSyncStatus />
               <div className="flex items-center gap-1 text-emerald-500 text-sm">
                 <Check className="w-4 h-4" />
-                <span>All {group.memberCount} are free</span>
+                <span>All {mockGroup.memberCount} are free</span>
               </div>
             </div>
           </GlassCard>
@@ -93,23 +158,23 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
         {/* Stats Row */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          <StatBadge 
-            label="synced" 
-            value={`${group.members.filter(m => m.synced).length}/${group.memberCount}`}
-            variant="success"
+          <StatBadge
+            label="members"
+            value={`${memberCount}`}
+            variant="default"
             icon={<Calendar className="w-3 h-3" />}
           />
-          {group.goldenWindow && (
+          {!realMode && mockGroup.goldenWindow && (
             <>
-              <StatBadge 
-                label="confidence" 
-                value={`${group.goldenWindow.confidence}%`}
+              <StatBadge
+                label="confidence"
+                value={`${mockGroup.goldenWindow.confidence}%`}
                 variant="gold"
                 icon={<Sparkles className="w-3 h-3" />}
               />
-              <StatBadge 
-                label="avg travel" 
-                value={`${group.goldenWindow.avgTravelTime}min`}
+              <StatBadge
+                label="avg travel"
+                value={`${mockGroup.goldenWindow.avgTravelTime}min`}
                 variant="default"
                 icon={<Clock className="w-3 h-3" />}
               />
@@ -123,8 +188,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             onClick={() => setActiveSection('members')}
             className={cn(
               'flex-1 py-3 rounded-xl text-sm font-medium transition-all',
-              activeSection === 'members' 
-                ? 'bg-primary/10 text-primary border border-primary/30' 
+              activeSection === 'members'
+                ? 'bg-primary/10 text-primary border border-primary/30'
                 : 'bg-muted/30 text-muted-foreground'
             )}
           >
@@ -134,8 +199,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             onClick={() => setActiveSection('preferences')}
             className={cn(
               'flex-1 py-3 rounded-xl text-sm font-medium transition-all',
-              activeSection === 'preferences' 
-                ? 'bg-primary/10 text-primary border border-primary/30' 
+              activeSection === 'preferences'
+                ? 'bg-primary/10 text-primary border border-primary/30'
                 : 'bg-muted/30 text-muted-foreground'
             )}
           >
@@ -146,47 +211,62 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
         {/* Members List */}
         {activeSection === 'members' && (
           <div className="space-y-3">
-            {group.members.map((member) => (
-              <GlassCard key={member.id} className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <img 
-                      src={member.avatar} 
-                      alt={member.name}
-                      className="w-12 h-12 rounded-full"
-                    />
-                    <span className={cn(
-                      'absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-background',
-                      member.synced ? 'bg-emerald-500' : 'bg-amber-500'
-                    )} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium">{member.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {member.synced ? 'Calendar synced' : 'Pending sync'}
-                    </p>
-                  </div>
-                  {member.synced ? (
-                    <div className="flex items-center gap-1 text-emerald-500 text-xs">
-                      <Check className="w-4 h-4" />
-                      <span>Ready</span>
+            {realMode
+              ? realMembers.map((m) => (
+                  <GlassCard key={m.user_id} className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <img
+                          src={avatarFor(m)}
+                          alt={displayNameFor(m)}
+                          className="w-12 h-12 rounded-full bg-muted"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">{displayNameFor(m)}</p>
+                        <p className="text-sm text-muted-foreground capitalize">{m.role}</p>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-amber-500 text-xs">
-                      <AlertCircle className="w-4 h-4" />
-                      <span>Pending</span>
+                  </GlassCard>
+                ))
+              : mockGroup.members.map((member) => (
+                  <GlassCard key={member.id} className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <img
+                          src={member.avatar}
+                          alt={member.name}
+                          className="w-12 h-12 rounded-full"
+                        />
+                        <span className={cn(
+                          'absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-background',
+                          member.synced ? 'bg-emerald-500' : 'bg-amber-500'
+                        )} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">{member.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {member.synced ? 'Calendar synced' : 'Pending sync'}
+                        </p>
+                      </div>
+                      {member.synced ? (
+                        <div className="flex items-center gap-1 text-emerald-500 text-xs">
+                          <Check className="w-4 h-4" />
+                          <span>Ready</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-amber-500 text-xs">
+                          <AlertCircle className="w-4 h-4" />
+                          <span>Pending</span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </GlassCard>
-            ))}
-            
+                  </GlassCard>
+                ))}
+
             <Button
               variant="outline"
-              onClick={() => toast('Invite Member — coming soon', {
-                description: 'Member invitations via link or email will be available at launch.',
-                icon: '👥',
-              })}
+              onClick={() => setInviteOpen(true)}
               className="w-full h-12 border-dashed border-border/50 text-muted-foreground"
             >
               <Plus className="w-4 h-4 mr-2" />
@@ -211,7 +291,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 <span className="text-muted-foreground text-sm">££ (£20-30 per person)</span>
               </div>
             </GlassCard>
-            
+
             <GlassCard className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -225,7 +305,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 <span className="text-muted-foreground text-sm">Italian, Vegan options</span>
               </div>
             </GlassCard>
-            
+
             <GlassCard className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -237,7 +317,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 <span className="text-muted-foreground text-sm">20 min</span>
               </div>
             </GlassCard>
-            
+
             <GlassCard className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -249,7 +329,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 <span className="text-muted-foreground text-sm">Fri, Sat, Sun</span>
               </div>
             </GlassCard>
-            
+
             <GlassCard className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -266,9 +346,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </div>
         )}
 
-        {/* Find Window Button */}
-        {!group.hasGoldenWindow && (
-          <Button 
+        {/* Find Window Button — mock groups only */}
+        {!realMode && !mockGroup.hasGoldenWindow && (
+          <Button
             onClick={onViewGoldenWindow}
             className="w-full h-14 mt-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
           >
@@ -277,6 +357,13 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </Button>
         )}
       </main>
+
+      <InviteMemberModal
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        groupName={name}
+        inviteCode={inviteCode}
+      />
     </div>
   )
 }

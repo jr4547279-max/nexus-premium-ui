@@ -14,6 +14,9 @@ import { ActivityScreen } from './activity-screen'
 import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
+import { joinGroupByInvite } from '@/lib/group-service'
+
+const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
 type Screen =
   | 'resolving'
@@ -74,6 +77,33 @@ export function NexusApp() {
     })
     setCurrentScreen(next)
   }, [currentScreen, session, profileLoading, profile])
+
+  /* ── Consume a pending invite after the user signs in.
+        /invite/[code] stashes the code in localStorage when the visitor isn't
+        signed in yet; once auth resolves we finish the join here and bump the
+        groups list so it appears immediately. ── */
+  useEffect(() => {
+    if (!session) return
+    let pending: string | null = null
+    try {
+      pending = localStorage.getItem(PENDING_INVITE_KEY)
+    } catch {
+      return
+    }
+    if (!pending) return
+    try {
+      localStorage.removeItem(PENDING_INVITE_KEY)
+    } catch {}
+    console.log('[NEXUS] consuming pending invite', pending)
+    joinGroupByInvite(pending).then(({ groupId, errorMessage }) => {
+      if (groupId) {
+        toast.success('Joined group')
+        setGroupsVersion((v) => v + 1)
+      } else if (errorMessage) {
+        toast.error(errorMessage)
+      }
+    })
+  }, [session])
 
   /* ── Navigation helpers ── */
   const handleGroupClick = (groupId: string, from: Screen = 'home') => {
