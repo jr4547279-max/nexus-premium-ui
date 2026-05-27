@@ -1,14 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
+// Default to 8080 so this scaffold never races with the Next.js app on 5000.
+const rawPort = process.env["PORT"] ?? "8080";
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
