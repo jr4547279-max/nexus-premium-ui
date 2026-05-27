@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -30,10 +30,17 @@ export function InviteMemberModal({
 }: InviteMemberModalProps) {
   const [copiedLink, setCopiedLink] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
+  const [origin, setOrigin] = useState('')
 
-  const origin =
-    typeof window !== 'undefined' ? window.location.origin : ''
-  const link = inviteCode ? `${origin}/invite/${inviteCode}` : ''
+  // Compute origin on the client after mount — guarantees a stable, fully
+  // qualified URL regardless of SSR/hydration timing.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin)
+    }
+  }, [])
+
+  const link = inviteCode && origin ? `${origin}/invite/${inviteCode}` : ''
 
   const copy = async (text: string, kind: 'link' | 'code') => {
     if (!text) return
@@ -72,7 +79,14 @@ export function InviteMemberModal({
             <div className="space-y-2">
               <Label htmlFor="invite-link">Invite link</Label>
               <div className="flex gap-2">
-                <Input id="invite-link" value={link} readOnly className="text-xs" />
+                <Input
+                  id="invite-link"
+                  value={link}
+                  readOnly
+                  className="text-xs"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onClick={(e) => e.currentTarget.select()}
+                />
                 <Button
                   type="button"
                   variant="outline"
