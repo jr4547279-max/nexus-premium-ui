@@ -38,10 +38,10 @@ export function CreateGroupModal({ open, onOpenChange, onCreated }: CreateGroupM
     const trimmed = name.trim()
     if (!trimmed || submitting) return
     setSubmitting(true)
-    const group = await createGroup(trimmed, emoji)
+    const { group, errorMessage } = await createGroup(trimmed, emoji)
     setSubmitting(false)
     if (!group) {
-      toast.error('Could not create group. Please try again.')
+      toast.error(errorMessage ?? 'Could not create group. Please try again.')
       return
     }
     toast.success(`Created ${emoji} ${group.name}`)

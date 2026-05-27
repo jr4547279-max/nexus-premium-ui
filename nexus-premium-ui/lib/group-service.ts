@@ -25,49 +25,36 @@ export interface GroupSummary {
   hasGoldenWindow: boolean
 }
 
+export interface CreateGroupResult {
+  group: Group | null
+  errorMessage: string | null
+}
+
 export async function createGroup(
   name: string,
   emoji: string,
-): Promise<Group | null> {
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
+): Promise<CreateGroupResult> {
+  const { data: userData } = await supabase.auth.getUser()
   const uid = userData.user?.id
-  console.log('[group-service] createGroup → auth.uid =', uid, 'userErr =', userErr)
   if (!uid) {
-    console.error('[group-service] createGroup aborted: no authenticated user')
-    return null
+    return { group: null, errorMessage: 'Not signed in — auth.uid() is null' }
   }
 
   const payload = { name: name.trim(), emoji: emoji || '👥', created_by: uid }
-  console.log('[group-service] createGroup → inserting', payload)
 
-  const { data, error, status, statusText } = await supabase
+  const { data, error, status } = await supabase
     .from('groups')
     .insert(payload)
     .select()
     .single()
 
   if (error) {
-    console.error('[group-service] createGroup FAILED', {
-      status,
-      statusText,
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      raw: error,
-    })
-    return null
+    const msg = `[${error.code ?? status}] ${error.message}${error.hint ? ` — hint: ${error.hint}` : ''}${error.details ? ` — details: ${error.details}` : ''}`
+    console.error('[group-service] createGroup FAILED', msg, error)
+    return { group: null, errorMessage: msg }
   }
 
-  console.log('[group-service] createGroup → inserted group', data)
-
-  const { data: membershipCheck, error: memberErr } = await supabase
-    .from('group_members')
-    .select('user_id, role')
-    .eq('group_id', (data as Group).id)
-  console.log('[group-service] post-insert membership rows:', membershipCheck, 'err:', memberErr)
-
-  return data as Group
+  return { group: data as Group, errorMessage: null }
 }
 
 export async function listMyGroups(): Promise<GroupSummary[]> {
