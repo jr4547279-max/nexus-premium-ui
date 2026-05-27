@@ -29,20 +29,44 @@ export async function createGroup(
   name: string,
   emoji: string,
 ): Promise<Group | null> {
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
   const uid = userData.user?.id
-  if (!uid) return null
+  console.log('[group-service] createGroup → auth.uid =', uid, 'userErr =', userErr)
+  if (!uid) {
+    console.error('[group-service] createGroup aborted: no authenticated user')
+    return null
+  }
 
-  const { data, error } = await supabase
+  const payload = { name: name.trim(), emoji: emoji || '👥', created_by: uid }
+  console.log('[group-service] createGroup → inserting', payload)
+
+  const { data, error, status, statusText } = await supabase
     .from('groups')
-    .insert({ name: name.trim(), emoji: emoji || '👥', created_by: uid })
+    .insert(payload)
     .select()
     .single()
 
   if (error) {
-    console.error('[group-service] createGroup failed', error)
+    console.error('[group-service] createGroup FAILED', {
+      status,
+      statusText,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      raw: error,
+    })
     return null
   }
+
+  console.log('[group-service] createGroup → inserted group', data)
+
+  const { data: membershipCheck, error: memberErr } = await supabase
+    .from('group_members')
+    .select('user_id, role')
+    .eq('group_id', (data as Group).id)
+  console.log('[group-service] post-insert membership rows:', membershipCheck, 'err:', memberErr)
+
   return data as Group
 }
 
