@@ -111,6 +111,10 @@ export function VenueDetailSheet({
     }
   }, [venue, onClose])
 
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log('[VenueDetailSheet] render — venue=', venue?.name ?? null, 'mounted=', mounted)
+  }
   if (!venue || !mounted) return null
 
   const reasons = buildReasons(venue, vibe, goldenWindow, midpointFallback)

@@ -311,19 +311,31 @@ function VenueCard({
   // Click handler that doesn't fire when the user taps an interactive child
   // (Maps link, vote buttons). Keyboard users get the same affordance via the
   // role="button" + tabIndex on the wrapper.
+  // NOTE: do NOT include `[role="button"]` here — the wrapper card itself has
+  // role="button", so `closest('[role="button"]')` would match the wrapper and
+  // bail out on every tap, breaking the card. Real inner controls are
+  // <a>/<button> and are matched explicitly.
   const isInteractiveChild = (target: EventTarget | null) =>
     !!(target as HTMLElement | null)?.closest(
-      'a, button, input, textarea, select, [role="button"]',
+      'a, button, input, textarea, select',
     )
 
-  const handleOpen = (e: React.MouseEvent) => {
-    if (isInteractiveChild(e.target)) return
+  const handleOpen = (e: React.MouseEvent | React.TouchEvent) => {
+    if (isInteractiveChild(e.target)) {
+      // eslint-disable-next-line no-console
+      console.log('[VenueCard] tap skipped — interactive child', venue.name, e.type)
+      return
+    }
+    // eslint-disable-next-line no-console
+    console.log('[VenueCard] open ->', venue.name, 'event=', e.type)
     onOpen()
   }
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' && e.key !== ' ') return
     if (isInteractiveChild(e.target)) return
     e.preventDefault()
+    // eslint-disable-next-line no-console
+    console.log('[VenueCard] open via key ->', venue.name, e.key)
     onOpen()
   }
 
@@ -331,11 +343,12 @@ function VenueCard({
   // accessibility — GlassCard only exposes a void onClick callback.
   return (
     <div
-      className="glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer hover:border-amber-400/30 transition-colors"
+      className="glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer hover:border-amber-400/30 transition-colors select-none touch-manipulation"
       onClick={handleOpen}
       onKeyDown={handleKey}
       role="button"
       tabIndex={0}
+      data-testid="venue-card"
       aria-label={`Open ${venue.name} details`}
     >
       {/* TOP PICK ribbon */}
@@ -404,6 +417,7 @@ function VenueCard({
                   href={venue.maps_url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
                   className="flex items-center gap-1 px-2 py-1 rounded-md border border-border/40 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-all"
                   aria-label={`Open ${venue.name} in Google Maps`}
                 >
@@ -413,13 +427,19 @@ function VenueCard({
               )}
               <VoteButton
                 active={vote === 1}
-                onClick={() => onVote(1)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onVote(1)
+                }}
                 icon="up"
                 venueName={venue.name}
               />
               <VoteButton
                 active={vote === -1}
-                onClick={() => onVote(-1)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onVote(-1)
+                }}
                 icon="down"
                 venueName={venue.name}
               />
@@ -440,7 +460,7 @@ function VoteButton({
   active: boolean
   icon: 'up' | 'down'
   venueName: string
-  onClick: () => void
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
 }) {
   const Icon = icon === 'up' ? ThumbsUp : ThumbsDown
   const activeColor =
