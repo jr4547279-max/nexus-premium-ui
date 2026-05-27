@@ -40,13 +40,10 @@ export async function createGroup(
     return { group: null, errorMessage: 'Not signed in — auth.uid() is null' }
   }
 
-  const payload = { name: name.trim(), emoji: emoji || '👥', created_by: uid }
-
+  // Use SECURITY DEFINER RPC to avoid PostgREST RLS timing issue where
+  // auth.uid() evaluates as null inside the `with check` policy during insert.
   const { data, error, status } = await supabase
-    .from('groups')
-    .insert(payload)
-    .select()
-    .single()
+    .rpc('create_group', { p_name: name.trim(), p_emoji: emoji || '👥' })
 
   if (error) {
     const msg = `[${error.code ?? status}] ${error.message}${error.hint ? ` — hint: ${error.hint}` : ''}${error.details ? ` — details: ${error.details}` : ''}`
