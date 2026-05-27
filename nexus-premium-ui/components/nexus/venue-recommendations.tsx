@@ -14,6 +14,7 @@ import {
   type Vibe,
   type Venue,
 } from '@/lib/venue-service'
+import { VenueDetailSheet } from './venue-detail-sheet'
 
 interface Props {
   groupName: string | null
@@ -38,6 +39,7 @@ export function VenueRecommendations({ groupName, goldenWindow, memberCoords }: 
   const [usingFallback, setUsingFallback] = useState(true)
   const [votes, setVotes] = useState<Record<string, 1 | -1 | 0>>({})
   const [mapFailed, setMapFailed] = useState(false)
+  const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
 
   const midpoint = useMemo(
     () => computeMidpoint(memberCoords ?? []),
@@ -248,10 +250,28 @@ export function VenueRecommendations({ groupName, goldenWindow, memberCoords }: 
               onVote={(dir) =>
                 setVotes((p) => ({ ...p, [v.name]: p[v.name] === dir ? 0 : dir }))
               }
+              onOpen={() => setSelectedVenue(v)}
             />
           ))}
         </div>
       )}
+
+      {/* Venue detail sheet */}
+      <VenueDetailSheet
+        venue={selectedVenue}
+        vibe={vibe}
+        goldenWindow={goldenWindow ?? null}
+        midpointFallback={midpoint.fallback}
+        vote={selectedVenue ? votes[selectedVenue.name] ?? 0 : 0}
+        onVote={(dir) =>
+          selectedVenue &&
+          setVotes((p) => ({
+            ...p,
+            [selectedVenue.name]: p[selectedVenue.name] === dir ? 0 : dir,
+          }))
+        }
+        onClose={() => setSelectedVenue(null)}
+      />
     </div>
   )
 }
@@ -270,11 +290,13 @@ function VenueCard({
   isTopPick,
   vote,
   onVote,
+  onOpen,
 }: {
   venue: Venue
   isTopPick: boolean
   vote: 1 | -1 | 0
   onVote: (dir: 1 | -1) => void
+  onOpen: () => void
 }) {
   // The OPEN pill is driven by a real signal (Google's openNow) — no
   // fabricated weather scoring here. Cards without that signal show no pill.
@@ -286,8 +308,36 @@ function VenueCard({
         : `${venue.distance_km.toFixed(1)}km`
       : null
 
+  // Click handler that doesn't fire when the user taps an interactive child
+  // (Maps link, vote buttons). Keyboard users get the same affordance via the
+  // role="button" + tabIndex on the wrapper.
+  const isInteractiveChild = (target: EventTarget | null) =>
+    !!(target as HTMLElement | null)?.closest(
+      'a, button, input, textarea, select, [role="button"]',
+    )
+
+  const handleOpen = (e: React.MouseEvent) => {
+    if (isInteractiveChild(e.target)) return
+    onOpen()
+  }
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    if (isInteractiveChild(e.target)) return
+    e.preventDefault()
+    onOpen()
+  }
+
+  // Plain div (not GlassCard) so we can attach role/tabIndex/onKeyDown for
+  // accessibility — GlassCard only exposes a void onClick callback.
   return (
-    <GlassCard className="relative p-3 overflow-hidden">
+    <div
+      className="glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer hover:border-amber-400/30 transition-colors"
+      onClick={handleOpen}
+      onKeyDown={handleKey}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${venue.name} details`}
+    >
       {/* TOP PICK ribbon */}
       {isTopPick && (
         <div className="absolute top-0 left-0 z-10 px-2 py-1 rounded-br-lg bg-rose-500/90 text-white text-[9px] font-semibold tracking-wide flex items-center gap-1 shadow-lg">
@@ -377,7 +427,7 @@ function VenueCard({
           </div>
         </div>
       </div>
-    </GlassCard>
+    </div>
   )
 }
 
