@@ -72,13 +72,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setLoading(false))
       .finally(() => clearTimeout(timeout))
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
+    // Track which user we've already loaded a profile for so transient events
+    // like TOKEN_REFRESHED don't trigger redundant fetches (which flip
+    // profileLoading and cause spurious re-renders / navigation flicker).
+    let loadedForUserId: string | null = null
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setLoading(false)
-      if (session?.user) {
-        loadProfile(session.user.id, session.user.email ?? '')
-      } else {
-        setProfile(null)
+
+      const uid = session?.user?.id ?? null
+
+      if (!uid || !session) {
+        // Only treat as signed-out for explicit sign-out events. This protects
+        // against transient null sessions (e.g. brief refresh failures or
+        // INITIAL_SESSION races) that would otherwise bounce the user back to
+        // the landing screen. For any non-SIGNED_OUT null event, keep the
+        // previous session intact and do nothing.
+        if (event === 'SIGNED_OUT') {
+          loadedForUserId = null
+          setSession(null)
+          setProfile(null)
+        }
+        return
+      }
+
+      // We have a real session — adopt it.
+      setSession(session)
+
+      // Refresh the profile when the user changes, on first sign-in, or when
+      // the user record was updated. Skip on TOKEN_REFRESHED to avoid churn.
+      const isNewUser = uid !== loadedForUserId
+      if (isNewUser || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        loadedForUserId = uid
+        loadProfile(uid, session.user.email ?? '')
       }
     })
 

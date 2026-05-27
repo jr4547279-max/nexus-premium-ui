@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth-context'
 import { LandingPage } from './landing-page'
 import { AuthScreen } from './auth-screen'
@@ -30,6 +31,7 @@ export function NexusApp() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('resolving')
   const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
+  const [onboardingReturnTo, setOnboardingReturnTo] = useState<Screen>('home')
 
   const initializedRef = useRef(false)
   const hadSessionRef = useRef(false)
@@ -84,15 +86,47 @@ export function NexusApp() {
     setCurrentScreen('group-detail')
   }
 
-  const handleNavigate = (screen: string) => setCurrentScreen(screen as Screen)
+  const handleNavigate = (screen: string) => {
+    // Track where the user came from when entering onboarding so we can route
+    // them back correctly (e.g. "Edit preferences" from profile should return
+    // to profile, not to landing).
+    if (screen === 'onboarding' && currentScreen !== 'resolving' && currentScreen !== 'landing') {
+      setOnboardingReturnTo(currentScreen)
+    }
+    setCurrentScreen(screen as Screen)
+  }
+
+  const handleCreateGroup = () => {
+    toast('Group creation — coming soon', {
+      style: { background: 'rgba(15,23,41,0.95)', color: 'white', border: '1px solid rgba(255,255,255,0.1)' },
+    })
+  }
 
   const handleLogout = async () => {
     await signOut()
     setCurrentScreen('landing')
   }
 
+  // Treat onboarding as "edit mode" whenever the user already completed it.
+  // In edit mode, both back and complete return to where they came from.
+  const isEditingPreferences =
+    currentScreen === 'onboarding' && Boolean(profile?.onboarding_completed)
+
   const handleOnboardingComplete = () => {
+    if (isEditingPreferences) {
+      setCurrentScreen(onboardingReturnTo)
+      return
+    }
     setCurrentScreen(session ? 'home' : 'auth')
+  }
+
+  const handleOnboardingBack = () => {
+    if (isEditingPreferences) {
+      setCurrentScreen(onboardingReturnTo)
+      return
+    }
+    // First-time onboarding: back goes to landing only when there's no session.
+    setCurrentScreen(session ? 'home' : 'landing')
   }
 
   /* ── Screen router ── */
@@ -128,8 +162,9 @@ export function NexusApp() {
     case 'onboarding':
       return (
         <OnboardingFlow
+          editMode={isEditingPreferences}
           onComplete={handleOnboardingComplete}
-          onBack={() => setCurrentScreen('landing')}
+          onBack={handleOnboardingBack}
         />
       )
 
@@ -138,6 +173,7 @@ export function NexusApp() {
         <Dashboard
           onGroupClick={(id) => handleGroupClick(id, 'home')}
           onNavigate={handleNavigate}
+          onCreateGroup={handleCreateGroup}
         />
       )
 
@@ -146,6 +182,7 @@ export function NexusApp() {
         <GroupsScreen
           onGroupClick={(id) => handleGroupClick(id, 'groups')}
           onNavigate={handleNavigate}
+          onCreateGroup={handleCreateGroup}
         />
       )
 

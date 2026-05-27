@@ -13,9 +13,10 @@ import { mockGroups, mockActivity, mockNotifications } from '@/lib/mock-data'
 interface DashboardProps {
   onGroupClick: (groupId: string) => void
   onNavigate: (screen: string) => void
+  onCreateGroup?: () => void
 }
 
-export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
+export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: DashboardProps) {
   const { user, profile } = useAuth()
   const [activeTab, setActiveTab] = useState('home')
   const [showNotifications, setShowNotifications] = useState(false)
@@ -159,7 +160,7 @@ export function Dashboard({ onGroupClick, onNavigate }: DashboardProps) {
 
         {/* Create Group Button */}
         <Button 
-          onClick={() => onNavigate('groups')}
+          onClick={() => (onCreateGroup ? onCreateGroup() : onNavigate('groups'))}
           className="w-full h-10 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-sm"
         >
           <Plus className="w-4 h-4 mr-1.5" />

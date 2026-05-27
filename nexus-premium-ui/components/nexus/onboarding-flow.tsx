@@ -13,6 +13,9 @@ import { onboardingSteps } from '@/lib/mock-data'
 interface OnboardingFlowProps {
   onComplete: () => void
   onBack: () => void
+  // When true, the user is editing existing preferences from the profile screen.
+  // We must NOT auto-skip out, and we should pre-fill their previous answers.
+  editMode?: boolean
 }
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -42,18 +45,29 @@ const iconMap: Record<string, React.ReactNode> = {
   briefcase: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="7" rx="2"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16" /></svg>,
 }
 
-export function OnboardingFlow({ onComplete, onBack }: OnboardingFlowProps) {
+export function OnboardingFlow({ onComplete, onBack, editMode = false }: OnboardingFlowProps) {
   const { user, profile, profileLoading, refreshProfile } = useAuth()
   const [currentStep, setCurrentStep] = useState(0)
-  const [selections, setSelections] = useState<Record<string, string[]>>({})
+  const [selections, setSelections] = useState<Record<string, string[]>>(
+    editMode && profile?.onboarding_answers ? profile.onboarding_answers : {},
+  )
   const [saving, setSaving] = useState(false)
 
-  // Returning users who already completed onboarding skip straight to home
+  // Returning users who already completed onboarding skip straight to home —
+  // BUT only when this isn't an explicit "Edit preferences" visit from profile.
   useEffect(() => {
+    if (editMode) return
     if (!profileLoading && profile?.onboarding_completed) {
       onComplete()
     }
-  }, [profileLoading, profile, onComplete])
+  }, [editMode, profileLoading, profile, onComplete])
+
+  // When editing, pre-fill selections once the profile becomes available.
+  useEffect(() => {
+    if (editMode && profile?.onboarding_answers) {
+      setSelections(profile.onboarding_answers)
+    }
+  }, [editMode, profile])
 
   const step = onboardingSteps[currentStep]
   const isLastStep = currentStep === onboardingSteps.length - 1

@@ -9,9 +9,10 @@ import { mockGroups } from '@/lib/mock-data'
 interface GroupsScreenProps {
   onGroupClick: (groupId: string) => void
   onNavigate: (screen: string) => void
+  onCreateGroup?: () => void
 }
 
-export function GroupsScreen({ onGroupClick, onNavigate }: GroupsScreenProps) {
+export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: GroupsScreenProps) {
   return (
     <div className="min-h-screen bg-background pb-24">
       <TopHeader title="Groups" showNotifications={false} />
@@ -38,7 +39,7 @@ export function GroupsScreen({ onGroupClick, onNavigate }: GroupsScreenProps) {
         </div>
 
         <Button
-          onClick={() => onNavigate('home')}
+          onClick={() => (onCreateGroup ? onCreateGroup() : undefined)}
           className="w-full h-10 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-sm"
         >
           <Plus className="w-4 h-4 mr-1.5" />
