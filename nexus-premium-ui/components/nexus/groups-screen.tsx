@@ -5,6 +5,7 @@ import { GroupCard } from './glass-card'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
 import { mockGroups } from '@/lib/mock-data'
+import { useGroups } from '@/lib/use-groups'
 
 interface GroupsScreenProps {
   onGroupClick: (groupId: string) => void
@@ -13,18 +14,22 @@ interface GroupsScreenProps {
 }
 
 export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: GroupsScreenProps) {
+  const { groups: realGroups, loading } = useGroups()
+  const showRealGroups = !loading && realGroups !== null && realGroups.length > 0
+  const groupsToShow = showRealGroups ? realGroups! : mockGroups
+
   return (
     <div className="min-h-screen bg-background pb-24">
       <TopHeader title="Groups" showNotifications={false} />
 
       <main className="px-4 py-6 max-w-md mx-auto">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-sm text-muted-foreground">{mockGroups.length} groups</p>
+          <p className="text-sm text-muted-foreground">{groupsToShow.length} groups</p>
           <span className="text-xs text-primary">All synced</span>
         </div>
 
         <div className="space-y-2.5 mb-6">
-          {mockGroups.map((group) => (
+          {groupsToShow.map((group) => (
             <GroupCard
               key={group.id}
               name={group.name}

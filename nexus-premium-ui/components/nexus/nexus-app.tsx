@@ -13,6 +13,7 @@ import { GoldenWindowReveal } from './golden-window-reveal'
 import { ActivityScreen } from './activity-screen'
 import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
+import { CreateGroupModal } from './create-group-modal'
 
 type Screen =
   | 'resolving'
@@ -32,6 +33,8 @@ export function NexusApp() {
   const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
   const [onboardingReturnTo, setOnboardingReturnTo] = useState<Screen>('home')
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [groupsVersion, setGroupsVersion] = useState(0)
 
   const initializedRef = useRef(false)
 
@@ -91,10 +94,14 @@ export function NexusApp() {
   }
 
   const handleCreateGroup = () => {
-    console.log('[NEXUS] create group clicked — showing toast, staying on', currentScreen)
-    toast('Group creation — coming soon', {
-      style: { background: 'rgba(15,23,41,0.95)', color: 'white', border: '1px solid rgba(255,255,255,0.1)' },
-    })
+    console.log('[NEXUS] create group clicked — opening modal on', currentScreen)
+    setCreateGroupOpen(true)
+  }
+
+  const handleGroupCreated = () => {
+    // Force the dashboard/groups screens to refetch their useGroups() list.
+    // Bumping a key on the rendered screen below remounts it cleanly.
+    setGroupsVersion((v) => v + 1)
   }
 
   const handleLogout = async () => {
@@ -166,20 +173,36 @@ export function NexusApp() {
 
     case 'home':
       return (
-        <Dashboard
-          onGroupClick={(id) => handleGroupClick(id, 'home')}
-          onNavigate={handleNavigate}
-          onCreateGroup={handleCreateGroup}
-        />
+        <>
+          <Dashboard
+            key={`dashboard-${groupsVersion}`}
+            onGroupClick={(id) => handleGroupClick(id, 'home')}
+            onNavigate={handleNavigate}
+            onCreateGroup={handleCreateGroup}
+          />
+          <CreateGroupModal
+            open={createGroupOpen}
+            onOpenChange={setCreateGroupOpen}
+            onCreated={handleGroupCreated}
+          />
+        </>
       )
 
     case 'groups':
       return (
-        <GroupsScreen
-          onGroupClick={(id) => handleGroupClick(id, 'groups')}
-          onNavigate={handleNavigate}
-          onCreateGroup={handleCreateGroup}
-        />
+        <>
+          <GroupsScreen
+            key={`groups-${groupsVersion}`}
+            onGroupClick={(id) => handleGroupClick(id, 'groups')}
+            onNavigate={handleNavigate}
+            onCreateGroup={handleCreateGroup}
+          />
+          <CreateGroupModal
+            open={createGroupOpen}
+            onOpenChange={setCreateGroupOpen}
+            onCreated={handleGroupCreated}
+          />
+        </>
       )
 
     case 'group-detail':

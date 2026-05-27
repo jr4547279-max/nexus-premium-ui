@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Plus, Sparkles, Calendar, Bell, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups, mockActivity, mockNotifications } from '@/lib/mock-data'
+import { useGroups } from '@/lib/use-groups'
 
 interface DashboardProps {
   onGroupClick: (groupId: string) => void
@@ -28,6 +29,12 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
   const emailName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
   const displayName = profile?.display_name || emailName
   const userInitial = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
+
+  // Real groups from Supabase. Fall back to mockGroups ONLY when the user
+  // has no real groups yet (so the dashboard never looks empty for new users).
+  const { groups: realGroups, loading: groupsLoading } = useGroups()
+  const showRealGroups = !groupsLoading && realGroups !== null && realGroups.length > 0
+  const groupsToShow = showRealGroups ? realGroups! : mockGroups
 
   const goldenWindowGroup = mockGroups.find(g => g.hasGoldenWindow)
 
@@ -139,11 +146,11 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
         <div className="mb-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium">Your Groups</h2>
-            <span className="text-xs text-muted-foreground">{mockGroups.length} groups</span>
+            <span className="text-xs text-muted-foreground">{groupsToShow.length} groups</span>
           </div>
           
           <div className="space-y-2.5">
-            {mockGroups.map((group) => (
+            {groupsToShow.map((group) => (
               <GroupCard
                 key={group.id}
                 name={group.name}
