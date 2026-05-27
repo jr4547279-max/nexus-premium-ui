@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { VIBE_LABEL, type Venue, type Vibe } from '@/lib/venue-service'
+import { buildWeatherReason, type Weather } from '@/lib/weather-service'
 
 interface Props {
   venue: Venue | null
@@ -24,6 +25,8 @@ interface Props {
     end_time: string
   } | null
   midpointFallback: boolean
+  /** Phase 6A — real weather, used only to add a reason bullet when present. */
+  weather?: Weather | null
   vote: 1 | -1 | 0
   onVote: (dir: 1 | -1) => void
   onClose: () => void
@@ -46,6 +49,7 @@ export function VenueDetailSheet({
   vibe,
   goldenWindow,
   midpointFallback,
+  weather,
   vote,
   onVote,
   onClose,
@@ -111,13 +115,9 @@ export function VenueDetailSheet({
     }
   }, [venue, onClose])
 
-  if (typeof window !== 'undefined') {
-    // eslint-disable-next-line no-console
-    console.log('[VenueDetailSheet] render — venue=', venue?.name ?? null, 'mounted=', mounted)
-  }
   if (!venue || !mounted) return null
 
-  const reasons = buildReasons(venue, vibe, goldenWindow, midpointFallback)
+  const reasons = buildReasons(venue, vibe, goldenWindow, midpointFallback, weather ?? null)
   const distanceLabel = formatDistance(venue.distance_km)
   const ratingCountLabel = formatRatingCount(venue.rating_count)
   const upCount = vote === 1 ? 1 : 0
@@ -406,8 +406,14 @@ function buildReasons(
   vibe: Vibe,
   goldenWindow: Props['goldenWindow'],
   midpointFallback: boolean,
+  weather: Weather | null,
 ): string[] {
   const reasons: string[] = []
+
+  // Phase 6A — real weather only. Returns null when no honest sentence can be
+  // formed, so we never invent a forecast.
+  const weatherReason = buildWeatherReason(weather, venue, vibe)
+  if (weatherReason) reasons.push(weatherReason)
 
   if (!midpointFallback && venue.distance_km != null) {
     if (venue.distance_km < 0.5) {

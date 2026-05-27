@@ -15,6 +15,8 @@ import {
   type Venue,
 } from '@/lib/venue-service'
 import { VenueDetailSheet } from './venue-detail-sheet'
+import type { Weather } from '@/lib/weather-service'
+import { weatherScoreBoost } from '@/lib/weather-service'
 
 interface Props {
   groupName: string | null
@@ -26,11 +28,18 @@ interface Props {
   } | null
   /** Future-proof: when member coords exist, pass them and the midpoint will shift. */
   memberCoords?: Array<{ lat: number; lng: number }>
+  /** Phase 6A — real weather around the Golden Window, used for light scoring. */
+  weather?: Weather | null
 }
 
 const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
 
-export function VenueRecommendations({ groupName, goldenWindow, memberCoords }: Props) {
+export function VenueRecommendations({
+  groupName,
+  goldenWindow,
+  memberCoords,
+  weather,
+}: Props) {
   const initialVibe = useMemo(() => inferVibe(groupName), [groupName])
   const [vibe, setVibe] = useState<Vibe>(initialVibe)
   const [venues, setVenues] = useState<Venue[]>([])
@@ -72,8 +81,20 @@ export function VenueRecommendations({ groupName, goldenWindow, memberCoords }: 
     setMapFailed(false)
   }, [midpoint.lat, midpoint.lng])
 
-  const topPick = venues[0] ?? null
-  const fitVenues = venues.slice(1, 6)
+  // Phase 6A: apply a tiny weather-driven re-sort. We never overwrite Google's
+  // ordering wholesale — boosts are capped at ±0.08 in weather-service.ts so a
+  // top-rated venue won't lose its spot to a mediocre one just because of a
+  // 30 % rain chance.
+  const rankedVenues = useMemo(() => {
+    if (!weather || venues.length === 0) return venues
+    return [...venues]
+      .map((v) => ({ v, s: v.score + weatherScoreBoost(weather, v) }))
+      .sort((a, b) => b.s - a.s)
+      .map(({ v }) => v)
+  }, [venues, weather])
+
+  const topPick = rankedVenues[0] ?? null
+  const fitVenues = rankedVenues.slice(1, 6)
 
   // Map URL — server proxy keeps the API key off the browser.
   const mapUrl = useMemo(
@@ -241,7 +262,7 @@ export function VenueRecommendations({ groupName, goldenWindow, memberCoords }: 
         </GlassCard>
       ) : (
         <div className="space-y-2.5">
-          {venues.slice(0, 5).map((v, idx) => (
+          {rankedVenues.slice(0, 5).map((v, idx) => (
             <VenueCard
               key={`${v.name}-${v.address ?? idx}`}
               venue={v}
@@ -262,6 +283,7 @@ export function VenueRecommendations({ groupName, goldenWindow, memberCoords }: 
         vibe={vibe}
         goldenWindow={goldenWindow ?? null}
         midpointFallback={midpoint.fallback}
+        weather={weather ?? null}
         vote={selectedVenue ? votes[selectedVenue.name] ?? 0 : 0}
         onVote={(dir) =>
           selectedVenue &&
@@ -321,21 +343,13 @@ function VenueCard({
     )
 
   const handleOpen = (e: React.MouseEvent | React.TouchEvent) => {
-    if (isInteractiveChild(e.target)) {
-      // eslint-disable-next-line no-console
-      console.log('[VenueCard] tap skipped — interactive child', venue.name, e.type)
-      return
-    }
-    // eslint-disable-next-line no-console
-    console.log('[VenueCard] open ->', venue.name, 'event=', e.type)
+    if (isInteractiveChild(e.target)) return
     onOpen()
   }
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' && e.key !== ' ') return
     if (isInteractiveChild(e.target)) return
     e.preventDefault()
-    // eslint-disable-next-line no-console
-    console.log('[VenueCard] open via key ->', venue.name, e.key)
     onOpen()
   }
 

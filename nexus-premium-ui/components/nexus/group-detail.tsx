@@ -29,6 +29,9 @@ import {
   type GoldenWindow,
 } from '@/lib/golden-window'
 import { VenueRecommendations } from './venue-recommendations'
+import { WeatherChip } from './weather-chip'
+import { fetchWeather, type Weather } from '@/lib/weather-service'
+import { computeMidpoint } from '@/lib/venue-service'
 
 interface GroupDetailProps {
   groupId: string
@@ -68,6 +71,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const [loading, setLoading] = useState(realMode)
   const [realWindows, setRealWindows] = useState<GoldenWindow[] | null>(null)
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
+  const [weather, setWeather] = useState<Weather | null>(null)
+  const [weatherLoading, setWeatherLoading] = useState(false)
 
   useEffect(() => {
     if (!realMode) return
@@ -101,6 +106,32 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   }, [groupId, realMode])
 
   const bestWindow = realWindows && realWindows[0] ? realWindows[0] : null
+
+  // Phase 6A — fetch real weather for the Golden Window slot. We have no
+  // per-member coords yet, so the midpoint falls back to Eastbourne.
+  useEffect(() => {
+    if (!realMode || !bestWindow) {
+      setWeather(null)
+      setWeatherLoading(false)
+      return
+    }
+    let cancelled = false
+    setWeatherLoading(true)
+    const mp = computeMidpoint([])
+    fetchWeather({
+      lat: mp.fallback ? undefined : mp.lat,
+      lng: mp.fallback ? undefined : mp.lng,
+      dayOfWeek: bestWindow.day_of_week,
+      startTime: bestWindow.start_time,
+    }).then((w) => {
+      if (cancelled) return
+      setWeather(w)
+      setWeatherLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [realMode, bestWindow?.day_of_week, bestWindow?.start_time])
 
   // Derived view-model: same shape regardless of real vs mock.
   const name = realMode ? realGroup?.name ?? 'Loading…' : mockGroup.name
@@ -189,6 +220,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 </span>
               </div>
             </div>
+
+            {/* Phase 6A: real weather chip for the Golden Window slot.
+                Hidden entirely if the fetch errored, so we never show fake context. */}
+            {(weatherLoading || (weather && !weather.error)) && (
+              <div
+                className="mt-3 pt-3 border-t border-border/30"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <WeatherChip weather={weather} loading={weatherLoading} />
+              </div>
+            )}
           </GlassCard>
         )}
 
@@ -201,6 +243,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               start_time: bestWindow.start_time,
               end_time: bestWindow.end_time,
             }}
+            weather={weather}
           />
         )}
 
