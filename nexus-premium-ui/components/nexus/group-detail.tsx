@@ -75,36 +75,36 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const [weather, setWeather] = useState<Weather | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
 
-  // Phase 6B — cinematic reveal state.
+  // Reveal state — now user-triggered.
   //
-  // We show the atmospheric searching overlay once per (group, session).
-  // After the first reveal, sessionStorage holds the flag so revisiting
-  // the group in the same tab loads instantly with no replay.
-  // Respect prefers-reduced-motion — skip the sequence entirely in that
-  // case so we never animate against the user's accessibility setting.
+  // Flow on a fresh visit to a real group:
+  //   'idle'      → "Search Golden Window" button is visible; nothing else.
+  //   'searching' → user tapped the button; full-screen overlay is up.
+  //   'closing'   → overlay fades out, Golden Window card scale-ins under.
+  //   'revealed'  → card sits with a "Tap to explore nearby fits" hint.
   //
-  // revealMode tracks *how* we arrived at the revealed state so the JSX
-  // can decide whether to apply the scale/fade-in animation classes:
-  //   - 'cinematic' → first-ever visit, full animation
-  //   - 'instant'   → reduced-motion OR already-revealed-this-session, no animation
+  // Once-per-session flag (`nexus:revealed:<groupId>`): if set, we skip the
+  // button + overlay and snap straight to 'revealed' on mount. Venues stay
+  // hidden until the user taps the Golden Window card either way.
   //
-  // 'closing' is a brief transitional phase where the full-screen overlay
-  // fades out over ~600 ms while the Golden Window card scale-ins
-  // underneath, producing a smooth crossfade handoff.
+  // prefers-reduced-motion users still see the button (the request is
+  // user-initiated regardless), but their click jumps straight to
+  // 'revealed' with no overlay.
+  //
+  // revealMode controls whether the card uses scale/fade-in animation
+  // classes — 'cinematic' for first-ever discovery, 'instant' for
+  // reduced-motion or already-revealed-this-session.
   const [revealPhase, setRevealPhase] = useState<
-    'init' | 'searching' | 'closing' | 'revealed'
-  >('init')
+    'idle' | 'searching' | 'closing' | 'revealed'
+  >('idle')
   const [revealMode, setRevealMode] = useState<'cinematic' | 'instant'>('cinematic')
-  // Ref guard so the reveal effect is a one-shot per group. We can't rely
-  // on a `revealPhase === 'init'` check inside the effect because React
-  // tears down the timers in cleanup the moment phase transitions, then
-  // re-runs the effect (which would early-return and never reschedule).
-  // Timer IDs are held in a separate ref so the dedicated [groupId] cleanup
-  // effect can clear them. Under React 18 Strict Mode (dev), the
-  // mount → cleanup → mount cycle clears + reschedules the timers exactly
-  // once, which is safe — the second setup resets the guard and reschedules,
-  // so no stall remains and the visible timeline is unaffected.
-  const revealStartedRef = useRef(false)
+  // Venues are now their own gate — only render after the user taps the
+  // Golden Window card. Resets per group via the [groupId] cleanup effect.
+  const [venuesRevealed, setVenuesRevealed] = useState(false)
+  // Timer IDs are held in a ref so the dedicated [groupId] cleanup effect
+  // can clear them. We deliberately do NOT clear timers in the click
+  // handler's own scope — under React 18 Strict Mode (dev) the
+  // mount → cleanup → mount cycle would otherwise strand the sequence.
   const revealTimersRef = useRef<{
     close?: ReturnType<typeof setTimeout>
     reveal?: ReturnType<typeof setTimeout>
@@ -143,17 +143,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
   const bestWindow = realWindows && realWindows[0] ? realWindows[0] : null
 
-  // Phase 6B — drive the reveal sequence once a real Golden Window is
-  // computed. Three cases:
-  //   1. Already revealed this session → snap straight to 'revealed'.
-  //   2. Reduced-motion → snap straight to 'revealed' (no animation).
-  //   3. Fresh visit → show 'searching' for ~2.2 s, then 'revealed'.
+  // Once the Golden Window is computed, decide the *initial* phase:
+  //   - already-revealed-this-session → snap to 'revealed' (instant mode),
+  //     skip the search button entirely
+  //   - otherwise → stay in 'idle', wait for the user to tap the button
+  // We never auto-trigger the cinematic sequence anymore — that's the
+  // user's call.
   useEffect(() => {
     if (!realMode || !availabilityLoaded || !bestWindow) return
-    // One-shot per mount — never start the sequence twice.
-    if (revealStartedRef.current) return
-    revealStartedRef.current = true
-
     const storageKey = `nexus:revealed:${groupId}`
     let alreadyRevealed = false
     try {
@@ -163,55 +160,68 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     } catch {
       // sessionStorage can throw in restricted contexts — treat as not revealed.
     }
-    const prefersReducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-
-    if (alreadyRevealed || prefersReducedMotion) {
-      // No replay, no animation — just render the final state immediately.
+    if (alreadyRevealed) {
       setRevealMode('instant')
       setRevealPhase('revealed')
-      return
     }
-
-    setRevealMode('cinematic')
-    setRevealPhase('searching')
-
-    // Phase 6B adjustment — slower, more cinematic pacing.
-    //   0 ms      → searching overlay mounts, phrases begin rotating
-    //   3000 ms   → enter 'closing': overlay starts fading + Golden Window
-    //                card mounts underneath with scale-in (true crossfade)
-    //   3600 ms   → overlay unmounts, venue section is allowed to fade up
-    //   4200 ms   → venue recommendations finish their fade-up
-    //   ~4.2 s    → fully revealed
-    revealTimersRef.current.close = setTimeout(() => {
-      setRevealPhase('closing')
-      // Mark the session as revealed as soon as the card mounts —
-      // protects against the user navigating away mid-fade.
-      try {
-        window.sessionStorage.setItem(storageKey, '1')
-      } catch {
-        // sessionStorage can throw in private modes — non-fatal.
-      }
-    }, 3000)
-    revealTimersRef.current.reveal = setTimeout(() => setRevealPhase('revealed'), 3600)
-
-    // No cleanup here on purpose. Clearing the timers on every effect
-    // teardown would strand the sequence under React Strict Mode (which
-    // runs mount → cleanup → mount in dev). The real cleanup lives in a
-    // separate effect keyed on `groupId` below.
   }, [realMode, availabilityLoaded, bestWindow, groupId])
 
-  // Hard reset whenever the user switches to a different group, and on
-  // true unmount. This is the only place timers are cleared.
+  // Reset all reveal/venue state whenever the user switches to a different
+  // group, and on true unmount. This is the only place timers are cleared.
   useEffect(() => {
     return () => {
       if (revealTimersRef.current.close) clearTimeout(revealTimersRef.current.close)
       if (revealTimersRef.current.reveal) clearTimeout(revealTimersRef.current.reveal)
       revealTimersRef.current = {}
-      revealStartedRef.current = false
+      setRevealPhase('idle')
+      setRevealMode('cinematic')
+      setVenuesRevealed(false)
     }
   }, [groupId])
+
+  // User-triggered: kick off the cinematic searching → closing → revealed
+  // sequence. Honors prefers-reduced-motion by snapping straight to
+  // 'revealed' (still user-initiated, just no animation).
+  const handleStartSearch = () => {
+    if (revealPhase !== 'idle') return
+    const storageKey = `nexus:revealed:${groupId}`
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion) {
+      setRevealMode('instant')
+      setRevealPhase('revealed')
+      try {
+        window.sessionStorage.setItem(storageKey, '1')
+      } catch {
+        // non-fatal
+      }
+      return
+    }
+    setRevealMode('cinematic')
+    setRevealPhase('searching')
+    //   0 ms    → overlay mounts, phrases rotate
+    //   3000 ms → 'closing': overlay fades, GW card scale-ins beneath
+    //   3600 ms → 'revealed': overlay unmounts
+    revealTimersRef.current.close = setTimeout(() => {
+      setRevealPhase('closing')
+      try {
+        window.sessionStorage.setItem(storageKey, '1')
+      } catch {
+        // non-fatal
+      }
+    }, 3000)
+    revealTimersRef.current.reveal = setTimeout(
+      () => setRevealPhase('revealed'),
+      3600,
+    )
+  }
+
+  // User-triggered: reveal venue recommendations. Idempotent — repeated
+  // taps after venues are visible are a no-op (no flicker, no re-fetch).
+  const handleRevealVenues = () => {
+    if (!venuesRevealed) setVenuesRevealed(true)
+  }
 
   // Animation classes are only applied on the first cinematic reveal.
   // Reduced-motion users and returning visitors get static, instant content.
@@ -299,15 +309,27 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* Phase 6B — full-screen cinematic searching overlay. Mounts only
-            on the first visit and fades out smoothly during 'closing'. */}
+        {/* "Search Golden Window" — primary call-to-action shown before the
+            user has triggered discovery on this group this session. */}
+        {realMode && availabilityLoaded && bestWindow && revealPhase === 'idle' && (
+          <Button
+            onClick={handleStartSearch}
+            className="w-full h-14 mb-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
+          >
+            <Sparkles className="w-5 h-5 mr-2" />
+            Search Golden Window
+          </Button>
+        )}
+
+        {/* Full-screen cinematic searching overlay. Mounts only on the first
+            user-initiated discovery and fades out smoothly during 'closing'. */}
         {showSearchingOverlay && (
           <GoldenWindowSearching exiting={revealPhase === 'closing'} />
         )}
 
         {/* Real Golden Window — computed from member availability.
             Wrapped in the reveal animation so it scales+fades in once
-            the searching phase ends. */}
+            the searching phase ends. Tap reveals venues below. */}
         {showRevealedContent && (
           <GlassCard
             glow
@@ -315,7 +337,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               'mb-6 p-5 cursor-pointer',
               shouldAnimateReveal && 'animate-scale-in',
             )}
-            onClick={onViewGoldenWindow}
+            onClick={handleRevealVenues}
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -361,16 +383,21 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 <WeatherChip weather={weather} loading={weatherLoading} />
               </div>
             )}
+
+            {/* Subtle hint after reveal, disappears once venues are open. */}
+            {revealPhase === 'revealed' && !venuesRevealed && (
+              <div className="mt-3 pt-3 border-t border-border/30 flex items-center justify-center gap-1.5 text-xs text-primary/80 animate-fade-in-up">
+                <MapPin className="w-3 h-3" />
+                <span>Tap to explore nearby fits</span>
+              </div>
+            )}
           </GlassCard>
         )}
 
-        {/* Real venue recommendations — fades up shortly after the
-            Golden Window card so the reveal feels staged, not all at once. */}
-        {showRevealedContent && (
-          <div
-            className={cn(shouldAnimateReveal && 'animate-fade-in-up opacity-0')}
-            style={shouldAnimateReveal ? { animationDelay: '600ms' } : undefined}
-          >
+        {/* Real venue recommendations — only rendered once the user has
+            tapped the Golden Window card. Fades up the first time. */}
+        {showRevealedContent && venuesRevealed && (
+          <div className="animate-fade-in-up opacity-0" style={{ animationDelay: '0ms' }}>
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
               goldenWindow={{
