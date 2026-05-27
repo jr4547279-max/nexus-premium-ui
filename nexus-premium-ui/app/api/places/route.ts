@@ -136,19 +136,49 @@ export async function GET(req: Request) {
         },
       }),
     })
-    upstream = (await res.json()) as PlaceApiResponse
+
+    const rawBody = await res.text()
+    try {
+      upstream = JSON.parse(rawBody) as PlaceApiResponse
+    } catch {
+      console.error('[api/places] non-JSON upstream', {
+        status: res.status,
+        bodyPreview: rawBody.slice(0, 400),
+      })
+      return NextResponse.json(
+        {
+          venues: [],
+          error: `Google Places returned non-JSON (${res.status}): ${rawBody.slice(0, 200)}`,
+          upstream_status: res.status,
+          upstream_code: null,
+        },
+        { status: res.ok ? 502 : res.status },
+      )
+    }
+
     if (!res.ok) {
+      console.error('[api/places] upstream error', {
+        status: res.status,
+        body: rawBody.slice(0, 600),
+      })
       return NextResponse.json(
         {
           venues: [],
           error: upstream?.error?.message || `Google Places returned ${res.status}`,
+          upstream_status: res.status,
+          upstream_code: upstream?.error?.status,
         },
         { status: res.status },
       )
     }
   } catch (err) {
+    const message = (err as Error).message
+    console.error('[api/places] network failure', { message })
     return NextResponse.json(
-      { venues: [], error: `Places fetch failed: ${(err as Error).message}` },
+      {
+        venues: [],
+        error: `Places fetch failed (network): ${message}`,
+      },
       { status: 502 },
     )
   }
