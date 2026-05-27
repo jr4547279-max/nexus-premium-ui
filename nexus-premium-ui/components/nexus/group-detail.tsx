@@ -28,6 +28,7 @@ import {
   dayLabel,
   type GoldenWindow,
 } from '@/lib/golden-window'
+import { VenueRecommendations } from './venue-recommendations'
 
 interface GroupDetailProps {
   groupId: string
@@ -189,6 +190,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               </div>
             </div>
           </GlassCard>
+        )}
+
+        {/* Real venue recommendations — shown whenever a real Golden Window exists */}
+        {realMode && bestWindow && (
+          <VenueRecommendations groupName={realGroup?.name ?? null} />
         )}
 
         {/* Real Golden Window — empty state when nobody (or only one) has overlapping availability */}
