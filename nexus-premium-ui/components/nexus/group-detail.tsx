@@ -98,9 +98,12 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     'idle' | 'searching' | 'closing' | 'revealed'
   >('idle')
   const [revealMode, setRevealMode] = useState<'cinematic' | 'instant'>('cinematic')
-  // Venues are now their own gate — only render after the user taps the
-  // Golden Window card. Resets per group via the [groupId] cleanup effect.
+  // Venues are now their own gate — only render after the user presses the
+  // explicit "Explore nearby fits" button (or taps the GW card as a
+  // secondary path). Resets per group via the [groupId] cleanup effect.
   const [venuesRevealed, setVenuesRevealed] = useState(false)
+  // Ref on the venue section so we can smooth-scroll to it on reveal.
+  const venuesRef = useRef<HTMLDivElement | null>(null)
   // Timer IDs are held in a ref so the dedicated [groupId] cleanup effect
   // can clear them. We deliberately do NOT clear timers in the click
   // handler's own scope — under React 18 Strict Mode (dev) the
@@ -217,10 +220,21 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     )
   }
 
-  // User-triggered: reveal venue recommendations. Idempotent — repeated
-  // taps after venues are visible are a no-op (no flicker, no re-fetch).
+  // User-triggered: reveal venue recommendations and smooth-scroll to them.
+  // Idempotent — repeated calls after venues are visible just re-scroll.
   const handleRevealVenues = () => {
     if (!venuesRevealed) setVenuesRevealed(true)
+    // Scroll after the fade-in mount has had a frame to attach.
+    // 80ms covers both the initial mount and Strict Mode's double-effect.
+    setTimeout(() => {
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      venuesRef.current?.scrollIntoView({
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        block: 'start',
+      })
+    }, 80)
   }
 
   // Animation classes are only applied on the first cinematic reveal.
@@ -384,20 +398,34 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               </div>
             )}
 
-            {/* Subtle hint after reveal, disappears once venues are open. */}
-            {revealPhase === 'revealed' && !venuesRevealed && (
-              <div className="mt-3 pt-3 border-t border-border/30 flex items-center justify-center gap-1.5 text-xs text-primary/80 animate-fade-in-up">
-                <MapPin className="w-3 h-3" />
-                <span>Tap to explore nearby fits</span>
-              </div>
-            )}
           </GlassCard>
         )}
 
+        {/* Primary call-to-action — explicit, obvious, can't be missed.
+            Only shown after the Golden Window is revealed and before the
+            user has opened venues. */}
+        {showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && (
+          <Button
+            onClick={handleRevealVenues}
+            className={cn(
+              'w-full h-14 mb-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold',
+              shouldAnimateReveal && 'animate-fade-in-up opacity-0',
+            )}
+            style={shouldAnimateReveal ? { animationDelay: '300ms' } : undefined}
+          >
+            <MapPin className="w-5 h-5 mr-2" />
+            Explore nearby fits
+          </Button>
+        )}
+
         {/* Real venue recommendations — only rendered once the user has
-            tapped the Golden Window card. Fades up the first time. */}
+            pressed "Explore nearby fits" (or tapped the GW card). Fades in. */}
         {showRevealedContent && venuesRevealed && (
-          <div className="animate-fade-in-up opacity-0" style={{ animationDelay: '0ms' }}>
+          <div
+            ref={venuesRef}
+            className="animate-fade-in-up opacity-0 scroll-mt-20"
+            style={{ animationDelay: '0ms' }}
+          >
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
               goldenWindow={{
