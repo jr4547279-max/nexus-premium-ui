@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-20", "web"]
 
 [deployment]
 router = "application"
@@ -95,3 +95,6 @@ externalPort = 6000
 [[ports]]
 localPort = 8090
 externalPort = 8000
+
+[nix]
+channel = "stable-25_05"
