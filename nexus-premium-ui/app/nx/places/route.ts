@@ -157,16 +157,28 @@ export async function GET(req: Request) {
     }
 
     if (!res.ok) {
+      const upstreamCode = upstream?.error?.status ?? ''
+      const upstreamMsg = upstream?.error?.message ?? `Google Places returned ${res.status}`
+
+      // PERMISSION_DENIED almost always means billing is not enabled or the
+      // specific API is not activated for this key's project.
+      const billingHint =
+        upstreamCode === 'PERMISSION_DENIED'
+          ? ' — Enable billing at https://console.cloud.google.com/project/_/billing/enable and enable "Places API (New)" at https://console.cloud.google.com/apis/library'
+          : ''
+
       console.error('[api/places] upstream error', {
         status: res.status,
+        upstream_code: upstreamCode,
+        message: upstreamMsg + billingHint,
         body: rawBody.slice(0, 600),
       })
       return NextResponse.json(
         {
           venues: [],
-          error: upstream?.error?.message || `Google Places returned ${res.status}`,
+          error: upstreamMsg + billingHint,
           upstream_status: res.status,
-          upstream_code: upstream?.error?.status,
+          upstream_code: upstreamCode,
         },
         { status: res.status },
       )

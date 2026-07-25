@@ -99,7 +99,12 @@ export async function GET(req: Request) {
   }
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')
-    return new Response(text || `Upstream ${res.status}`, { status: res.status })
+    const billingHint =
+      res.status === 403
+        ? ' PERMISSION_DENIED — Enable billing at https://console.cloud.google.com/project/_/billing/enable and enable "Maps Static API" at https://console.cloud.google.com/apis/library'
+        : ''
+    console.error('[api/places/map] upstream error', { status: res.status, hint: billingHint || undefined })
+    return new Response((text || `Upstream ${res.status}`) + billingHint, { status: res.status })
   }
 
   return new Response(res.body, {
