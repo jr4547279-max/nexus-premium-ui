@@ -1,45 +1,35 @@
-# [Project name]
+# Nexus Premium UI
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
-
-## Run & Operate
-
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+A premium dark navy & gold Next.js 16 dashboard UI built with v0, featuring Supabase auth, animated weather atmosphere backgrounds, and a full component library.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- **Framework**: Next.js 16 (App Router)
+- **Styling**: Tailwind CSS v4
+- **UI Components**: shadcn/ui + Radix UI
+- **Auth / Backend**: Supabase
+- **Package Manager**: pnpm
 
-## Where things live
+## How to Run
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+```bash
+cd nexus-premium-ui && pnpm run dev
+```
 
-## Architecture decisions
+The app runs on port 5000. The configured workflow (`Start application`) handles this automatically.
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+## Environment Variables
 
-## Product
+Auth features require Supabase credentials. Without them the app runs but auth is disabled:
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- `NEXT_PUBLIC_SUPABASE_URL` — your Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — your Supabase anon/public key
 
-## User preferences
+## Key Routes
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- `/` — Main Nexus app (dashboard)
+- `/auth` — Authentication
+- `/weather-demo` — Weather atmosphere animation demo
+- `/nx/places`, `/nx/weather` — Sub-pages
 
-## Gotchas
-
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+## User Preferences
