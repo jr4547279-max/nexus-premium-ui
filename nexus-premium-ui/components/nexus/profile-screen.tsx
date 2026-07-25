@@ -9,9 +9,8 @@ import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import {
-  Calendar, Bell, Lock, User, ChevronRight,
-  LogOut, Moon, Globe, Shield, CreditCard,
-  Trash2, HelpCircle, Check
+  Calendar, Bell, User, ChevronRight,
+  LogOut, Moon, Globe, Trash2, Check
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockUser } from '@/lib/mock-data'
@@ -29,7 +28,7 @@ const LANGUAGES = [
   { code: 'de', label: 'Deutsch' },
 ]
 
-export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenProps) {
+export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: ProfileScreenProps) {
   const { user } = useAuth()
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
@@ -95,7 +94,7 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
                     </div>
                     <div>
                       <p className="font-medium text-xs">{calendar}</p>
-                      <p className="text-[10px] text-muted-foreground">Synced • mock data</p>
+                      <p className="text-[10px] text-muted-foreground">Connected</p>
                     </div>
                   </div>
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -183,53 +182,19 @@ export function ProfileScreen({ onBack, onNavigate, onLogout }: ProfileScreenPro
               icon={<User className="w-4 h-4" />}
               label="Edit preferences"
               hasChevron
-              onClick={() => {
-                console.log('[NEXUS] edit preferences clicked')
-                onNavigate('onboarding')
-              }}
+              onClick={() => onNavigate('onboarding')}
             />
           </GlassCard>
         </div>
 
-        {/* Privacy & Security */}
-        <div className="mb-5">
-          <h2 className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
-            Privacy & Security
-          </h2>
-          <GlassCard className="divide-y divide-border/30 p-0">
-            <SettingsRow
-              icon={<Lock className="w-4 h-4" />}
-              label="Privacy settings"
-              hasChevron
-              onClick={() => comingSoon('Privacy settings')}
-            />
-            <SettingsRow
-              icon={<Shield className="w-4 h-4" />}
-              label="Data & permissions"
-              hasChevron
-              onClick={() => comingSoon('Data & permissions')}
-            />
-            <SettingsRow
-              icon={<CreditCard className="w-4 h-4" />}
-              label="Billing"
-              hasChevron
-              onClick={() => comingSoon('Billing')}
-            />
-          </GlassCard>
-        </div>
+        {/* Coming soon hint */}
+        <p className="text-center text-[11px] text-muted-foreground/50 mb-5">
+          Privacy, billing &amp; support settings coming soon
+        </p>
 
-        {/* Support */}
+        {/* Danger zone */}
         <div className="mb-5">
-          <h2 className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
-            Support
-          </h2>
-          <GlassCard className="divide-y divide-border/30 p-0">
-            <SettingsRow
-              icon={<HelpCircle className="w-4 h-4" />}
-              label="Help center"
-              hasChevron
-              onClick={() => comingSoon('Help center')}
-            />
+          <GlassCard className="p-0">
             <SettingsRow
               icon={<Trash2 className="w-4 h-4 text-destructive" />}
               label="Delete account"

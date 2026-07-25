@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { OrbitalBackground, GoldenRing } from './golden-ring'
 import { Eye, EyeOff, Mail, Lock, ArrowLeft, Sparkles } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { AuthError } from '@supabase/supabase-js'
 

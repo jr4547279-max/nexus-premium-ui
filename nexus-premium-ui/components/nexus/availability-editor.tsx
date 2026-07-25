@@ -46,7 +46,7 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
   const [dirty, setDirty] = useState(false)
   const [groupRows, setGroupRows] = useState<GroupAvailabilityRow[]>([])
 
-  const loadAll = async () => {
+  const _loadAll = async () => {
     setLoading(true)
     const [mine, group] = await Promise.all([
       getMyAvailability(groupId),

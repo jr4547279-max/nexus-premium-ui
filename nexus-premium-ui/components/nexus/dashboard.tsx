@@ -3,10 +3,10 @@
 import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { TopHeader, BottomNav } from './navigation'
-import { GlassCard, GroupCard, AvatarStack } from './glass-card'
+import { GlassCard, GroupCard } from './glass-card'
 import { GoldenRing, GlowingDot } from './golden-ring'
 import { Button } from '@/components/ui/button'
-import { Plus, Sparkles, Calendar, Bell, ChevronRight } from 'lucide-react'
+import { Plus, Sparkles, Calendar, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups, mockActivity, mockNotifications } from '@/lib/mock-data'
 import { useGroups } from '@/lib/use-groups'
@@ -131,8 +131,8 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
                 <Calendar className="w-4 h-4 text-emerald-500" />
               </div>
               <div>
-                <p className="font-medium text-xs">Calendars synced</p>
-                <p className="text-[10px] text-muted-foreground">Updated 2 min ago</p>
+                <p className="font-medium text-xs">Calendars connected</p>
+                <p className="text-[10px] text-muted-foreground">Ready to find your window</p>
               </div>
             </div>
             <div className="flex items-center gap-1">

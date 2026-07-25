@@ -275,6 +275,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
   // Phase 6A — fetch real weather for the Golden Window slot. We have no
   // per-member coords yet, so the midpoint falls back to Eastbourne.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!realMode || !bestWindow) {
       setWeather(null)

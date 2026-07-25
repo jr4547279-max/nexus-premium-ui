@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, Users, Clock, User, Plus } from 'lucide-react'
+import { Home, Users, Clock, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BottomNavProps {

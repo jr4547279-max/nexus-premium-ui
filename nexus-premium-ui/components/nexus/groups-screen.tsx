@@ -24,8 +24,9 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
 
       <main className="px-4 py-6 max-w-md mx-auto">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-sm text-muted-foreground">{groupsToShow.length} groups</p>
-          <span className="text-xs text-primary">All synced</span>
+          <p className="text-sm text-muted-foreground">
+            {loading ? 'Loading…' : `${groupsToShow.length} group${groupsToShow.length === 1 ? '' : 's'}`}
+          </p>
         </div>
 
         <div className="space-y-2.5 mb-6">

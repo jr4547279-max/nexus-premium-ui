@@ -53,11 +53,6 @@ export function NexusApp() {
     if (initializedRef.current) return
     initializedRef.current = true
 
-    console.log('[NEXUS] init resolved', {
-      hasSession: !!session,
-      userId: session?.user?.id ?? null,
-    })
-
     if (!session) {
       setCurrentScreen('landing')
     }
@@ -71,10 +66,6 @@ export function NexusApp() {
     if (profileLoading) return
 
     const next = profile?.onboarding_completed ? 'home' : 'onboarding'
-    console.log('[NEXUS] profile resolved → route', {
-      next,
-      onboardingCompleted: profile?.onboarding_completed,
-    })
     setCurrentScreen(next)
   }, [currentScreen, session, profileLoading, profile])
 
@@ -93,8 +84,9 @@ export function NexusApp() {
     if (!pending) return
     try {
       localStorage.removeItem(PENDING_INVITE_KEY)
-    } catch {}
-    console.log('[NEXUS] consuming pending invite', pending)
+    } catch {
+      // removal is best-effort — ignore storage errors
+    }
     joinGroupByInvite(pending).then(({ groupId, errorMessage }) => {
       if (groupId) {
         toast.success('Joined group')
@@ -113,7 +105,6 @@ export function NexusApp() {
   }
 
   const handleNavigate = (screen: string) => {
-    console.log('[NEXUS] navigate', { from: currentScreen, to: screen })
     // Track where the user came from when entering onboarding so we can route
     // them back correctly (e.g. "Edit preferences" from profile should return
     // to profile, not to landing).
@@ -124,7 +115,6 @@ export function NexusApp() {
   }
 
   const handleCreateGroup = () => {
-    console.log('[NEXUS] create group clicked — opening modal on', currentScreen)
     setCreateGroupOpen(true)
   }
 
@@ -135,7 +125,6 @@ export function NexusApp() {
   }
 
   const handleLogout = async () => {
-    console.log('[NEXUS] explicit logout')
     await signOut()
     setCurrentScreen('landing')
   }
