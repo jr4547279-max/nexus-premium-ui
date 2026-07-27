@@ -1,35 +1,42 @@
-# Nexus Premium UI
+# nexus-premium-ui
 
-A premium dark navy & gold Next.js 16 dashboard UI built with v0, featuring Supabase auth, animated weather atmosphere backgrounds, and a full component library.
+A premium Next.js 16 app ("Nexus — Plans, perfectly aligned") built with v0, Tailwind CSS v4, shadcn/Radix UI components, and Supabase for auth/data.
 
-## Stack
+## How to run
 
-- **Framework**: Next.js 16 (App Router)
-- **Styling**: Tailwind CSS v4
-- **UI Components**: shadcn/ui + Radix UI
-- **Auth / Backend**: Supabase
-- **Package Manager**: pnpm
+The app is configured to run via the **"Start application"** workflow:
 
-## How to Run
-
-```bash
+```
 cd nexus-premium-ui && pnpm run dev
 ```
 
-The app runs on port 5000. The configured workflow (`Start application`) handles this automatically.
+This starts Next.js on port 5000 (`-H 0.0.0.0 -p 5000`).
 
-## Environment Variables
+## Required environment variables
 
-Auth features require Supabase credentials. Without them the app runs but auth is disabled:
+The app starts without these, but key features won't work:
 
-- `NEXT_PUBLIC_SUPABASE_URL` — your Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — your Supabase anon/public key
+| Variable | Used for |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase auth & data (sign-in, sessions) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase auth & data (sign-in, sessions) |
+| `GOOGLE_PLACES_API_KEY` | Places/map API routes (`/nx/places`, `/nx/places/map`, `/nx/places/photo`) |
 
-## Key Routes
+## Stack
 
-- `/` — Main Nexus app (dashboard)
+- **Framework**: Next.js 16 (Turbopack, App Router)
+- **Styling**: Tailwind CSS v4 + tw-animate-css
+- **UI**: shadcn/ui components (Radix UI primitives)
+- **Auth/Data**: Supabase (`@supabase/supabase-js`)
+- **Charts**: Recharts
+- **Package manager**: pnpm (workspace)
+
+## Notable routes
+
+- `/` — Landing page
 - `/auth` — Authentication
-- `/weather-demo` — Weather atmosphere animation demo
-- `/nx/places`, `/nx/weather` — Sub-pages
+- `/invite` — Invite flow
+- `/nx` — Main dashboard
+- `/weather-demo` — Weather atmosphere component demo
 
-## User Preferences
+## User preferences
