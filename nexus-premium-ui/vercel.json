@@ -1,6 +1,0 @@
-{
-  "installCommand": "pnpm install --ignore-workspace",
-  "buildCommand": "pnpm run build",
-  "outputDirectory": ".next",
-  "framework": "nextjs"
-}

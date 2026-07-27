@@ -4,69 +4,6 @@ settings:
   autoInstallPeers: false
   excludeLinksFromLockfile: false
 
-catalogs:
-  default:
-    '@replit/vite-plugin-cartographer':
-      specifier: ^0.5.1
-      version: 0.5.5
-    '@replit/vite-plugin-runtime-error-modal':
-      specifier: ^0.0.6
-      version: 0.0.6
-    '@tailwindcss/vite':
-      specifier: ^4.1.14
-      version: 4.3.0
-    '@tanstack/react-query':
-      specifier: ^5.90.21
-      version: 5.100.9
-    '@types/node':
-      specifier: ^25.3.3
-      version: 25.6.2
-    '@types/react':
-      specifier: ^19.2.0
-      version: 19.2.14
-    '@types/react-dom':
-      specifier: ^19.2.0
-      version: 19.2.3
-    '@vitejs/plugin-react':
-      specifier: ^5.0.4
-      version: 5.2.0
-    class-variance-authority:
-      specifier: ^0.7.1
-      version: 0.7.1
-    clsx:
-      specifier: ^2.1.1
-      version: 2.1.1
-    drizzle-orm:
-      specifier: ^0.45.2
-      version: 0.45.2
-    framer-motion:
-      specifier: ^12.23.24
-      version: 12.38.0
-    lucide-react:
-      specifier: ^0.545.0
-      version: 0.545.0
-    react:
-      specifier: 19.1.0
-      version: 19.1.0
-    react-dom:
-      specifier: 19.1.0
-      version: 19.1.0
-    tailwind-merge:
-      specifier: ^3.3.1
-      version: 3.5.0
-    tailwindcss:
-      specifier: ^4.1.14
-      version: 4.3.0
-    tsx:
-      specifier: ^4.21.0
-      version: 4.21.0
-    vite:
-      specifier: ^7.3.2
-      version: 7.3.3
-    zod:
-      specifier: ^3.25.76
-      version: 3.25.76
-
 overrides:
   esbuild>@esbuild/darwin-arm64: '-'
   esbuild>@esbuild/darwin-x64: '-'
@@ -528,9 +465,6 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.105.4
         version: 2.105.4
-      '@vercel/analytics':
-        specifier: 1.6.1
-        version: 1.6.1(next@16.2.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.0(postcss@8.5.14)
@@ -2235,32 +2169,6 @@ packages:
     resolution: {integrity: sha512-nAB74NfSNKknqQ1RrYj6uz8FcXEomu/MATJZxh/x+BArzN2U3JbOYC0APYzUIGhVY3m5hRxA8VPNdPBoG8txlA==}
     cpu: [x64]
     os: [win32]
-
-  '@vercel/analytics@1.6.1':
-    resolution: {integrity: sha512-oH9He/bEM+6oKlv3chWuOOcp8Y6fo6/PSro8hEkgCW3pu9/OiCXiUpRUogDh3Fs3LH2sosDrx8CxeOLBEE+afg==}
-    peerDependencies:
-      '@remix-run/react': ^2
-      '@sveltejs/kit': ^1 || ^2
-      next: '>= 13'
-      react: ^18 || ^19 || ^19.0.0-rc
-      svelte: '>= 4'
-      vue: ^3
-      vue-router: ^4
-    peerDependenciesMeta:
-      '@remix-run/react':
-        optional: true
-      '@sveltejs/kit':
-        optional: true
-      next:
-        optional: true
-      react:
-        optional: true
-      svelte:
-        optional: true
-      vue:
-        optional: true
-      vue-router:
-        optional: true
 
   '@vitejs/plugin-react@5.2.0':
     resolution: {integrity: sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw==}
@@ -6204,11 +6112,6 @@ snapshots:
 
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
-
-  '@vercel/analytics@1.6.1(next@16.2.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)':
-    optionalDependencies:
-      next: 16.2.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
-      react: 19.1.0
 
   '@vitejs/plugin-react@5.2.0(vite@7.3.3(@types/node@25.6.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.4))':
     dependencies:
