@@ -131,7 +131,6 @@ export function VenueRecommendations({
               Maps API is disabled, the <img> errors and we leave the
               atmospheric gradient + faux markers visible. */}
           {!mapFailed && (
-            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={mapUrl}
               alt=""
@@ -390,7 +389,6 @@ function VenueCard({
         {/* Photo */}
         <div className="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-muted/40">
           {venue.photo_url ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={venue.photo_url}
               alt={venue.name}

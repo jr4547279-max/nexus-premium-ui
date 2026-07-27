@@ -145,7 +145,6 @@ export function VenueDetailSheet({
         {/* ─── Header image ─── */}
         <div className="relative w-full aspect-[16/10] bg-[radial-gradient(ellipse_at_center,#0c1626,#05080f)] overflow-hidden">
           {venue.photo_url ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={venue.photo_url.replace('w=200&h=200', 'w=800&h=500')}
               alt={venue.name}

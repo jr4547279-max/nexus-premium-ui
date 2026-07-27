@@ -34,9 +34,13 @@ The app starts without these, but key features won't work:
 ## Notable routes
 
 - `/` — Landing page
-- `/auth` — Authentication
-- `/invite` — Invite flow
-- `/nx` — Main dashboard
+- `/auth/callback` — Supabase OAuth callback
+- `/invite/[code]` — Invite flow
+- `/dev-login` — Development login helper
 - `/weather-demo` — Weather atmosphere component demo
+- `/nx/weather` — Weather API route
+- `/nx/places` — Places recommendation API route
+- `/nx/places/map` — Static map image route
+- `/nx/places/photo` — Place photo proxy route
 
 ## User preferences
