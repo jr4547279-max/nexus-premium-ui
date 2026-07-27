@@ -48,7 +48,7 @@ Enable in Google Cloud Console:
 
 ## Google OAuth configuration (Supabase dashboard)
 
-This is the root cause of the "redirects to preview URLs" issue. Configure once, in order:
+Configure once, in order:
 
 ### 1. Enable Google provider in Supabase
 Supabase dashboard → Authentication → Providers → Google → Enable
@@ -56,44 +56,65 @@ Supabase dashboard → Authentication → Providers → Google → Enable
 
 ### 2. Configure redirect URLs (Authentication → URL Configuration)
 
-**Site URL** — set to the production domain:
+**Site URL** — set to the production domain (update after first publish):
 ```
 https://yourapp.replit.app
 ```
 
-**Redirect URLs** — add ALL of these wildcard patterns:
+**Redirect URLs** — add ALL of these patterns:
 ```
 https://*.replit.app/**
-https://*.replit.dev/**
+https://*.janeway.replit.dev/**
 http://localhost:5000/**
 ```
 
-The wildcard patterns cover every preview URL Replit generates, so OAuth works
-during development AND in production without needing to update Supabase every
-time the dev container URL changes.
+> **Why `*.janeway.replit.dev/**` and not `*.replit.dev/**`?**
+>
+> Replit dev preview URLs are **two subdomain levels** below `replit.dev`:
+>
+>   `4162f3b0-xxx.janeway.replit.dev`
+>
+> Supabase's `*` wildcard is single-level — it matches one segment and does NOT
+> cross dots. So `*.replit.dev/**` matches `janeway.replit.dev` (one level) but
+> does NOT match `anything.janeway.replit.dev` (two levels). You need the
+> cluster-level pattern `*.janeway.replit.dev/**` to cover every repl on this
+> cluster.
+>
+> If Supabase does not recognise `redirect_to`, it silently falls back to Site URL
+> and the user lands on the wrong page (Replit placeholder) instead of `/auth/callback`.
 
 ### 3. Set NEXT_PUBLIC_SITE_URL (after first publish)
 
 After the app is published and you have a stable `*.replit.app` URL:
 - Add `NEXT_PUBLIC_SITE_URL = https://yourapp.replit.app` as a shared env var
+- Rebuild and redeploy so the value is baked into the client bundle
 - This pins the OAuth `redirectTo` to the production domain so users always
-  land back on the production app after Google sign-in, even if they initiated
-  auth from a preview URL
+  land back on the production app after Google sign-in, even when initiating
+  auth from a dev preview URL
 
 ### How the OAuth flow works
 
 ```
 User clicks "Continue with Google"
-  → redirectTo = NEXT_PUBLIC_SITE_URL + /auth/callback
-  → Browser navigates to Google consent
-  → Google redirects to Supabase OAuth endpoint
-  → Supabase redirects to redirectTo (/auth/callback?code=XXX)
+  → redirectTo = NEXT_PUBLIC_SITE_URL (if set) OR window.location.origin
+                 + /auth/callback
+  → supabase.auth.signInWithOAuth → GET /auth/v1/authorize?redirect_to=[URL]
+  → Supabase does NOT validate redirect_to here — passes it to Google
+  → Google redirects to https://[project].supabase.co/auth/v1/callback?code=XXX
+  → Supabase NOW validates redirect_to against Redirect URLs list
+      ✓ whitelisted → redirects to redirect_to?code=YYY → /auth/callback runs
+      ✗ not whitelisted → falls back to Site URL → user lands on wrong page
   → /auth/callback exchanges code for session (PKCE)
   → User is sent to / (dashboard)
 ```
 
-`NEXT_PUBLIC_SITE_URL` must be in Supabase's Redirect URLs list. If it isn't,
-Supabase ignores `redirectTo` and falls back to the Site URL instead.
+### Supabase validation happens at the CALLBACK step, not at authorize
+
+A common misconception: Supabase does not reject an unwhitelisted `redirect_to`
+when the OAuth flow starts — it passes any URL through to Google. The check
+happens only when Supabase receives the Google callback. If `redirect_to` is not
+in the allowed list at that point, Supabase silently uses Site URL instead.
+This is why the flow appears to start correctly but the final redirect is wrong.
 
 ## Project structure
 
