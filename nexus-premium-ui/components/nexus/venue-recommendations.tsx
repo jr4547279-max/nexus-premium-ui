@@ -2,21 +2,25 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { GlassCard } from './glass-card'
-import { Star, MapPin, Sparkles, ThumbsUp, ThumbsDown, ExternalLink } from 'lucide-react'
+import { Star, MapPin, Sparkles, ThumbsUp, ThumbsDown, ExternalLink, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   fetchVenues,
-  inferVibe,
   computeMidpoint,
   buildMapUrl,
-  venueReason,
   VIBE_LABEL,
   type Vibe,
   type Venue,
 } from '@/lib/venue-service'
 import { VenueDetailSheet } from './venue-detail-sheet'
 import type { Weather } from '@/lib/weather-service'
-import { weatherScoreBoost } from '@/lib/weather-service'
+import {
+  detectActivityIntent,
+  rankVenues,
+  suggestWeatherAlternatives,
+  type ActivityIntent,
+  type ScoredVenueResult,
+} from '@/lib/activity-intelligence'
 
 interface Props {
   groupName: string | null
@@ -30,6 +34,10 @@ interface Props {
   memberCoords?: Array<{ lat: number; lng: number }>
   /** Phase 6A — real weather around the Golden Window, used for light scoring. */
   weather?: Weather | null
+  /** User query or description (optional). */
+  userQuery?: string | null
+  /** User preference IDs from onboarding. */
+  preferenceIds?: string[]
 }
 
 const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
@@ -39,9 +47,37 @@ export function VenueRecommendations({
   goldenWindow,
   memberCoords,
   weather,
+  userQuery,
+  preferenceIds,
 }: Props) {
-  const initialVibe = useMemo(() => inferVibe(groupName), [groupName])
-  const [vibe, setVibe] = useState<Vibe>(initialVibe)
+  // ── Activity Intelligence ──────────────────────────────────────────────────
+  const hourOfDay = useMemo(() => {
+    if (!goldenWindow?.start_time) return null
+    const parts = goldenWindow.start_time.split(':')
+    return parts[0] != null ? Number.parseInt(parts[0], 10) : null
+  }, [goldenWindow?.start_time])
+
+  const intent: ActivityIntent = useMemo(
+    () =>
+      detectActivityIntent({
+        groupName,
+        userQuery,
+        weather,
+        hourOfDay,
+        preferenceIds,
+      }),
+    [groupName, userQuery, weather, hourOfDay, preferenceIds],
+  )
+
+  // User can override the inferred vibe — chips let them do that.
+  const [vibe, setVibe] = useState<Vibe>(intent.vibe)
+
+  // Re-sync vibe chip when intent changes (e.g. weather arrives after mount).
+  useEffect(() => {
+    setVibe(intent.vibe)
+  }, [intent.vibe])
+
+  // ── Data fetching ──────────────────────────────────────────────────────────
   const [venues, setVenues] = useState<Venue[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,6 +85,15 @@ export function VenueRecommendations({
   const [votes, setVotes] = useState<Record<string, 1 | -1 | 0>>({})
   const [mapFailed, setMapFailed] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
+
+  // Weather alternatives state
+  const [showAlternatives, setShowAlternatives] = useState(false)
+  const [altLoading, setAltLoading] = useState(false)
+  const [altVenues, setAltVenues] = useState<Venue[]>([])
+  const weatherAlt = useMemo(
+    () => suggestWeatherAlternatives(weather ?? null, intent),
+    [weather, intent],
+  )
 
   const midpoint = useMemo(
     () => computeMidpoint(memberCoords ?? []),
@@ -59,6 +104,8 @@ export function VenueRecommendations({
     let cancelled = false
     setLoading(true)
     setError(null)
+    setShowAlternatives(false)
+    setAltVenues([])
     fetchVenues({
       vibe,
       lat: midpoint.fallback ? undefined : midpoint.lat,
@@ -76,27 +123,36 @@ export function VenueRecommendations({
     }
   }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])
 
-  // Reset map error state if midpoint changes so we try again
   useEffect(() => {
     setMapFailed(false)
   }, [midpoint.lat, midpoint.lng])
 
-  // Phase 6A: apply a tiny weather-driven re-sort. We never overwrite Google's
-  // ordering wholesale — boosts are capped at ±0.08 in weather-service.ts so a
-  // top-rated venue won't lose its spot to a mediocre one just because of a
-  // 30 % rain chance.
-  const rankedVenues = useMemo(() => {
-    if (!weather || venues.length === 0) return venues
-    return [...venues]
-      .map((v) => ({ v, s: v.score + weatherScoreBoost(weather, v) }))
-      .sort((a, b) => b.s - a.s)
-      .map(({ v }) => v)
-  }, [venues, weather])
+  // ── Intelligence-ranked venues ─────────────────────────────────────────────
+  const rankedResults: ScoredVenueResult[] = useMemo(
+    () => rankVenues(venues, weather ?? null, intent),
+    [venues, weather, intent],
+  )
 
-  const topPick = rankedVenues[0] ?? null
-  const fitVenues = rankedVenues.slice(1, 6)
+  const topPick = rankedResults[0]?.venue ?? null
+  const listResults = rankedResults.slice(0, 5)
 
-  // Map URL — server proxy keeps the API key off the browser.
+  // ── Weather alternatives fetch ────────────────────────────────────────────
+  const handleShowAlternatives = () => {
+    if (altVenues.length > 0) { setShowAlternatives(true); return }
+    setAltLoading(true)
+    setShowAlternatives(true)
+    fetchVenues({
+      vibe: weatherAlt.alternativeVibe,
+      lat: midpoint.fallback ? undefined : midpoint.lat,
+      lng: midpoint.fallback ? undefined : midpoint.lng,
+      limit: 6,
+    }).then((result) => {
+      setAltVenues(result.venues)
+      setAltLoading(false)
+    })
+  }
+
+  // Map URL
   const mapUrl = useMemo(
     () =>
       buildMapUrl({
@@ -106,30 +162,55 @@ export function VenueRecommendations({
           topPick && topPick.lat != null && topPick.lng != null
             ? { lat: topPick.lat, lng: topPick.lng }
             : null,
-        fitCoords: fitVenues
-          .filter((v): v is Venue & { lat: number; lng: number } => v.lat != null && v.lng != null)
+        fitCoords: listResults
+          .slice(1)
+          .filter((r): r is ScoredVenueResult & { venue: Venue & { lat: number; lng: number } } =>
+            r.venue.lat != null && r.venue.lng != null,
+          )
           .slice(0, 4)
-          .map((v) => ({ lat: v.lat, lng: v.lng })),
+          .map((r) => ({ lat: r.venue.lat, lng: r.venue.lng })),
         zoom: 14,
         w: 640,
         h: 320,
       }),
-    [midpoint.lat, midpoint.lng, topPick, fitVenues],
+    [midpoint.lat, midpoint.lng, topPick, listResults],
   )
 
   return (
     <div className="mb-6 space-y-4">
-      {/* ──────────────────────────────────────────────────────────────
-          Map section — renders immediately, no entry animation (the
-          `motion-safe:animate-*` variant did not actually wrap the
-          custom globals.css animation classes, only the `opacity-0`
-          twin, which left content invisible forever).
-          ────────────────────────────────────────────────────────────── */}
+      {/* Activity Intelligence context line */}
+      {intent.confidence >= 50 && intent.category !== 'general' && (
+        <div className="flex items-center gap-2 px-1">
+          <Sparkles className="w-3 h-3 text-primary shrink-0" />
+          <p className="text-[11px] text-primary/80">
+            Showing <strong className="font-semibold">{VIBE_LABEL[intent.vibe]}</strong> spots
+            {intent.confidence >= 70 ? ` — detected from group context` : ''}
+            {intent.signals[0] ? ` (${intent.signals[0]})` : ''}
+          </p>
+        </div>
+      )}
+
+      {/* Weather alternative suggestion banner */}
+      {weatherAlt.shouldSuggest && !showAlternatives && (
+        <div className="flex items-start gap-3 p-3 rounded-xl border border-blue-400/25 bg-blue-400/[0.04]">
+          <AlertTriangle className="w-4 h-4 text-blue-300 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-medium text-foreground/90">{weatherAlt.headline}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{weatherAlt.body}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleShowAlternatives}
+            className="shrink-0 px-2.5 py-1.5 rounded-lg border border-blue-400/30 text-[11px] text-blue-300 hover:bg-blue-400/10 transition-colors"
+          >
+            Show alternatives
+          </button>
+        </div>
+      )}
+
+      {/* Map section */}
       <GlassCard className="p-0 overflow-hidden relative">
         <div className="relative w-full bg-[radial-gradient(ellipse_at_center,#0c1626,#05080f)]" style={{ aspectRatio: '2 / 1' }}>
-          {/* Static map image (server-proxied, dark-styled). If the Static
-              Maps API is disabled, the <img> errors and we leave the
-              atmospheric gradient + faux markers visible. */}
           {!mapFailed && (
             <img
               src={mapUrl}
@@ -138,58 +219,41 @@ export function VenueRecommendations({
               onError={() => setMapFailed(true)}
             />
           )}
-
-          {/* Atmospheric overlays */}
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(251,191,36,0.18),transparent_55%)]" />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/95 via-background/10 to-transparent" />
-
-          {/* Gold radius ring — always visible, ties the look to Nexus */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="w-[68%] aspect-square rounded-full border border-amber-400/30 [box-shadow:0_0_60px_rgba(251,191,36,0.15)_inset,0_0_40px_rgba(251,191,36,0.10)]" />
           </div>
-
-          {/* Centered midpoint pulse */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="relative">
               <span className="absolute inset-0 w-3 h-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400/40 animate-ping" />
               <span className="block w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.9)]" />
             </span>
           </div>
-
-          {/* Top-pick marker — faux-positioned offset from midpoint */}
           {topPick && (
             <div className="pointer-events-none absolute top-[42%] left-[58%]">
               <span className="block w-3 h-3 rounded-full bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.8)]" />
             </div>
           )}
-          {fitVenues.slice(0, 3).map((_, i) => (
+          {listResults.slice(1, 4).map((_, i) => (
             <div
               key={i}
               className="pointer-events-none absolute"
-              style={{
-                top: `${48 + (i % 2 === 0 ? -8 : 6)}%`,
-                left: `${40 - i * 6}%`,
-              }}
+              style={{ top: `${48 + (i % 2 === 0 ? -8 : 6)}%`, left: `${40 - i * 6}%` }}
             >
               <span className="block w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
             </div>
           ))}
-
-          {/* Location label — only show when we actually used the Eastbourne fallback */}
           {midpoint.fallback && (
             <span className="absolute bottom-12 left-3 text-[10px] text-muted-foreground/60 tracking-widest uppercase">
               Eastbourne
             </span>
           )}
-
-          {/* If the static map errored, swap in a friendly hint */}
           {mapFailed && (
             <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-full bg-background/70 backdrop-blur border border-border/40 text-[9px] text-muted-foreground">
               Enable <strong className="text-foreground">Maps Static API</strong> for live map
             </div>
           )}
-
-          {/* Legend chip strip */}
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-3 px-3 py-1.5 rounded-full bg-background/70 backdrop-blur border border-border/40 text-[10px] text-muted-foreground">
             <LegendDot color="bg-amber-400" label="Midpoint" />
             <span className="opacity-30">·</span>
@@ -222,9 +286,7 @@ export function VenueRecommendations({
         })}
       </div>
 
-      {/* ──────────────────────────────────────────────────────────────
-          Nearby fits section
-          ────────────────────────────────────────────────────────────── */}
+      {/* Section header */}
       <div className="flex items-end justify-between mb-1">
         <h2 className="text-lg font-semibold">Nearby fits</h2>
         {goldenWindow ? (
@@ -239,13 +301,10 @@ export function VenueRecommendations({
         </p>
       )}
 
+      {/* Venue list */}
       {loading ? (
         <GlassCard className="p-4">
-          <div
-            className="flex items-center gap-3"
-            role="status"
-            aria-live="polite"
-          >
+          <div className="flex items-center gap-3" role="status" aria-live="polite">
             <span className="relative flex w-2.5 h-2.5">
               <span className="absolute inset-0 rounded-full bg-amber-400/50 animate-ping" />
               <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.7)]" />
@@ -274,18 +333,63 @@ export function VenueRecommendations({
         </GlassCard>
       ) : (
         <div className="space-y-2.5">
-          {rankedVenues.slice(0, 5).map((v, idx) => (
+          {listResults.map((result, idx) => (
             <VenueCard
-              key={`${v.name}-${v.address ?? idx}`}
-              venue={v}
+              key={`${result.venue.name}-${result.venue.address ?? idx}`}
+              result={result}
               isTopPick={idx === 0}
-              vote={votes[v.name] ?? 0}
+              vote={votes[result.venue.name] ?? 0}
               onVote={(dir) =>
-                setVotes((p) => ({ ...p, [v.name]: p[v.name] === dir ? 0 : dir }))
+                setVotes((p) => ({ ...p, [result.venue.name]: p[result.venue.name] === dir ? 0 : dir }))
               }
-              onOpen={() => setSelectedVenue(v)}
+              onOpen={() => setSelectedVenue(result.venue)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Weather alternatives section */}
+      {showAlternatives && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-blue-300 font-medium uppercase tracking-widest">
+              Indoor alternatives
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowAlternatives(false)}
+              className="text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Hide
+            </button>
+          </div>
+          {altLoading ? (
+            <GlassCard className="p-4">
+              <div className="flex items-center gap-3" role="status">
+                <span className="relative flex w-2.5 h-2.5">
+                  <span className="absolute inset-0 rounded-full bg-blue-400/50 animate-ping" />
+                  <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-blue-400" />
+                </span>
+                <p className="text-sm text-muted-foreground">Finding cosy alternatives…</p>
+              </div>
+            </GlassCard>
+          ) : (
+            <div className="space-y-2.5">
+              {rankVenues(altVenues, weather ?? null, { ...intent, preferIndoor: true, category: 'indoor_social', vibe: weatherAlt.alternativeVibe, weatherSensitive: false }).slice(0, 4).map((result, idx) => (
+                <VenueCard
+                  key={`alt-${result.venue.name}-${idx}`}
+                  result={result}
+                  isTopPick={false}
+                  isAlternative
+                  vote={votes[result.venue.name] ?? 0}
+                  onVote={(dir) =>
+                    setVotes((p) => ({ ...p, [result.venue.name]: p[result.venue.name] === dir ? 0 : dir }))
+                  }
+                  onOpen={() => setSelectedVenue(result.venue)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -305,6 +409,7 @@ export function VenueRecommendations({
           }))
         }
         onClose={() => setSelectedVenue(null)}
+        intent={intent}
       />
     </div>
   )
@@ -320,20 +425,21 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 }
 
 function VenueCard({
-  venue,
+  result,
   isTopPick,
+  isAlternative,
   vote,
   onVote,
   onOpen,
 }: {
-  venue: Venue
+  result: ScoredVenueResult
   isTopPick: boolean
+  isAlternative?: boolean
   vote: 1 | -1 | 0
   onVote: (dir: 1 | -1) => void
   onOpen: () => void
 }) {
-  // The OPEN pill is driven by a real signal (Google's openNow) — no
-  // fabricated weather scoring here. Cards without that signal show no pill.
+  const { venue, explanation } = result
   const isOpen = venue.open_now === true
   const distance =
     venue.distance_km != null
@@ -342,17 +448,8 @@ function VenueCard({
         : `${venue.distance_km.toFixed(1)}km`
       : null
 
-  // Click handler that doesn't fire when the user taps an interactive child
-  // (Maps link, vote buttons). Keyboard users get the same affordance via the
-  // role="button" + tabIndex on the wrapper.
-  // NOTE: do NOT include `[role="button"]` here — the wrapper card itself has
-  // role="button", so `closest('[role="button"]')` would match the wrapper and
-  // bail out on every tap, breaking the card. Real inner controls are
-  // <a>/<button> and are matched explicitly.
   const isInteractiveChild = (target: EventTarget | null) =>
-    !!(target as HTMLElement | null)?.closest(
-      'a, button, input, textarea, select',
-    )
+    !!(target as HTMLElement | null)?.closest('a, button, input, textarea, select')
 
   const handleOpen = (e: React.MouseEvent | React.TouchEvent) => {
     if (isInteractiveChild(e.target)) return
@@ -365,11 +462,17 @@ function VenueCard({
     onOpen()
   }
 
-  // Plain div (not GlassCard) so we can attach role/tabIndex/onKeyDown for
-  // accessibility — GlassCard only exposes a void onClick callback.
+  // Pick the most useful explanation to show on the card (≤ 2 lines)
+  const primaryExplanation = explanation[0] ?? null
+
   return (
     <div
-      className="glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer hover:border-amber-400/30 transition-colors select-none touch-manipulation"
+      className={cn(
+        'glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer transition-colors select-none touch-manipulation',
+        isAlternative
+          ? 'hover:border-blue-400/30 border-blue-400/10'
+          : 'hover:border-amber-400/30',
+      )}
       onClick={handleOpen}
       onKeyDown={handleKey}
       role="button"
@@ -382,6 +485,12 @@ function VenueCard({
         <div className="absolute top-0 left-0 z-10 px-2 py-1 rounded-br-lg bg-rose-500/90 text-white text-[9px] font-semibold tracking-wide flex items-center gap-1 shadow-lg">
           <Sparkles className="w-3 h-3" aria-hidden="true" />
           TOP PICK
+        </div>
+      )}
+      {/* INDOOR ALT badge */}
+      {isAlternative && (
+        <div className="absolute top-0 left-0 z-10 px-2 py-1 rounded-br-lg bg-blue-500/80 text-white text-[9px] font-semibold tracking-wide">
+          INDOOR ALT
         </div>
       )}
 
@@ -419,9 +528,12 @@ function VenueCard({
             {[venue.category, distance].filter(Boolean).join(' · ') || '—'}
           </p>
 
-          <p className="text-[11px] text-muted-foreground/90 mt-1 line-clamp-1">
-            {venueReason(venue)}
-          </p>
+          {/* AI explanation — every card gets one */}
+          {primaryExplanation && (
+            <p className="text-[11px] text-muted-foreground/90 mt-1 line-clamp-2 leading-relaxed">
+              {primaryExplanation}
+            </p>
+          )}
 
           <div className="flex items-center justify-between mt-1.5">
             {venue.rating != null ? (
@@ -452,19 +564,13 @@ function VenueCard({
               )}
               <VoteButton
                 active={vote === 1}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onVote(1)
-                }}
+                onClick={(e) => { e.stopPropagation(); onVote(1) }}
                 icon="up"
                 venueName={venue.name}
               />
               <VoteButton
                 active={vote === -1}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onVote(-1)
-                }}
+                onClick={(e) => { e.stopPropagation(); onVote(-1) }}
                 icon="down"
                 venueName={venue.name}
               />

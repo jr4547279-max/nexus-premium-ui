@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils'
 import { VIBE_LABEL, type Venue, type Vibe } from '@/lib/venue-service'
 import { buildWeatherReason, type Weather } from '@/lib/weather-service'
+import type { ActivityIntent } from '@/lib/activity-intelligence'
 
 interface Props {
   venue: Venue | null
@@ -30,6 +31,8 @@ interface Props {
   vote: 1 | -1 | 0
   onVote: (dir: 1 | -1) => void
   onClose: () => void
+  /** Activity Intelligence Engine intent — enhances "Why this fits" bullets. */
+  intent?: ActivityIntent | null
 }
 
 /**
@@ -53,6 +56,7 @@ export function VenueDetailSheet({
   vote,
   onVote,
   onClose,
+  intent,
 }: Props) {
   const [mounted, setMounted] = useState(false)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -117,7 +121,7 @@ export function VenueDetailSheet({
 
   if (!venue || !mounted) return null
 
-  const reasons = buildReasons(venue, vibe, goldenWindow, midpointFallback, weather ?? null)
+  const reasons = buildReasons(venue, vibe, goldenWindow, midpointFallback, weather ?? null, intent ?? null)
   const distanceLabel = formatDistance(venue.distance_km)
   const ratingCountLabel = formatRatingCount(venue.rating_count)
   const upCount = vote === 1 ? 1 : 0
@@ -397,8 +401,7 @@ function formatRatingCount(n: number | null): string | null {
 
 /**
  * Build the "Why this fits your group" bullets from real signals only.
- * Weather is intentionally never invented — if/when forecast data lands it
- * can be added here.
+ * Uses Activity Intelligence intent when available for richer context.
  */
 function buildReasons(
   venue: Venue,
@@ -406,14 +409,52 @@ function buildReasons(
   goldenWindow: Props['goldenWindow'],
   midpointFallback: boolean,
   weather: Weather | null,
+  intent: ActivityIntent | null,
 ): string[] {
   const reasons: string[] = []
 
-  // Phase 6A — real weather only. Returns null when no honest sentence can be
-  // formed, so we never invent a forecast.
+  // Weather reason — real data only, never invented.
   const weatherReason = buildWeatherReason(weather, venue, vibe)
   if (weatherReason) reasons.push(weatherReason)
 
+  // Activity Intelligence: intent-based explanation
+  if (intent && intent.confidence >= 50 && intent.category !== 'general') {
+    const cat = (venue.category ?? '').toLowerCase()
+    if (intent.preferIndoor) {
+      const isIndoor = /\b(bar|pub|restaurant|cafe|coffee|bistro|brewery|cocktail|club|cinema|theatre|museum|gallery|bowling)\b/i.test(cat)
+      if (isIndoor) reasons.push('Good indoor option — stays comfortable whatever the forecast.')
+    } else {
+      switch (intent.category) {
+        case 'dining':
+          if (/\b(restaurant|dining|bistro|brasserie|kitchen|food)\b/i.test(cat))
+            reasons.push('Restaurant setting matches your group\'s dining plans.')
+          break
+        case 'cafe_coffee':
+          if (/\b(cafe|coffee|bakery|brunch)\b/i.test(cat))
+            reasons.push('Café setting suits the relaxed vibe your group is after.')
+          break
+        case 'indoor_social':
+          if (/\b(bar|pub|brewery|cocktail|wine|lounge)\b/i.test(cat))
+            reasons.push('Great bar or pub — ideal for a social night out.')
+          break
+        case 'outdoor_active':
+        case 'outdoor_social':
+          if (/\b(park|garden|beach|trail|outdoor|promenade)\b/i.test(cat))
+            reasons.push('Open-air venue — fits an outdoor outing perfectly.')
+          break
+        case 'culture':
+          if (/\b(museum|gallery|theatre|cinema|art|heritage)\b/i.test(cat))
+            reasons.push('Cultural venue well suited to the group\'s plans.')
+          break
+        case 'entertainment':
+          if (/\b(bowling|arcade|escape|karaoke|gaming|cinema)\b/i.test(cat))
+            reasons.push('Activity venue the whole group can enjoy together.')
+          break
+      }
+    }
+  }
+
+  // Distance
   if (!midpointFallback && venue.distance_km != null) {
     if (venue.distance_km < 0.5) {
       reasons.push(
@@ -430,6 +471,7 @@ function buildReasons(
     }
   }
 
+  // Rating
   if (venue.rating != null && venue.rating >= 4.4) {
     const count = formatRatingCount(venue.rating_count)
     reasons.push(
@@ -439,6 +481,7 @@ function buildReasons(
     )
   }
 
+  // Opening hours vs. Golden Window
   if (venue.open_now === true && goldenWindow) {
     reasons.push(
       `Open right now — fits your Golden Window of ${goldenWindow.start_time}–${goldenWindow.end_time}.`,
@@ -447,7 +490,10 @@ function buildReasons(
     reasons.push('Open right now and ready when your group is.')
   }
 
-  reasons.push(`Matches the group vibe — ${VIBE_LABEL[vibe].toLowerCase()}.`)
+  // Vibe fallback
+  if (reasons.length === 0) {
+    reasons.push(`Matches the group vibe — ${VIBE_LABEL[vibe].toLowerCase()}.`)
+  }
 
   return reasons.slice(0, 4)
 }
