@@ -168,9 +168,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Calls supabase.auth.signInWithOAuth which redirects the browser to Google.
   // After consent, Google redirects to /auth/callback?code=XXX where the PKCE
   // code is exchanged for a real session, then the user is sent to the dashboard.
-  // The redirectTo must be listed as an allowed redirect URL in your Supabase
-  // project (Authentication → URL Configuration) and as an authorised redirect
-  // URI in Google Cloud Console (OAuth 2.0 Client → Authorised redirect URIs).
+  //
+  // The redirectTo URL MUST be whitelisted in your Supabase project under
+  // Authentication → URL Configuration → Redirect URLs. Add wildcard patterns
+  // for Replit so every preview and deployed origin is covered:
+  //
+  //   https://*.replit.dev/**      ← Replit preview (dev) URLs
+  //   https://*.replit.app/**      ← Replit deployed URLs
+  //   http://localhost:5000/**     ← Local dev
+  //
+  // If redirectTo is not in the allowed list, Supabase silently falls back to
+  // its Site URL — which will send users to the wrong page.
+  //
+  // Set NEXT_PUBLIC_SITE_URL to pin a stable callback origin in production
+  // (e.g. https://yourapp.replit.app). When absent, window.location.origin is
+  // used, which always matches the current tab — correct for preview & deployed.
   // ---------------------------------------------------------------------------
   const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -184,11 +196,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    // Prefer a pinned NEXT_PUBLIC_SITE_URL (stable across deploys) but always
+    // fall back to window.location.origin so preview URLs work out of the box.
+    const origin =
+      (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_SITE_URL?.trim()) ||
+      window.location.origin
+
+    const redirectTo = `${origin}/auth/callback`
+
+    console.log('[auth] signInWithGoogle → redirectTo:', redirectTo,
+      '| Add this origin to Supabase → Authentication → URL Configuration → Redirect URLs if sign-in fails.')
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        // /auth/callback exchanges the PKCE code for a session, then → /
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo,
         scopes: 'openid email profile',
       },
     })
