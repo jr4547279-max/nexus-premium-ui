@@ -22,12 +22,23 @@ cd nexus-premium-ui && pnpm run dev
 
 This starts Next.js with `next dev -H 0.0.0.0 -p 5000`.
 
-## Required secrets
+## Publishing (production)
 
-| Secret | Purpose |
+Build command: `cd nexus-premium-ui && pnpm install && pnpm run build`
+Run command: `cd nexus-premium-ui && pnpm run start`
+
+After publishing, the production URL will be at a `*.replit.app` domain. Once published:
+
+1. Set `NEXT_PUBLIC_SITE_URL` env var to the production URL (e.g. `https://yourapp.replit.app`)
+2. Configure Supabase (see below)
+
+## Required secrets and env vars
+
+| Key | Purpose |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public anon key |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (**set**) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public anon key (**set**) |
+| `NEXT_PUBLIC_SITE_URL` | Production URL — pins OAuth callback to stable domain. Set after first publish. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase operations |
 | `GOOGLE_PLACES_API_KEY` | Google Places (New) + Maps Static API |
 
@@ -35,27 +46,76 @@ Enable in Google Cloud Console:
 - **Places API (New)** — for venue search
 - **Maps Static API** — for map tile in venue recommendations
 
+## Google OAuth configuration (Supabase dashboard)
+
+This is the root cause of the "redirects to preview URLs" issue. Configure once, in order:
+
+### 1. Enable Google provider in Supabase
+Supabase dashboard → Authentication → Providers → Google → Enable
+- Requires a Google Cloud OAuth 2.0 Client ID and Secret
+
+### 2. Configure redirect URLs (Authentication → URL Configuration)
+
+**Site URL** — set to the production domain:
+```
+https://yourapp.replit.app
+```
+
+**Redirect URLs** — add ALL of these wildcard patterns:
+```
+https://*.replit.app/**
+https://*.replit.dev/**
+http://localhost:5000/**
+```
+
+The wildcard patterns cover every preview URL Replit generates, so OAuth works
+during development AND in production without needing to update Supabase every
+time the dev container URL changes.
+
+### 3. Set NEXT_PUBLIC_SITE_URL (after first publish)
+
+After the app is published and you have a stable `*.replit.app` URL:
+- Add `NEXT_PUBLIC_SITE_URL = https://yourapp.replit.app` as a shared env var
+- This pins the OAuth `redirectTo` to the production domain so users always
+  land back on the production app after Google sign-in, even if they initiated
+  auth from a preview URL
+
+### How the OAuth flow works
+
+```
+User clicks "Continue with Google"
+  → redirectTo = NEXT_PUBLIC_SITE_URL + /auth/callback
+  → Browser navigates to Google consent
+  → Google redirects to Supabase OAuth endpoint
+  → Supabase redirects to redirectTo (/auth/callback?code=XXX)
+  → /auth/callback exchanges code for session (PKCE)
+  → User is sent to / (dashboard)
+```
+
+`NEXT_PUBLIC_SITE_URL` must be in Supabase's Redirect URLs list. If it isn't,
+Supabase ignores `redirectTo` and falls back to the Site URL instead.
+
 ## Project structure
 
 ```
 nexus-premium-ui/
   app/
     nx/
-      places/route.ts     — Google Places proxy (1h cache)
-      places/map/route.ts — Maps Static API proxy
+      places/route.ts       — Google Places proxy (1h cache)
+      places/map/route.ts   — Maps Static API proxy
       places/photo/route.ts — Place Photos proxy
-      weather/route.ts    — Open-Meteo proxy (30min cache)
-    auth/callback/        — Supabase OAuth callback
-    page.tsx              — Root entry (renders NexusApp)
-  components/nexus/       — All Nexus UI components
+      weather/route.ts      — Open-Meteo proxy (30min cache)
+    auth/callback/page.tsx  — Supabase PKCE OAuth callback handler
+    page.tsx                — Root entry (renders NexusApp)
+  components/nexus/         — All Nexus UI components
   lib/
+    auth-context.tsx        — Auth provider + signInWithGoogle (uses NEXT_PUBLIC_SITE_URL)
     activity-intelligence.ts  — Activity Intelligence Engine (service layer)
     golden-window.ts          — Sweep-line Golden Window algorithm
     weather-service.ts        — Weather × venue scoring helpers
     venue-service.ts          — Venue fetching and midpoint helpers
     availability-service.ts   — Supabase availability rows
     group-service.ts          — Supabase group CRUD
-    auth-context.tsx          — Auth provider
 ```
 
 ## Activity Intelligence Engine

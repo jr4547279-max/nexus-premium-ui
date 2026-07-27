@@ -3,6 +3,8 @@ modules = ["nodejs-20", "web"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd nexus-premium-ui && pnpm run start"]
+build = ["bash", "-c", "cd nexus-premium-ui && pnpm install && pnpm run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
