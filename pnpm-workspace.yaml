@@ -36,7 +36,6 @@ minimumReleaseAgeExclude:
 
 packages:
   - nexus-premium-ui
-  - artifacts/*
   - lib/*
   - lib/integrations/*
   - scripts
