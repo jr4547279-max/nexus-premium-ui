@@ -6,14 +6,15 @@ import { TopHeader, BottomNav } from './navigation'
 import { GlassCard, GroupCard } from './glass-card'
 import { GoldenRing, GlowingDot } from './golden-ring'
 import { Button } from '@/components/ui/button'
-import { Plus, Sparkles, Calendar, ChevronRight } from 'lucide-react'
+import { Plus, Sparkles, Calendar, ChevronRight, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups, mockActivity, mockNotifications } from '@/lib/mock-data'
 import { useGroups } from '@/lib/use-groups'
+import { extractCity } from '@/lib/profile-service'
 
 interface DashboardProps {
-  onGroupClick: (groupId: string) => void
-  onNavigate: (screen: string) => void
+  onGroupClick:  (groupId: string) => void
+  onNavigate:    (screen: string) => void
   onCreateGroup?: () => void
 }
 
@@ -23,25 +24,27 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
   const [showNotifications, setShowNotifications] = useState(false)
 
   const currentHour = new Date().getHours()
-  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening'
+  const greeting    = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening'
 
-  const emailPrefix = user?.email?.split('@')[0] ?? ''
-  const emailName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
-  const displayName = profile?.display_name || emailName
-  const userInitial = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
+  const emailPrefix  = user?.email?.split('@')[0] ?? ''
+  const emailName    = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
+  const displayName  = profile?.display_name || emailName
+  const userInitial  = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
 
-  // Real groups from Supabase. Fall back to mockGroups ONLY when the user
-  // has no real groups yet (so the dashboard never looks empty for new users).
+  const hasLocation  = Boolean(profile?.latitude && profile?.formatted_address)
+  const cityDisplay  = extractCity(profile?.formatted_address)
+
+  // Real groups from Supabase; fall back to mockGroups for new users.
   const { groups: realGroups, loading: groupsLoading } = useGroups()
   const showRealGroups = !groupsLoading && realGroups !== null && realGroups.length > 0
-  const groupsToShow = showRealGroups ? realGroups! : mockGroups
+  const groupsToShow   = showRealGroups ? realGroups! : mockGroups
 
   const goldenWindowGroup = mockGroups.find(g => g.hasGoldenWindow)
 
   return (
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
-      <TopHeader 
+      <TopHeader
         userInitial={userInitial}
         onAvatarClick={() => onNavigate('profile')}
         notificationCount={mockNotifications.filter(n => n.unread).length}
@@ -57,7 +60,7 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
             </div>
             <div className="max-h-64 overflow-y-auto">
               {mockNotifications.map((notification) => (
-                <div 
+                <div
                   key={notification.id}
                   className={cn(
                     'p-3 border-b border-border/30 last:border-0',
@@ -96,8 +99,8 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
         {/* Golden Window Highlight */}
         {goldenWindowGroup && (
           <div className="mb-5">
-            <GlassCard 
-              glow 
+            <GlassCard
+              glow
               className="p-4 cursor-pointer"
               onClick={() => onNavigate('golden-window')}
             >
@@ -108,7 +111,6 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
                 </div>
                 <Sparkles className="w-3.5 h-3.5 text-primary" />
               </div>
-              
               <div className="flex items-center gap-3">
                 <GoldenRing size="sm" intensity="subtle" />
                 <div className="flex-1 min-w-0">
@@ -123,24 +125,52 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
           </div>
         )}
 
-        {/* Sync Status */}
-        <GlassCard className="mb-5 p-3">
-          <div className="flex items-center justify-between">
+        {/* ── Status Cards — Calendars + Location ───────────────────── */}
+        <div className="grid grid-cols-2 gap-2 mb-5">
+          {/* Calendar status */}
+          <GlassCard className="p-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
                 <Calendar className="w-4 h-4 text-emerald-500" />
               </div>
-              <div>
-                <p className="font-medium text-xs">Calendars connected</p>
-                <p className="text-[10px] text-muted-foreground">Ready to find your window</p>
+              <div className="min-w-0">
+                <p className="font-medium text-xs truncate">Calendars</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <GlowingDot color="green" />
+                  <span className="text-[10px] text-emerald-500">Active</span>
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <GlowingDot color="green" />
-              <span className="text-[10px] text-emerald-500">Active</span>
+          </GlassCard>
+
+          {/* Location status — tappable, navigates to Profile */}
+          <GlassCard
+            hover
+            onClick={() => onNavigate('profile')}
+            className="p-3"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className={cn(
+                'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                hasLocation ? 'bg-primary/10' : 'bg-muted/50',
+              )}>
+                <MapPin className={cn(
+                  'w-4 h-4',
+                  hasLocation ? 'text-primary' : 'text-muted-foreground',
+                )} />
+              </div>
+              <div className="min-w-0">
+                <p className="font-medium text-xs truncate">Location</p>
+                <p className={cn(
+                  'text-[10px] truncate mt-0.5',
+                  hasLocation ? 'text-primary' : 'text-muted-foreground',
+                )}>
+                  {hasLocation ? cityDisplay : 'Tap to set'}
+                </p>
+              </div>
             </div>
-          </div>
-        </GlassCard>
+          </GlassCard>
+        </div>
 
         {/* Groups Section */}
         <div className="mb-5">
@@ -148,7 +178,6 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
             <h2 className="text-sm font-medium">Your Groups</h2>
             <span className="text-xs text-muted-foreground">{groupsToShow.length} groups</span>
           </div>
-          
           <div className="space-y-2.5">
             {groupsToShow.map((group) => (
               <GroupCard
@@ -166,7 +195,7 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
         </div>
 
         {/* Create Group Button */}
-        <Button 
+        <Button
           onClick={() => (onCreateGroup ? onCreateGroup() : onNavigate('groups'))}
           className="w-full h-10 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-sm"
         >
@@ -174,35 +203,34 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
           Create New Group
         </Button>
 
-        {/* Quick Activity */}
+        {/* Recent Activity */}
         <div className="mt-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium">Recent Activity</h2>
-            <button 
+            <button
               onClick={() => onNavigate('activity')}
               className="text-xs text-primary hover:underline"
             >
               View all
             </button>
           </div>
-          
           <div className="space-y-1">
             {mockActivity.slice(0, 3).map((activity) => (
-              <div 
+              <div
                 key={activity.id}
                 className="flex items-center gap-2.5 p-2.5 rounded-lg hover:bg-muted/30 transition-colors"
               >
                 <div className={cn(
                   'w-7 h-7 rounded-full flex items-center justify-center shrink-0',
                   activity.type === 'golden_window' && 'bg-primary/20 text-primary',
-                  activity.type === 'confirmation' && 'bg-emerald-500/20 text-emerald-500',
-                  activity.type === 'reservation' && 'bg-amber-500/20 text-amber-500',
-                  activity.type === 'sync' && 'bg-blue-500/20 text-blue-500',
+                  activity.type === 'confirmation'  && 'bg-emerald-500/20 text-emerald-500',
+                  activity.type === 'reservation'   && 'bg-amber-500/20 text-amber-500',
+                  activity.type === 'sync'           && 'bg-blue-500/20 text-blue-500',
                 )}>
                   {activity.type === 'golden_window' && <Sparkles className="w-3.5 h-3.5" />}
-                  {activity.type === 'confirmation' && <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
-                  {activity.type === 'reservation' && <Calendar className="w-3.5 h-3.5" />}
-                  {activity.type === 'sync' && <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                  {activity.type === 'confirmation'  && <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                  {activity.type === 'reservation'   && <Calendar className="w-3.5 h-3.5" />}
+                  {activity.type === 'sync'          && <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium truncate">{activity.title}</p>
@@ -218,14 +246,14 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
       </main>
 
       {/* Bottom Navigation */}
-      <BottomNav 
-        activeTab={activeTab} 
+      <BottomNav
+        activeTab={activeTab}
         onTabChange={(tab) => {
           setActiveTab(tab)
-          if (tab === 'home') onNavigate('home')
-          if (tab === 'groups') onNavigate('groups')
+          if (tab === 'home')     onNavigate('home')
+          if (tab === 'groups')   onNavigate('groups')
           if (tab === 'activity') onNavigate('activity')
-          if (tab === 'profile') onNavigate('profile')
+          if (tab === 'profile')  onNavigate('profile')
         }}
       />
     </div>

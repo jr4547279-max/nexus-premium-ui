@@ -8,9 +8,11 @@ import { TopHeader, BottomNav } from './navigation'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { LocationPicker, extractCity } from './location-picker'
 import {
   Calendar, Bell, User, ChevronRight,
-  LogOut, Moon, Globe, Trash2, Check
+  LogOut, Moon, Globe, Trash2, Check,
+  MapPin, Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockUser } from '@/lib/mock-data'
@@ -29,19 +31,24 @@ const LANGUAGES = [
 ]
 
 export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: ProfileScreenProps) {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
 
   const emailPrefix = user?.email?.split('@')[0] ?? ''
-  const displayName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
-  const userInitial = (user?.email?.[0] ?? 'N').toUpperCase()
+  const displayName = profile?.display_name
+    || (emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1))
+  const userInitial = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
 
-  const [notifications, setNotifications] = useState(true)
-  const [showLangPicker, setShowLangPicker] = useState(false)
-  const [selectedLang, setSelectedLang] = useState('en')
+  const [notifications,    setNotifications]    = useState(true)
+  const [showLangPicker,   setShowLangPicker]   = useState(false)
+  const [selectedLang,     setSelectedLang]     = useState('en')
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false)
 
   const currentLang = LANGUAGES.find(l => l.code === selectedLang)!
+
+  const hasLocation = Boolean(profile?.formatted_address)
+  const cityDisplay = extractCity(profile?.formatted_address)
 
   const comingSoon = (label: string) =>
     toast(`${label} — coming soon`, {
@@ -66,9 +73,69 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
           </div>
           <h1 className="text-lg font-medium">{displayName || 'Account'}</h1>
           <p className="text-muted-foreground text-xs">{user?.email ?? ''}</p>
+          {hasLocation && (
+            <div className="flex items-center gap-1 mt-1.5">
+              <MapPin className="w-3 h-3 text-primary" />
+              <span className="text-[11px] text-primary font-medium">{cityDisplay}</span>
+            </div>
+          )}
         </div>
 
-        {/* Connected Calendars */}
+        {/* ── Location ──────────────────────────────────────────────── */}
+        <div className="mb-5">
+          <h2 className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
+            Location
+          </h2>
+          <GlassCard className="p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                  hasLocation ? 'bg-primary/10' : 'bg-muted/60',
+                )}>
+                  <MapPin className={cn(
+                    'w-4 h-4',
+                    hasLocation ? 'text-primary' : 'text-muted-foreground',
+                  )} />
+                </div>
+                <div className="min-w-0">
+                  {hasLocation ? (
+                    <>
+                      <p className="font-medium text-xs truncate">{cityDisplay}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Only city shown to group members
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium text-xs text-muted-foreground">No location set</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Required for Golden Window midpoints
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant={hasLocation ? 'ghost' : 'outline'}
+                onClick={() => setLocationPickerOpen(true)}
+                className={cn(
+                  'shrink-0 h-7 px-2.5 rounded-lg text-xs gap-1.5',
+                  !hasLocation && 'border-primary/40 text-primary hover:bg-primary/10',
+                )}
+              >
+                {hasLocation ? (
+                  <><Pencil className="w-3 h-3" />Update</>
+                ) : (
+                  <><MapPin className="w-3 h-3" />Set Location</>
+                )}
+              </Button>
+            </div>
+          </GlassCard>
+        </div>
+
+        {/* ── Connected Calendars ───────────────────────────────────── */}
         <div className="mb-5">
           <h2 className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
             Connected Calendars
@@ -112,7 +179,7 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
           </div>
         </div>
 
-        {/* Preferences */}
+        {/* ── Preferences ───────────────────────────────────────────── */}
         <div className="mb-5">
           <h2 className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
             Preferences
@@ -220,6 +287,14 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
         </p>
       </main>
 
+      {/* Location Picker Sheet */}
+      <LocationPicker
+        open={locationPickerOpen}
+        onOpenChange={setLocationPickerOpen}
+        initialLat={profile?.latitude ?? undefined}
+        initialLng={profile?.longitude ?? undefined}
+      />
+
       <BottomNav
         activeTab="profile"
         onTabChange={(tab) => {
@@ -233,13 +308,13 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
 }
 
 interface SettingsRowProps {
-  icon: React.ReactNode
-  label: string
-  value?: string
-  action?: React.ReactNode
+  icon:       React.ReactNode
+  label:      string
+  value?:     string
+  action?:    React.ReactNode
   hasChevron?: boolean
   labelClass?: string
-  onClick?: () => void
+  onClick?:   () => void
 }
 
 function SettingsRow({ icon, label, value, action, hasChevron, labelClass, onClick }: SettingsRowProps) {
