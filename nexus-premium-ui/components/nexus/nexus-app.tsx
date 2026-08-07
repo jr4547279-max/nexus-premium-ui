@@ -15,7 +15,6 @@ import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
-import { ConciergeChat } from './concierge-chat'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
@@ -154,7 +153,7 @@ export function NexusApp() {
 
   /* ── Screen router ── */
 
-  // Unauthenticated / pre-auth screens return early without the concierge.
+  /* ── Screen router ── */
   if (currentScreen === 'resolving') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -196,7 +195,7 @@ export function NexusApp() {
     )
   }
 
-  // ── All authenticated screens — share one ConciergeChat overlay ──
+  // ── Authenticated screens ──
 
   let screenContent: React.ReactNode
 
@@ -286,11 +285,5 @@ export function NexusApp() {
       )
   }
 
-  return (
-    <>
-      {screenContent}
-      {/* AI Concierge floats above every authenticated screen */}
-      <ConciergeChat groupId={selectedGroupId} />
-    </>
-  )
+  return <>{screenContent}</>
 }
