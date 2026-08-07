@@ -15,6 +15,7 @@ import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
+import { ConciergeChat } from './concierge-chat'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
@@ -152,46 +153,56 @@ export function NexusApp() {
   }
 
   /* ── Screen router ── */
-  switch (currentScreen) {
-    case 'resolving':
-      return (
-        <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <GoldenRing size="md" intensity="subtle" />
-            <p className="text-muted-foreground text-xs tracking-widest animate-pulse">
-              NEXUS
-            </p>
-          </div>
+
+  // Unauthenticated / pre-auth screens return early without the concierge.
+  if (currentScreen === 'resolving') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <GoldenRing size="md" intensity="subtle" />
+          <p className="text-muted-foreground text-xs tracking-widest animate-pulse">
+            NEXUS
+          </p>
         </div>
-      )
+      </div>
+    )
+  }
 
-    case 'landing':
-      return (
-        <LandingPage
-          onGetStarted={() => setCurrentScreen('onboarding')}
-          onLogin={() => setCurrentScreen('auth')}
-        />
-      )
+  if (currentScreen === 'landing') {
+    return (
+      <LandingPage
+        onGetStarted={() => setCurrentScreen('onboarding')}
+        onLogin={() => setCurrentScreen('auth')}
+      />
+    )
+  }
 
-    case 'auth':
-      return (
-        <AuthScreen
-          onBack={() => setCurrentScreen('landing')}
-          onSuccess={() => setCurrentScreen('onboarding')}
-        />
-      )
+  if (currentScreen === 'auth') {
+    return (
+      <AuthScreen
+        onBack={() => setCurrentScreen('landing')}
+        onSuccess={() => setCurrentScreen('onboarding')}
+      />
+    )
+  }
 
-    case 'onboarding':
-      return (
-        <OnboardingFlow
-          editMode={isEditingPreferences}
-          onComplete={handleOnboardingComplete}
-          onBack={handleOnboardingBack}
-        />
-      )
+  if (currentScreen === 'onboarding') {
+    return (
+      <OnboardingFlow
+        editMode={isEditingPreferences}
+        onComplete={handleOnboardingComplete}
+        onBack={handleOnboardingBack}
+      />
+    )
+  }
 
+  // ── All authenticated screens — share one ConciergeChat overlay ──
+
+  let screenContent: React.ReactNode
+
+  switch (currentScreen) {
     case 'home':
-      return (
+      screenContent = (
         <>
           <Dashboard
             key={`dashboard-${groupsVersion}`}
@@ -206,9 +217,10 @@ export function NexusApp() {
           />
         </>
       )
+      break
 
     case 'groups':
-      return (
+      screenContent = (
         <>
           <GroupsScreen
             key={`groups-${groupsVersion}`}
@@ -223,9 +235,10 @@ export function NexusApp() {
           />
         </>
       )
+      break
 
     case 'group-detail':
-      return (
+      screenContent = (
         <GroupDetail
           groupId={selectedGroupId}
           onBack={() => setCurrentScreen(prevGroupScreen)}
@@ -233,39 +246,51 @@ export function NexusApp() {
           onNavigate={handleNavigate}
         />
       )
+      break
 
     case 'golden-window':
-      return (
+      screenContent = (
         <GoldenWindowReveal
           groupId={selectedGroupId}
           onBack={() => setCurrentScreen('group-detail')}
           onConfirm={() => setCurrentScreen('home')}
         />
       )
+      break
 
     case 'activity':
-      return (
+      screenContent = (
         <ActivityScreen
           onBack={() => setCurrentScreen('home')}
           onNavigate={handleNavigate}
         />
       )
+      break
 
     case 'profile':
-      return (
+      screenContent = (
         <ProfileScreen
           onBack={() => setCurrentScreen('home')}
           onNavigate={handleNavigate}
           onLogout={handleLogout}
         />
       )
+      break
 
     default:
-      return (
+      screenContent = (
         <LandingPage
           onGetStarted={() => setCurrentScreen('onboarding')}
           onLogin={() => setCurrentScreen('auth')}
         />
       )
   }
+
+  return (
+    <>
+      {screenContent}
+      {/* AI Concierge floats above every authenticated screen */}
+      <ConciergeChat groupId={selectedGroupId} />
+    </>
+  )
 }
