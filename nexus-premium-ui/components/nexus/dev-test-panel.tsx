@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   Sparkles, RefreshCw, Save, AlertTriangle,
-  ChevronDown, ChevronUp, Check, Beaker, Database, Globe,
+  ChevronDown, ChevronUp, Check, Beaker, Database, Globe, MapPin,
 } from 'lucide-react'
 import { ActivityPlanCard } from './activity-plan-card'
 import { DEV_SCENARIOS, type DevScenario } from '@/lib/dev/test-scenarios'
@@ -39,6 +39,19 @@ const PLANNER_ACTIVITIES = [
   { id: 'board-games',  emoji: '🎲', label: 'Board Games' },
   { id: 'escape-room',  emoji: '🔐', label: 'Escape Room' },
 ] as const
+
+// ── Test planning locations ───────────────────────────────────────────────────
+
+const TEST_LOCATIONS = [
+  { id: 'none',         label: 'No location (test error state)', lat: null,     lng: null },
+  { id: 'brighton',     label: '📍 Brighton Centre',            lat: 50.8225,  lng: -0.1372 },
+  { id: 'manchester',   label: '📍 Manchester City Centre',     lat: 53.4808,  lng: -2.2426 },
+  { id: 'edinburgh',    label: '📍 Edinburgh Old Town',         lat: 55.9496,  lng: -3.1949 },
+  { id: 'london-soho',  label: '📍 London Soho',               lat: 51.5132,  lng: -0.1376 },
+  { id: 'birmingham',   label: '📍 Birmingham City Centre',    lat: 52.4800,  lng: -1.9025 },
+] as const
+
+type TestLocationId = typeof TEST_LOCATIONS[number]['id']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -329,6 +342,50 @@ function ActivityPicker({
   )
 }
 
+// ── Location picker ───────────────────────────────────────────────────────────
+
+function TestLocationPicker({
+  selected,
+  onChange,
+}: {
+  selected: TestLocationId
+  onChange: (id: TestLocationId) => void
+}) {
+  const current = TEST_LOCATIONS.find(l => l.id === selected)
+  return (
+    <div>
+      <p className="text-[10px] text-muted-foreground mb-2">
+        Test planning location (used for venue discovery):
+      </p>
+      <div className="flex flex-col gap-1">
+        {TEST_LOCATIONS.map(loc => (
+          <button
+            key={loc.id}
+            onClick={() => onChange(loc.id)}
+            className={cn(
+              'w-full text-left px-3 py-2 rounded-lg text-[11px] border transition-all',
+              selected === loc.id
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-muted/10 border-border/20 text-muted-foreground hover:bg-muted/20',
+            )}
+          >
+            <span className="flex items-center gap-2">
+              {selected === loc.id && <Check className="w-3 h-3 flex-shrink-0" />}
+              {selected !== loc.id && <div className="w-3 h-3 flex-shrink-0" />}
+              {loc.label}
+            </span>
+          </button>
+        ))}
+      </div>
+      {current && current.lat !== null && (
+        <p className="text-[10px] text-muted-foreground mt-1.5 pl-1">
+          {current.lat.toFixed(4)}, {current.lng?.toFixed(4)}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface DevTestPanelProps {
@@ -338,6 +395,7 @@ interface DevTestPanelProps {
 export function DevTestPanel({ onBack }: DevTestPanelProps) {
   const [selectedScenario, setSelectedScenario] = useState<DevScenario | null>(null)
   const [selectedActivity, setSelectedActivity] = useState<string>('pub-crawl')
+  const [selectedLocationId, setSelectedLocationId] = useState<TestLocationId>('brighton')
   const [gwResult, setGwResult]     = useState<DevGwResult | null>(null)
   const [gwPhase, setGwPhase]       = useState<'idle' | 'done'>('idle')
   const [savedWindow, setSavedWindow] = useState<GoldenWindow | null>(null)
@@ -363,6 +421,11 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
 
   const handleActivityChange = useCallback((id: string) => {
     setSelectedActivity(id)
+    clearPlan()
+  }, [clearPlan])
+
+  const handleLocationChange = useCallback((id: TestLocationId) => {
+    setSelectedLocationId(id)
     clearPlan()
   }, [clearPlan])
 
@@ -394,7 +457,19 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
     if (!selectedScenario || !gwResult?.best) return
     setPlanPhase('planning')
     setPlanError(null)
-    const result = await runDevPlanner(selectedScenario, gwResult.best, selectedActivity)
+
+    const locDef = TEST_LOCATIONS.find(l => l.id === selectedLocationId)
+    const planningLocation =
+      locDef && locDef.lat !== null && locDef.lng !== null
+        ? { lat: locDef.lat, lng: locDef.lng }
+        : undefined
+
+    const result = await runDevPlanner(
+      selectedScenario,
+      gwResult.best,
+      selectedActivity,
+      planningLocation,
+    )
     if (result.ok) {
       setPlanResult(result.result)
       setPlanPhase('done')
@@ -402,10 +477,12 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
       setPlanError(result.error)
       setPlanPhase('error')
     }
-  }, [selectedScenario, gwResult, selectedActivity])
+  }, [selectedScenario, gwResult, selectedActivity, selectedLocationId])
 
   const activeWindow = gwResult?.best ?? null
   const activeActivityDef = PLANNER_ACTIVITIES.find(a => a.id === selectedActivity)
+  const selectedLocDef = TEST_LOCATIONS.find(l => l.id === selectedLocationId)
+  const hasLocation = selectedLocDef?.lat !== null
 
   return (
     <div className="min-h-screen bg-background pb-8">
@@ -537,11 +614,36 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
                   />
                 </div>
 
+                {/* Planning location (required for non-pub-crawl activities) */}
+                {selectedActivity !== 'pub-crawl' && (
+                  <div className="mb-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <MapPin className="w-3 h-3 text-muted-foreground" />
+                      <p className="text-[10px] text-muted-foreground">Test planning location:</p>
+                    </div>
+                    <TestLocationPicker
+                      selected={selectedLocationId}
+                      onChange={handleLocationChange}
+                    />
+                    {!hasLocation && (
+                      <p className="text-[10px] text-amber-400 mt-1.5 pl-1">
+                        No location selected — planner will return a "location needed" error (expected).
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {planPhase === 'idle' && (
                   <GlassCard className="p-4">
                     <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
                       Run the {activeActivityDef?.label ?? selectedActivity} planner using the
-                      above Golden Window. Uses mock venue data — no external APIs called.
+                      above Golden Window
+                      {selectedActivity !== 'pub-crawl' && hasLocation
+                        ? ` · searching ${selectedLocDef?.label ?? '…'}`
+                        : selectedActivity !== 'pub-crawl'
+                        ? ' · no location set'
+                        : ' · uses demo venue data'}
+                      .
                     </p>
                     <Button
                       onClick={handlePlanActivity}
@@ -561,7 +663,9 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
                       <div>
                         <p className="text-sm font-medium text-foreground">Planning…</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Discovering venues and scoring the best match
+                          {hasLocation || selectedActivity === 'pub-crawl'
+                            ? 'Discovering venues and scoring the best match'
+                            : 'Checking location requirement…'}
                         </p>
                       </div>
                     </div>
@@ -570,9 +674,10 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
 
                 {planPhase === 'error' && planError && (
                   <GlassCard className="p-4">
-                    <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-                      {planError}
-                    </p>
+                    <div className="flex items-start gap-2 mb-3">
+                      <MapPin className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-400 leading-relaxed">{planError}</p>
+                    </div>
                     <Button
                       onClick={() => setPlanPhase('idle')}
                       variant="outline"

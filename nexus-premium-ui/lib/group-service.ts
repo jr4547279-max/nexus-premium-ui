@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import type { PlanningLocation } from './types/planning-location'
+import type { PlanningLocationSource } from './types/planning-location'
 
 export interface Group {
   id: string
@@ -9,6 +11,12 @@ export interface Group {
   created_by: string
   created_at: string
   updated_at: string
+  // ── Planning location (nullable until set) ────────────────────────────────
+  planning_location_lat?:     number | null
+  planning_location_lng?:     number | null
+  planning_location_name?:    string | null
+  planning_location_address?: string | null
+  planning_location_source?:  string | null
 }
 
 export interface GroupSummary {
@@ -42,9 +50,31 @@ export interface CreateGroupResult {
   errorMessage: string | null
 }
 
+// ── Planning location helpers ─────────────────────────────────────────────────
+
+/**
+ * Extract a typed PlanningLocation from a Group row.
+ * Returns null when lat/lng are absent.
+ */
+export function extractPlanningLocation(group: Group): PlanningLocation | null {
+  const { planning_location_lat: lat, planning_location_lng: lng } = group
+  if (lat == null || lng == null) return null
+  return {
+    lat,
+    lng,
+    name:    group.planning_location_name    ?? '',
+    address: group.planning_location_address ?? '',
+    source:  (group.planning_location_source as PlanningLocationSource) ?? 'saved',
+  }
+}
+
+// ── Error formatter ───────────────────────────────────────────────────────────
+
 function formatError(error: { code?: string | null; message: string; hint?: string | null; details?: string | null }, status?: number) {
   return `[${error.code ?? status}] ${error.message}${error.hint ? ` — hint: ${error.hint}` : ''}${error.details ? ` — details: ${error.details}` : ''}`
 }
+
+// ── Group CRUD ────────────────────────────────────────────────────────────────
 
 export async function createGroup(
   name: string,
@@ -189,6 +219,56 @@ export async function leaveGroup(groupId: string): Promise<boolean> {
 
   if (error) {
     console.error('[group-service] leaveGroup failed', error)
+    return false
+  }
+  return true
+}
+
+// ── Planning Location ─────────────────────────────────────────────────────────
+
+/**
+ * Persist a planning location for a group.
+ * Requires the `group_planning_location.sql` migration to have been applied.
+ */
+export async function saveGroupPlanningLocation(
+  groupId: string,
+  location: PlanningLocation,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('groups')
+    .update({
+      planning_location_lat:     location.lat,
+      planning_location_lng:     location.lng,
+      planning_location_name:    location.name,
+      planning_location_address: location.address,
+      planning_location_source:  location.source,
+    })
+    .eq('id', groupId)
+
+  if (error) {
+    console.error('[group-service] saveGroupPlanningLocation failed', error)
+    return false
+  }
+  return true
+}
+
+/**
+ * Remove the planning location from a group.
+ */
+export async function clearGroupPlanningLocation(groupId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('groups')
+    .update({
+      planning_location_lat:     null,
+      planning_location_lng:     null,
+      planning_location_name:    null,
+      planning_location_address: null,
+      planning_location_source:  null,
+    })
+    .eq('id', groupId)
+
+  if (error) {
+    console.error('[group-service] clearGroupPlanningLocation failed', error)
     return false
   }
   return true

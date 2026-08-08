@@ -41,15 +41,20 @@ export function runDevGoldenWindow(scenario: DevScenario): DevGwResult {
 
 /**
  * Run the real Activity Planner against a GoldenWindow produced by
- * runDevGoldenWindow. Uses the deterministic MockVenueProvider internally.
+ * runDevGoldenWindow.
  *
  * @param activityIdOverride  When set, overrides the scenario's activityId —
  *   lets the dev panel test any registered planner against any scenario.
+ * @param planningLocation    Optional lat/lng for venue discovery. When
+ *   provided, the OSM provider will search this area and the single-venue
+ *   planner will find real venues instead of erroring. Without it, the
+ *   planner will return an error asking for a location (as intended).
  */
 export async function runDevPlanner(
   scenario: DevScenario,
   goldenWindow: GoldenWindow,
   activityIdOverride?: string,
+  planningLocation?: { lat: number; lng: number },
 ): Promise<DevPlanResult> {
   return runPlanner({
     groupId: scenario.id,
@@ -64,8 +69,8 @@ export async function runDevPlanner(
       available_member_count: goldenWindow.available_member_count,
       total_member_count:     goldenWindow.total_member_count,
     },
+    groupLocation: planningLocation,
     budgetPreference: 'medium',
     desiredStops: 4,
-    // No groupLocation in dev mode — planners fall back to their internal default
   })
 }

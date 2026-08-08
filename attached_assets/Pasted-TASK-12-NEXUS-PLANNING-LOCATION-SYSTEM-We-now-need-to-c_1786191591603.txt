@@ -1,0 +1,558 @@
+TASK #12 — NEXUS PLANNING LOCATION SYSTEM 📍
+
+We now need to connect Nexus's real venue engine to a real planning location.
+
+The current venue provider can query OpenStreetMap/Overpass, but it needs a reliable geographic centre. Do NOT use a hard-coded London/default location.
+
+The goal is:
+
+GROUP
+↓
+PLANNING LOCATION
+↓
+GOLDEN WINDOW
+↓
+ACTIVITY
+↓
+REAL VENUES
+↓
+PLANNER
+↓
+COMPLETE PLAN
+
+IMPORTANT:
+- Do NOT add Gemini.
+- Do NOT add OpenAI.
+- Do NOT add paid APIs.
+- Do NOT create a second competing location system.
+- Inspect and reuse the existing Nexus Location System first.
+- Do not break existing activity, Golden Window, planner, authentication, or group functionality.
+- Keep Developer Test Mode working.
+- Keep MockVenueProvider available.
+- Use OpenStreetMap-compatible data where appropriate.
+- Build this modularly so a real map provider can replace the current implementation later.
+
+==================================================
+1. FIRST — INSPECT THE EXISTING LOCATION SYSTEM
+==================================================
+
+Before changing anything, trace the existing location architecture.
+
+Look for:
+
+- location types
+- location picker
+- profile location
+- group location
+- location services
+- Supabase location columns/tables
+- existing map components
+- geocoding logic
+- current location APIs
+
+Determine whether Nexus already has a usable location system.
+
+IMPORTANT:
+
+If a suitable location system already exists, EXTEND IT.
+
+Do NOT create duplicate location fields or duplicate location services.
+
+If the existing system stores locations on profiles but not groups, build the smallest clean extension needed for a group planning location.
+
+==================================================
+2. GROUP PLANNING LOCATION
+==================================================
+
+A group should eventually have a planning location.
+
+The location should represent:
+
+"Where should Nexus plan this activity around?"
+
+Create a clean type such as:
+
+PlanningLocation
+
+with:
+
+- latitude
+- longitude
+- name
+- address
+- source
+- createdAt / updatedAt where appropriate
+
+Possible sources:
+
+"user"
+"search"
+"map"
+"saved"
+"system"
+
+Do not store unnecessary information.
+
+==================================================
+3. LOCATION INPUT METHODS
+==================================================
+
+The user should eventually be able to set a planning location using:
+
+📍 Use current location
+
+🔎 Search for a place/address
+
+📌 Choose a location manually
+
+Reuse any existing Nexus location picker/input components wherever possible.
+
+The UI should be mobile-first.
+
+The flow should feel simple:
+
+"Where are you meeting?"
+
+[ 📍 Use my location ]
+
+[ 🔎 Search ]
+
+[ 📌 Choose on map ]
+
+Once selected:
+
+📍 Brighton Station
+Brighton, UK
+
+[ Change ]
+
+==================================================
+4. DATABASE
+==================================================
+
+If a database change is required, create a migration file under:
+
+supabase/
+
+Use an idempotent migration.
+
+Prefer adding the smallest necessary fields to the existing groups table rather than creating a new table unless the existing architecture strongly suggests otherwise.
+
+Potential structure:
+
+planning_location_lat
+planning_location_lng
+planning_location_name
+planning_location_address
+planning_location_source
+
+Use appropriate PostgreSQL types.
+
+If the existing schema already has a suitable location representation, reuse it instead of adding duplicates.
+
+IMPORTANT:
+
+Do NOT attempt to automatically apply the Supabase migration if credentials are unavailable.
+
+Create the migration file and clearly tell me the exact SQL I need to run.
+
+==================================================
+5. GROUP CREATION
+==================================================
+
+Do NOT force users to provide a location during group creation.
+
+The location can be added afterwards.
+
+Group creation should continue to work exactly as it does now.
+
+After a group exists, provide a clear way to set:
+
+📍 Planning Location
+
+If a group has no planning location:
+
+Show:
+
+"Add a location so Nexus can find places nearby."
+
+with:
+
+[ Add Location ]
+
+==================================================
+6. GROUP DETAIL
+==================================================
+
+Add a polished Planning Location section to Group Detail.
+
+Example:
+
+📍 Planning Location
+
+Brighton Station
+Brighton, UK
+
+[ Change ]
+
+If none exists:
+
+📍 Planning Location
+
+Nexus needs a location to find suitable places nearby.
+
+[ Add Location ]
+
+Keep the existing Nexus glass-card visual language.
+
+Do not make the section visually dominant over the Golden Window/activity.
+
+==================================================
+7. PLANNER INTEGRATION
+==================================================
+
+Update PlannerRequest so planners can receive:
+
+planningLocation?: PlanningLocation
+
+The planner engine should use the group planning location.
+
+For real venue searches:
+
+activity
++
+planningLocation
++
+Golden Window
+
+should become the provider request.
+
+Example:
+
+Pub Crawl
+→ search pubs within an appropriate radius around planning location.
+
+Restaurant
+→ search restaurants nearby.
+
+Coffee
+→ search cafes nearby.
+
+Bowling
+→ search bowling alleys nearby.
+
+Cinema
+→ search cinemas nearby.
+
+Live Music
+→ search music venues nearby.
+
+==================================================
+8. REMOVE THE LONDON FALLBACK
+==================================================
+
+This is important.
+
+Do NOT silently search London when the group has no location.
+
+If no planning location exists:
+
+Return a structured planner requirement:
+
+"Add a planning location so Nexus can find nearby places."
+
+The UI should show:
+
+📍 Location needed
+
+"Tell Nexus where you'd like to meet and we'll find suitable places nearby."
+
+[ Add Location ]
+
+Do not present London venues as if they were relevant.
+
+==================================================
+9. REAL VENUE PROVIDER
+==================================================
+
+Update the OpenStreetMap/Overpass provider so it accepts the planning location.
+
+Use:
+
+latitude
+longitude
+radius
+
+to search the correct area.
+
+Do not invent ratings, prices, opening hours or other unavailable metadata.
+
+If OpenStreetMap doesn't provide something:
+
+show it as unavailable.
+
+Continue distinguishing:
+
+REAL VENUES
+
+from:
+
+DEMO VENUES
+
+==================================================
+10. DISTANCE
+==================================================
+
+Use the planning location as the origin for venue distance calculations.
+
+Display useful information such as:
+
+📍 0.4 km away
+
+or:
+
+🚶 6 min walk
+
+If accurate walking route data is not available yet, do NOT pretend the straight-line distance is walking time.
+
+Instead display:
+
+"0.4 km away"
+
+and leave walking-time routing for a future RouteProvider.
+
+==================================================
+11. MAP ACTION
+==================================================
+
+Keep the existing "Open in Maps" functionality.
+
+Generate a map/search destination from:
+
+venue latitude
+venue longitude
+venue name
+
+Do not require a paid maps API.
+
+==================================================
+12. GOLDEN WINDOW
+==================================================
+
+Do not change the Golden Window calculation engine.
+
+The planning pipeline becomes:
+
+Saved Golden Window
+↓
+Planning Location
+↓
+Activity
+↓
+Venue Provider
+↓
+Planner
+↓
+Plan
+
+The Golden Window determines WHEN.
+
+The Planning Location determines WHERE.
+
+The Activity determines WHAT.
+
+This distinction is important.
+
+==================================================
+13. MULTI-MEMBER LOCATIONS
+==================================================
+
+Do NOT attempt to automatically calculate a perfect geographic midpoint in this task unless the existing location system already supports it cleanly.
+
+For now, use the group's explicit Planning Location.
+
+Later we can build:
+
+"Find the fairest place for everyone."
+
+That can become a dedicated location intelligence feature.
+
+==================================================
+14. DEVELOPER TEST MODE
+==================================================
+
+Keep Developer Test Mode fully functional.
+
+Add an optional planning location to test scenarios.
+
+For example:
+
+Brighton centre
+lat/lng
+
+The developer harness should be able to run:
+
+Scenario
++
+Golden Window
++
+Planning Location
++
+Activity
++
+Planner
++
+Real/mock venue provider
+
+without writing anything to Supabase.
+
+Add a visible test location indicator.
+
+==================================================
+15. ZERO-BUDGET REQUIREMENT
+==================================================
+
+This must remain £0.
+
+Do NOT add:
+
+Google Maps billing
+Google Places billing
+Mapbox paid services
+OpenAI
+Gemini
+paid geocoding
+paid routing
+
+Use free/public data where appropriate.
+
+If a feature genuinely requires a paid service later, create a provider interface for it but do not activate it now.
+
+==================================================
+16. UX
+==================================================
+
+The user should never have to understand coordinates.
+
+Never expose:
+
+latitude
+longitude
+
+in the normal UI.
+
+Use human-friendly names and addresses.
+
+The user experience should be:
+
+"Where are you meeting?"
+
+→ Search "Brighton Station"
+
+→ Select result
+
+→
+
+📍 Brighton Station
+Brighton, UK
+
+✓ Planning location set
+
+Then:
+
+🍺 Pub Crawl
+
+✨ Golden Window
+Friday · 7:30 PM
+
+📍 Around Brighton Station
+
+[ Plan Pub Crawl ]
+
+==================================================
+17. ERROR HANDLING
+==================================================
+
+Every location operation needs:
+
+loading
+success
+empty
+error
+
+Never leave a location picker stuck loading.
+
+Examples:
+
+"Couldn't find that place. Try another search."
+
+"Location permission wasn't available. You can search instead."
+
+"No suitable venues were found nearby."
+
+Never expose raw API/network errors.
+
+==================================================
+18. ARCHITECTURE
+==================================================
+
+Keep location providers modular.
+
+Conceptually:
+
+Location
+├── CurrentLocationProvider
+├── SearchLocationProvider
+├── MapLocationProvider
+└── Future providers
+
+Venue:
+
+VenueProvider
+├── OpenStreetMapVenueProvider
+└── MockVenueProvider
+
+Planner:
+
+Planner
+├── PubCrawlPlanner
+├── SingleVenuePlanner
+└── Future planners
+
+Do not build everything into one huge component.
+
+==================================================
+19. FINAL VERIFICATION
+==================================================
+
+Before declaring complete:
+
+1. Run TypeScript/build checks.
+2. Verify existing groups still load.
+3. Verify existing activity selection still works.
+4. Verify Golden Window still works.
+5. Verify a group can have a planning location.
+6. Verify the location survives a page refresh.
+7. Verify the planner uses the saved location.
+8. Verify OpenStreetMap searches the correct geographic area.
+9. Verify no-location state is handled correctly.
+10. Verify Developer Test Mode still works.
+11. Verify MockVenueProvider still works.
+12. Verify no London/default fallback remains.
+13. Verify mobile UI.
+14. Verify no paid API keys are required.
+
+At the end report:
+
+- files created
+- files modified
+- existing location architecture reused
+- database changes
+- exact migration SQL
+- how location flows into the Planner Engine
+- how to test this from my phone
+- anything that still requires a future provider/API
+
+DO NOT stop at a plan.
+
+IMPLEMENT THE TASK NOW.

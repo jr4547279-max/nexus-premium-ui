@@ -6,8 +6,12 @@
  *   2. Search — Google Places Autocomplete (server-side key)
  *   3. Map    — tap/click on an interactive Leaflet map
  *
- * On confirm the chosen coordinates + address are written to the
- * `profiles` table (latitude, longitude, formatted_address, place_id).
+ * Supports two save modes:
+ *   - Profile mode (default): writes to `profiles` table via updateUserLocation.
+ *   - Custom mode: caller supplies `onSave(result)` which returns true on success.
+ *     Pass `hidePrivacyNote` to suppress the "city shown publicly" footer.
+ *
+ * On confirm the chosen coordinates + address are emitted via `onSaved`.
  */
 
 import { useState, useCallback, useRef } from 'react'
@@ -40,7 +44,7 @@ const MapPicker = dynamic(() => import('./map-picker'), {
 
 type Tab = 'gps' | 'search' | 'map'
 
-interface LocationResult {
+export interface LocationResult {
   lat:     number
   lng:     number
   address: string
@@ -56,10 +60,22 @@ interface Suggestion {
 export interface LocationPickerProps {
   open:         boolean
   onOpenChange: (open: boolean) => void
+  /** Called after a successful save with the chosen result */
   onSaved?:     (result: LocationResult) => void
   /** Pass the user's currently saved location so the map starts there */
   initialLat?:  number
   initialLng?:  number
+  /** Override the sheet title (default: "Update Location") */
+  title?: string
+  /** Confirm button label (default: "Confirm Location") */
+  confirmLabel?: string
+  /**
+   * Custom save function. When provided, this replaces the default profile save.
+   * Return true on success, false on failure (the component will toast on false).
+   */
+  onSave?: (result: LocationResult) => Promise<boolean>
+  /** When true, hides the "Only your city is shown publicly" privacy note */
+  hidePrivacyNote?: boolean
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -70,6 +86,10 @@ export function LocationPicker({
   onSaved,
   initialLat,
   initialLng,
+  title = 'Update Location',
+  confirmLabel = 'Confirm Location',
+  onSave: customSave,
+  hidePrivacyNote = false,
 }: LocationPickerProps) {
   const { user, refreshProfile } = useAuth()
 
@@ -199,27 +219,37 @@ export function LocationPicker({
 
   // ── Save ────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (!selected || !user) return
+    if (!selected) return
     setSaving(true)
     try {
-      const result = await updateUserLocation(user.id, {
-        latitude:          selected.lat,
-        longitude:         selected.lng,
-        formatted_address: selected.address,
-        place_id:          selected.placeId ?? null,
-      })
-      if (!result) throw new Error('Save returned null — run supabase/migration.sql first')
-      await refreshProfile()
-      toast.success('Location saved', {
-        description: extractCity(selected.address) || selected.address,
-        icon: '📍',
-      })
-      onSaved?.(selected)
-      handleOpenChange(false)
+      if (customSave) {
+        // Custom save path (e.g. group planning location)
+        const ok = await customSave(selected)
+        if (!ok) throw new Error('Save returned false')
+        onSaved?.(selected)
+        handleOpenChange(false)
+      } else {
+        // Default: save to user profile
+        if (!user) throw new Error('Not authenticated')
+        const result = await updateUserLocation(user.id, {
+          latitude:          selected.lat,
+          longitude:         selected.lng,
+          formatted_address: selected.address,
+          place_id:          selected.placeId ?? null,
+        })
+        if (!result) throw new Error('Save returned null — run supabase/migration.sql first')
+        await refreshProfile()
+        toast.success('Location saved', {
+          description: extractCity(selected.address) || selected.address,
+          icon: '📍',
+        })
+        onSaved?.(selected)
+        handleOpenChange(false)
+      }
     } catch (err) {
       console.error('[location-picker] save failed', err)
       toast.error('Could not save location', {
-        description: 'Make sure the database migration has been applied.',
+        description: 'Please try again.',
       })
     } finally {
       setSaving(false)
@@ -241,7 +271,7 @@ export function LocationPicker({
       >
         {/* Header */}
         <SheetHeader className="px-4 pt-4 pb-3 border-b border-border/30 shrink-0">
-          <SheetTitle className="text-base font-medium">Update Location</SheetTitle>
+          <SheetTitle className="text-base font-medium">{title}</SheetTitle>
         </SheetHeader>
 
         {/* Method tabs */}
@@ -328,13 +358,15 @@ export function LocationPicker({
             {saving ? (
               <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
             ) : (
-              <><Check className="w-4 h-4 mr-2" />Confirm Location</>
+              <><Check className="w-4 h-4 mr-2" />{confirmLabel}</>
             )}
           </Button>
 
-          <p className="text-[10px] text-muted-foreground text-center">
-            Only your city is shown publicly. Exact coordinates stay private.
-          </p>
+          {!hidePrivacyNote && (
+            <p className="text-[10px] text-muted-foreground text-center">
+              Only your city is shown publicly. Exact coordinates stay private.
+            </p>
+          )}
         </div>
       </SheetContent>
     </Sheet>

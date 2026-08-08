@@ -14,9 +14,12 @@ import { mockGroups } from '@/lib/mock-data'
 import {
   getGroup,
   listGroupMembers,
+  extractPlanningLocation,
   type Group,
   type GroupMember,
 } from '@/lib/group-service'
+import type { PlanningLocation } from '@/lib/types/planning-location'
+import { GroupLocationSection } from './group-location-section'
 import { getActivityById } from '@/lib/activities/registry'
 import { ActivityBadge } from './activity-picker'
 import { InviteMemberModal } from './invite-member-modal'
@@ -112,6 +115,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const [loading, setLoading]         = useState(realMode)
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
 
+  // ── Planning location (group-level, separate from profile location) ───────
+  const [planningLocation, setPlanningLocation] = useState<PlanningLocation | null>(null)
+
   // Raw availability rows — kept in state so we can compute on demand.
   const [allAvailability, setAllAvailability] = useState<GroupAvailabilityRow[]>([])
 
@@ -180,6 +186,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     ]).then(([g, m, avail, saved]) => {
       if (cancelled) return
       setRealGroup(g)
+      setPlanningLocation(g ? extractPlanningLocation(g) : null)
       setRealMembers(m)
       setAllAvailability(avail)
       setSavedWindow(saved.window)
@@ -345,6 +352,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             total_member_count:    activeWindow.total_member_count,
           }
         : undefined,
+      groupLocation: planningLocation
+        ? { lat: planningLocation.lat, lng: planningLocation.lng }
+        : undefined,
       budgetPreference: 'medium',
       desiredStops:     4,
     })
@@ -469,6 +479,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             <Settings className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
+
+        {/* ── Planning Location ── subtle card, real groups only ─────────
+            Placed before Golden Window so users can set location first.
+            Does not dominate the view — uses a compact single-row style. */}
+        {realMode && !loading && (
+          <GroupLocationSection
+            groupId={groupId}
+            planningLocation={planningLocation}
+            onChanged={setPlanningLocation}
+          />
+        )}
 
         {/* ── Stale banner ── shown when a saved window exists but availability
             changed after it was computed. Never overwrites automatically. */}
@@ -718,6 +739,13 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
                         Find a Golden Window first so Nexus can plan around your
                         group&apos;s available time.
+                      </p>
+                    )}
+                    {/* Location hint — only for activities that need real venue search */}
+                    {rawActivityId !== 'pub-crawl' && !planningLocation && (
+                      <p className="text-xs text-muted-foreground bg-muted/20 border border-border/30 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+                        <MapPin className="w-3 h-3 inline mr-1 opacity-60" />
+                        Set a planning location above so Nexus can find real venues nearby.
                       </p>
                     )}
                     <Button

@@ -1,55 +1,82 @@
 ---
 name: Real Venue Engine architecture
-description: Provider abstraction, OSM Overpass integration, single-venue planner factory — key constraints for future planner changes.
+description: Provider abstraction, OSM Overpass integration, single-venue planner factory, group planning location — key constraints for future planner changes.
 ---
 
 ## What was built
 
-A layered venue discovery + planning system on top of the existing pub-crawl planner.
+A layered venue discovery + planning system with a group-level planning location.
 
 ### File structure
 
 ```
-lib/planners/
-  types.ts                  — extended PlannerVenue (mapsUrl, address, isRealData, ratingKnown,
-                              priceLevelKnown, openingHoursKnown) + PlannerResult (dataSource, providerName, scoreReasons)
-  scoring.ts                — universal scorer: scoreVenueForActivity(), isVenueOpenAt(), format12h(), addMinutesToTime()
-  single-venue-planner.ts   — factory: createSingleVenuePlanner({ activityId, activityEmoji, activityLabel })
-  registry.ts               — 10 planners registered: pub-crawl + 9 single-venue activities
-  mock-venue-provider.ts    — re-export shim (canonical impl in providers/)
-  providers/
-    venue-provider.ts       — VenueProvider re-export + ACTIVITY_OSM_TAGS registry
-    openstreetmap-venue-provider.ts — Overpass API, 15s timeout, POST to overpass-api.de
-    mock-venue-provider.ts  — multi-activity mock data for all 9 non-pub-crawl activities
+lib/
+  types/planning-location.ts           — PlanningLocation type + PlanningLocationSource
+  group-service.ts                      — Group now has planning_location_* fields;
+                                          extractPlanningLocation(), saveGroupPlanningLocation(),
+                                          clearGroupPlanningLocation()
+  planners/
+    types.ts                            — PlannerRequest.groupLocation?: {lat,lng}
+    scoring.ts                          — universal scorer + format12h + helpers
+    single-venue-planner.ts             — factory; OSM→mock fallback; THROWS if no location
+    registry.ts                         — 10 planners registered
+    providers/
+      venue-provider.ts                 — VenueProvider re-export + ACTIVITY_OSM_TAGS
+      openstreetmap-venue-provider.ts   — Overpass API, 15s timeout
+      mock-venue-provider.ts            — multi-activity demo data
+  dev/
+    dev-harness.ts                      — runDevPlanner() accepts planningLocation?: {lat,lng}
+
+supabase/
+  group_planning_location.sql          — idempotent migration (5 columns on groups table)
+
 components/nexus/
-  single-venue-plan.tsx     — single-venue plan card (non-pub-crawl activities)
-  activity-plan-card.tsx    — router: pub-crawl → PubCrawlPlan, others → SingleVenuePlan
+  group-location-section.tsx           — planning location card for group detail
+  location-picker.tsx                  — extended with onSave/title/confirmLabel/hidePrivacyNote
+  single-venue-plan.tsx                — single-venue plan card
+  activity-plan-card.tsx               — router: pub-crawl → PubCrawlPlan, else → SingleVenuePlan
+  dev-test-panel.tsx                   — 6 test locations, location picker for non-pub-crawl
 ```
 
 ## Key constraints
+
+**No London fallback:** `single-venue-planner.ts` now throws when `groupLocation` is undefined. Error message: "Add a planning location so Nexus can find [activity] venues nearby." This surfaces in the existing plan error state in group-detail.tsx.
+
+**Pub-crawl is exempt:** `pub-crawl-planner.ts` uses `MockVenueProvider` only and does not require a location (mock data is location-agnostic). No location error for pub-crawl.
 
 **VenueProvider interface signature:**
 ```typescript
 getVenues(activityId: string, location?: { lat: number; lng: number }): Promise<PlannerVenue[]>
 ```
-MockVenueProvider must declare the optional second argument even if unused, or TypeScript errors at call sites that use the concrete type.
+MockVenueProvider must declare the optional second argument or TypeScript errors at call sites that use the concrete type.
 
-**OSM provider:** calls Overpass API as HTTP POST from the browser (client-side). No API key needed. Requires `location` — returns `[]` without one.
+**LocationPicker reuse:** The existing `LocationPicker` now accepts `onSave?: (result) => Promise<boolean>` to override the default profile save. `GroupLocationSection` uses this to write to the groups table instead of the user's profile. Also accepts `title`, `confirmLabel`, `hidePrivacyNote` props.
 
-**Provider fallback:** single-venue planner tries OSM first; falls back to mock when OSM returns < 2 results or throws. Sets `dataSource: 'real' | 'mock'` and `providerName` on the result.
+**Migration SQL:**
+```sql
+ALTER TABLE groups
+  ADD COLUMN IF NOT EXISTS planning_location_lat     DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS planning_location_lng     DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS planning_location_name    TEXT,
+  ADD COLUMN IF NOT EXISTS planning_location_address TEXT,
+  ADD COLUMN IF NOT EXISTS planning_location_source  TEXT;
+```
+This is in `supabase/group_planning_location.sql`. Must be applied before planning location saves work.
 
-**Honesty about OSM data:** OSM does not provide ratings or prices. `ratingKnown: false` and `priceLevelKnown: false` signal this. UI must show "unavailable" instead of invented values.
+**Group detail flow:**
+- `GroupLocationSection` renders after group header, before Golden Window
+- On load: `extractPlanningLocation(realGroup)` → `setPlanningLocation()`
+- `handlePlanActivity` passes `groupLocation: { lat, lng }` from `planningLocation` state
+- Location-needed hint shown in Plan CTA for non-pub-crawl activities with no location
 
-**format12h location:** Canonical version in `lib/planners/scoring.ts`. pub-crawl-planner.ts has its own copy (still exported for backward compat with pub-crawl-plan.tsx).
+**Dev test panel:** 6 preset test locations (Brighton, Manchester, Edinburgh, London Soho, Birmingham, None). Location picker only shown for non-pub-crawl activities. "None" tests the "location needed" error path.
 
-**Group location:** group-detail.tsx passes `groupLocation: undefined` to runPlanner — planners fall back to London city centre internally. Real member coordinates would improve this in future.
-
-**Dev test panel:** `runDevPlanner(scenario, goldenWindow, activityIdOverride?)` — third param lets the panel test any registered planner against any scenario.
+**OSM Overpass:** Returns `[]` when no location given (unchanged — guard in single-venue-planner handles this now with an explicit error rather than London fallback).
 
 ## Why
 
-**Why OSM instead of Google Places:** Zero cost, no API key, open data. Honest about what it doesn't provide (ratings, prices).
+**Why no London fallback:** Silent fallback showed London venues to users in Brighton/Edinburgh/etc. Honest error prompting location setup is better UX than silently wrong data.
 
-**Why single-venue planner factory:** All non-pub-crawl activities follow the same pattern (discover → score → pick best 1). Factory avoids duplicating the OSM/mock fallback logic 9 times.
+**Why LocationPicker was extended (not duplicated):** The existing picker already has GPS + Google Places search + Leaflet map — all needed for group location too. Adding `onSave` prop makes it composable without duplicating 500 lines.
 
-**Why PlannerVenue fields are optional (not nullable required):** Backward compat — existing pub-crawl code creates PlannerVenue with all fields populated. New optional fields default to `undefined` without breaking the mock data.
+**Why planning location is on the group (not per-member):** "Where are we meeting?" is a group decision, not individual. Multi-member midpoint is a future feature (task proposed separately).

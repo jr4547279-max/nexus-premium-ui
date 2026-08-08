@@ -5,10 +5,11 @@
 // best-fit venue (restaurant, coffee, cinema, bowling, live-music, etc.).
 //
 // Strategy:
-//   1. Try OpenStreetMap provider with the group's location.
-//   2. Fall back to MockVenueProvider when OSM returns insufficient results.
-//   3. Score all candidates with the universal scorer.
-//   4. Return the top pick as a single-stop PlannerResult.
+//   1. Require an explicit planning location — no silent fallbacks.
+//   2. Try OpenStreetMap provider with the group's location.
+//   3. Fall back to MockVenueProvider when OSM returns insufficient results.
+//   4. Score all candidates with the universal scorer.
+//   5. Return the top pick as a single-stop PlannerResult.
 
 import type {
   PlannerDefinition,
@@ -27,9 +28,6 @@ import { scoreVenueForActivity, isVenueOpenAt, addMinutesToTime, format12h } fro
 
 /** Minimum real venues before we accept OSM results (avoids thin coverage areas) */
 const MIN_OSM_RESULTS = 2
-
-/** London city centre — used when the group has no location data */
-const LONDON_FALLBACK = { lat: 51.5074, lng: -0.1278 }
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -75,8 +73,13 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         )
       }
 
-      const location = groupLocation ?? LONDON_FALLBACK
-      const usingFallback = !groupLocation
+      // ── Location is required — no silent fallback ──────────────────────────
+      if (!groupLocation) {
+        throw new Error(
+          `Add a planning location so Nexus can find ${activityLabel.toLowerCase()} venues nearby.`,
+        )
+      }
+
       const startTime = goldenWindow.start_time
 
       // ── Venue discovery ────────────────────────────────────────────────────
@@ -85,7 +88,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       let providerName = 'OpenStreetMap'
 
       try {
-        const realVenues = await osmProvider.getVenues(activityId, location)
+        const realVenues = await osmProvider.getVenues(activityId, groupLocation)
         if (realVenues.length >= MIN_OSM_RESULTS) {
           venues = realVenues
         } else {
@@ -94,14 +97,14 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
           )
         }
       } catch {
-        venues = await mockProvider.getVenues(activityId, location)
+        venues = await mockProvider.getVenues(activityId, groupLocation)
         dataSource = 'mock'
         providerName = 'Demo Venues'
       }
 
       if (venues.length === 0) {
         throw new Error(
-          `No ${activityLabel.toLowerCase()} venues found. Try setting your group's location.`,
+          `No ${activityLabel.toLowerCase()} venues found near your location. Try a different meeting place.`,
         )
       }
 
@@ -125,15 +128,9 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       // ── Warnings ───────────────────────────────────────────────────────────
       const warnings: string[] = []
 
-      if (usingFallback) {
-        warnings.push(
-          'Group location not set — showing venues near London city centre. ' +
-          'Update your group location for personalised results.',
-        )
-      }
       if (dataSource === 'mock') {
         warnings.push(
-          'Showing demo venues. Enable location access for real venue discovery powered by OpenStreetMap.',
+          'Showing demo venues — OpenStreetMap returned limited results for this area. Real venue discovery will improve as OSM data grows.',
         )
       }
       const gw = goldenWindow
@@ -167,6 +164,9 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         ? '£'.repeat(Math.max(1, Math.min(4, venue.priceLevel)))
         : '££'
 
+      // Suppress the quality label in explanation — it's shown in the UI badge
+      void QUALITY_LABELS
+
       return {
         title: `${activityEmoji} ${activityLabel}`,
         subtitle: `${dayName} · ${format12h(startTime)}`,
@@ -194,4 +194,3 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
     },
   }
 }
-
