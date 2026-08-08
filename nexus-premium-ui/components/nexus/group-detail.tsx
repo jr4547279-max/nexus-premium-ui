@@ -468,7 +468,29 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                   Find Golden Window
                 </Button>
               </>
+            ) : realMembers.length < 2 ? (
+              // ── Solo member: invite is the only unblocking action ──────────
+              <>
+                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                  Golden Windows need at least 2 members. Invite someone so Nexus
+                  can find the best time for your group.
+                </p>
+                <Button
+                  onClick={() => setInviteOpen(true)}
+                  className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Invite Someone
+                </Button>
+                <Button
+                  onClick={() => setActiveSection('availability')}
+                  className="mt-2 w-full h-9 rounded-xl bg-muted/30 hover:bg-muted/50 text-muted-foreground text-xs border-0"
+                >
+                  Set your availability first
+                </Button>
+              </>
             ) : (
+              // ── Enough members, but availability data is missing ───────────
               <>
                 <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                   {gwRequirements?.missingExplanation ??
