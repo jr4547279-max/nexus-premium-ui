@@ -1,0 +1,515 @@
+TASK #10 — NEXUS PUB CRAWL PLANNER V1 🍺
+
+We are now moving from the Activity System into the first real Planner Engine.
+
+The goal is to make "Pub Crawl" an actual intelligent planning experience rather than just an activity label.
+
+IMPORTANT:
+- This must be completely £0 to build.
+- Do NOT add OpenAI.
+- Do NOT add Gemini.
+- Do NOT add paid APIs.
+- Do NOT require API keys.
+- Do NOT add Google Maps/Places yet.
+- Use deterministic/mock provider data so we can replace it with real providers later.
+- Do not break the existing Golden Window or Activity System.
+- Preserve the existing premium Nexus visual language.
+
+==================================================
+1. ARCHITECTURE
+==================================================
+
+Create a modular Planner Engine architecture that works with the existing Activity Registry.
+
+The architecture should support:
+
+Activity
+↓
+Planner
+↓
+Requirements
+↓
+Data Provider
+↓
+Candidate venues
+↓
+Scoring
+↓
+Route optimisation
+↓
+Generated Plan
+
+Create a new:
+
+lib/planners/
+
+Structure it so future planners can be added without modifying the core planner engine.
+
+For example:
+
+lib/planners/types.ts
+lib/planners/registry.ts
+lib/planners/pub-crawl-planner.ts
+lib/planners/mock-venue-provider.ts
+lib/planners/planner-engine.ts
+
+Use strict TypeScript types.
+
+==================================================
+2. PLANNER TYPES
+==================================================
+
+Create types for:
+
+PlannerDefinition
+PlannerRequest
+PlannerResult
+PlannerCandidate
+PlannerVenue
+PlannerRoute
+PlannerStop
+PlannerScore
+PlannerRequirements
+
+A PlannerResult should be able to contain:
+
+- title
+- subtitle
+- activityId
+- duration
+- estimatedCost
+- totalDistance
+- walkingTime
+- stops
+- score
+- explanation
+- warnings
+- generatedAt
+
+Make the architecture generic enough that RunningPlanner, RestaurantPlanner, HikingPlanner etc. can be added later.
+
+==================================================
+3. PUB CRAWL PLANNER
+==================================================
+
+Create:
+
+pub-crawl-planner.ts
+
+The planner should accept information such as:
+
+- groupId
+- activityId
+- goldenWindow
+- group location
+- preferred duration
+- desired number of stops
+- budget preference
+- walking preference
+
+For V1, sensible defaults are fine.
+
+Example:
+
+4 stops
+2–3 hours
+moderate walking
+medium budget
+
+The planner should:
+
+1. Find candidate pubs from the mock provider.
+2. Remove unsuitable candidates.
+3. Score candidates.
+4. Select the best combination.
+5. Determine an optimal order.
+6. Calculate approximate walking distance/time using mock data.
+7. Generate a complete pub crawl plan.
+
+==================================================
+4. MOCK VENUE PROVIDER
+==================================================
+
+Create a deterministic mock venue provider.
+
+Do NOT randomly generate data on every request.
+
+Create a realistic dataset of fictional pubs with fields such as:
+
+- id
+- name
+- latitude
+- longitude
+- rating
+- priceLevel
+- openingTime
+- closingTime
+- atmosphere
+- tags
+- estimatedWalkingMinutes
+- estimatedCost
+- capacity
+- features
+
+Use fictional venue names.
+
+Make the dataset large enough to demonstrate meaningful ranking.
+
+For example:
+
+The Golden Fox
+The Anchor House
+The Lantern
+The Crown & Compass
+The Old Station
+The Harbour Arms
+The Red Lion
+The Copper Tap
+
+These are mock/test venues only.
+
+Make the provider interface replaceable later with a real Places/venue API.
+
+==================================================
+5. SCORING ENGINE
+==================================================
+
+Create a transparent scoring model.
+
+A venue score can consider:
+
+- rating
+- distance
+- price
+- opening hours
+- atmosphere
+- group preferences
+- walking distance
+- suitability for a pub crawl
+
+Do NOT use AI.
+
+The score should be deterministic.
+
+Expose the scoring breakdown so the UI can eventually explain WHY Nexus chose each venue.
+
+For example:
+
+Venue score: 87%
+
+Rating: +18
+Distance: +20
+Price: +15
+Atmosphere: +17
+Opening hours: +17
+
+==================================================
+6. ROUTE OPTIMISATION
+==================================================
+
+For V1, implement a simple deterministic route optimiser.
+
+Given selected pubs:
+
+Start → Pub 1 → Pub 2 → Pub 3 → Pub 4
+
+Choose the order that minimises total walking distance.
+
+Do not over-engineer this.
+
+A simple nearest-neighbour or permutation-based approach is fine for a small number of venues.
+
+The architecture must allow a more sophisticated route provider later.
+
+==================================================
+7. GOLDEN WINDOW INTEGRATION
+==================================================
+
+The Pub Crawl Planner should use the existing Golden Window.
+
+If a Golden Window exists:
+
+Use its date/time as the preferred planning window.
+
+If no Golden Window exists:
+
+Return a clear planner requirement:
+
+"Create a Golden Window before planning this pub crawl."
+
+Do NOT automatically create one.
+
+The planner should understand the existing match quality:
+
+PERFECT MATCH
+STRONG MATCH
+PARTIAL MATCH
+BEST OPTION
+
+Display that information in the generated plan.
+
+==================================================
+8. GENERATED PLAN
+==================================================
+
+Create a beautiful Nexus Pub Crawl Plan UI.
+
+When the user chooses:
+
+🍺 Pub Crawl
+
+they should eventually be able to tap:
+
+"Plan this"
+
+and see:
+
+--------------------------------
+
+🍺 NEXUS PUB CRAWL
+
+Friday · 7:30 PM
+
+BEST OPTION
+82% group match
+
+4 stops · 2.1 km walking
+~38 min walking
+~2h 45m total
+££ estimated
+
+1
+The Golden Fox
+7:30 PM
+⭐ 4.7
+££
+
+↓ 8 min walk
+
+2
+The Lantern
+8:15 PM
+⭐ 4.6
+££
+
+↓ 6 min walk
+
+3
+The Harbour Arms
+9:00 PM
+⭐ 4.8
+£££
+
+↓ 9 min walk
+
+4
+The Crown & Compass
+9:45 PM
+⭐ 4.5
+££
+
+--------------------------------
+
+Make this visually impressive.
+
+Use the existing Nexus glass cards, gold accents, animations and typography.
+
+==================================================
+9. PLANNER UI
+==================================================
+
+Add a way to launch the planner from the existing activity flow.
+
+When the selected activity is Pub Crawl, show an appropriate action such as:
+
+"Plan Pub Crawl"
+
+Do NOT force every activity to have a planner yet.
+
+Only Pub Crawl needs a functional planner in V1.
+
+For activities without an implemented planner:
+
+Show a tasteful:
+
+"Planner coming soon"
+
+state rather than breaking anything.
+
+==================================================
+10. PLANNER REGISTRY
+==================================================
+
+Create a planner registry.
+
+For example:
+
+pub_crawl → pubCrawlPlanner
+
+Future:
+
+jogging → runningPlanner
+restaurant → restaurantPlanner
+swimming → swimmingPlanner
+hiking → hikingPlanner
+
+Adding a planner should require one registry entry.
+
+==================================================
+11. PLAN PERSISTENCE
+
+For V1, keep persistence simple.
+
+If the existing database architecture makes persistence straightforward, create a clean plan representation that can later be stored in Supabase.
+
+However:
+
+DO NOT introduce a large database migration unless genuinely necessary.
+
+It is acceptable for V1 to generate the plan client-side and keep it in memory.
+
+The architecture must make future persistence easy.
+
+==================================================
+12. ERROR HANDLING
+==================================================
+
+Never leave the UI stuck on:
+
+"Planning..."
+
+Every async operation needs:
+
+try/catch/finally.
+
+If the planner cannot produce a result:
+
+Show a useful message.
+
+Examples:
+
+"No Golden Window has been created yet."
+
+"Not enough suitable venues were found."
+
+"No venues fit the selected time."
+
+Do not expose raw technical errors.
+
+==================================================
+13. ZERO-BUDGET REQUIREMENT
+==================================================
+
+This entire task must work without:
+
+OPENAI_API_KEY
+GEMINI_API_KEY
+GOOGLE_MAPS_API_KEY
+GOOGLE_PLACES_API_KEY
+paid APIs
+external API subscriptions
+
+The mock provider is deliberate.
+
+Build the architecture so real providers can replace it later.
+
+==================================================
+14. UX PRINCIPLE
+==================================================
+
+This should feel like Nexus is actually doing the work.
+
+Avoid making the user manually choose:
+
+Pub 1
+Pub 2
+Pub 3
+Pub 4
+
+Instead:
+
+User chooses:
+
+🍺 Pub Crawl
+
+Nexus does the planning.
+
+The user reviews the recommendation.
+
+Then eventually the user will be able to:
+
+"Looks good."
+
+or:
+
+"Change it."
+
+That interaction can be expanded later.
+
+==================================================
+15. FUTURE EXTENSIBILITY
+==================================================
+
+Design the planner engine so future planners can use the same infrastructure.
+
+For example:
+
+RunningPlanner
+→ route generation
+→ distance
+→ weather
+→ difficulty
+
+RestaurantPlanner
+→ venues
+→ availability
+→ price
+→ preferences
+→ booking
+
+HikingPlanner
+→ trails
+→ distance
+→ elevation
+→ weather
+
+SwimmingPlanner
+→ pools/beaches
+→ opening hours
+→ sessions
+→ weather
+
+The Pub Crawl planner is the first implementation, NOT a one-off feature.
+
+==================================================
+16. QUALITY REQUIREMENTS
+==================================================
+
+Before finishing:
+
+- Run TypeScript/build checks.
+- Fix all errors.
+- Do not introduce unnecessary dependencies.
+- Do not modify unrelated functionality.
+- Keep the existing Activity System working.
+- Keep Golden Window working.
+- Keep group creation working.
+- Test Pub Crawl planning end-to-end.
+- Test the no-Golden-Window state.
+- Test successful plan generation.
+- Test insufficient venue data.
+- Test that the UI never remains stuck in a loading state.
+
+At the end, report:
+
+1. Files created.
+2. Files modified.
+3. How the planner works.
+4. How the scoring works.
+5. How the route optimisation works.
+6. How the mock provider can later be replaced by a real provider.
+7. Any manual database steps required.
+
+DO NOT add AI or paid APIs.
+
+BUILD THIS NOW.

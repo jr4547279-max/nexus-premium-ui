@@ -7,7 +7,7 @@ import { GoldenRing } from './golden-ring'
 import { Button } from '@/components/ui/button'
 import {
   Calendar, MapPin, ChevronRight, Sparkles,
-  Clock, Check, AlertCircle, Plus, Settings, RefreshCw,
+  Clock, Check, AlertCircle, Plus, Settings, RefreshCw, Beer,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups } from '@/lib/mock-data'
@@ -41,6 +41,12 @@ import { WeatherChip } from './weather-chip'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
 import { computeMidpoint } from '@/lib/venue-service'
 import { GoldenWindowSearching } from './golden-window-searching'
+import { PubCrawlPlan } from './pub-crawl-plan'
+import {
+  runPlanner,
+  hasPlannerFor,
+  type PlannerResult,
+} from '@/lib/planners/planner-engine'
 
 interface GroupDetailProps {
   groupId: string
@@ -141,6 +147,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   // Venues gate — only reveals after explicit user tap.
   const [venuesRevealed, setVenuesRevealed] = useState(false)
   const venuesRef = useRef<HTMLDivElement | null>(null)
+
+  // ── Planner ───────────────────────────────────────────────────────────────
+  const [activePlan, setActivePlan]   = useState<PlannerResult | null>(null)
+  const [planPhase, setPlanPhase]     = useState<'idle' | 'planning' | 'done' | 'error'>('idle')
+  const [planError, setPlanError]     = useState<string | null>(null)
 
   // Timer refs — cleared only in the [groupId] cleanup effect so Strict Mode
   // mount→cleanup→mount cycles don't strand the sequence.
@@ -308,6 +319,42 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
       requestAnimationFrame(doScroll)
     } else {
       requestAnimationFrame(() => requestAnimationFrame(doScroll))
+    }
+  }
+
+  // ── Planner handler ───────────────────────────────────────────────────────
+
+  const handlePlanActivity = async () => {
+    if (!rawActivityId) return
+    setPlanPhase('planning')
+    setPlanError(null)
+    setActivePlan(null)
+
+    const result = await runPlanner({
+      groupId,
+      activityId: rawActivityId,
+      goldenWindow: activeWindow
+        ? {
+            day_of_week:           activeWindow.day_of_week,
+            start_time:            activeWindow.start_time,
+            end_time:              activeWindow.end_time,
+            duration_minutes:      activeWindow.duration_minutes,
+            match_quality:         activeWindow.match_quality,
+            confidence_score:      activeWindow.confidence_score,
+            available_member_count: activeWindow.available_member_count,
+            total_member_count:    activeWindow.total_member_count,
+          }
+        : undefined,
+      budgetPreference: 'medium',
+      desiredStops:     4,
+    })
+
+    if (result.ok) {
+      setActivePlan(result.result)
+      setPlanPhase('done')
+    } else {
+      setPlanError(result.error)
+      setPlanPhase('error')
     }
   }
 
@@ -645,6 +692,122 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               weather={weather}
             />
           </div>
+        )}
+
+        {/* ── Activity Planner section ──────────────────────────────────────
+            Shown in real mode when the group has an activity set.
+            • Pub Crawl → full planning flow
+            • Other activities with no planner → tasteful "coming soon" card
+        ── */}
+        {realMode && availabilityLoaded && rawActivityId && (
+          <>
+            {hasPlannerFor(rawActivityId) ? (
+              <>
+                {/* ── Plan CTA — shown until plan is generated ── */}
+                {planPhase === 'idle' && (
+                  <GlassCard className="mb-6 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Beer className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-medium text-foreground">
+                        Pub Crawl Planner
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                      Nexus will choose the best pubs, score them, and build an
+                      optimised route — all based on your Golden Window.
+                    </p>
+                    {!activeWindow && (
+                      <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+                        Find a Golden Window first so Nexus can plan around your
+                        group&apos;s available time.
+                      </p>
+                    )}
+                    <Button
+                      onClick={handlePlanActivity}
+                      disabled={!activeWindow}
+                      className={cn(
+                        'w-full h-11 rounded-xl',
+                        activeWindow
+                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'
+                          : 'opacity-40 cursor-not-allowed',
+                      )}
+                    >
+                      <Beer className="w-4 h-4 mr-2" />
+                      Plan Pub Crawl
+                    </Button>
+                  </GlassCard>
+                )}
+
+                {/* ── Planning in progress ── */}
+                {planPhase === 'planning' && (
+                  <GlassCard className="mb-6 p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                        <Beer className="w-4 h-4 text-primary animate-pulse" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Planning your crawl…
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Scoring venues and optimising your route
+                        </p>
+                      </div>
+                    </div>
+                  </GlassCard>
+                )}
+
+                {/* ── Error state ── */}
+                {planPhase === 'error' && planError && (
+                  <GlassCard className="mb-6 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Beer className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">
+                        Pub Crawl Planner
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+                      {planError}
+                    </p>
+                    <Button
+                      onClick={() => setPlanPhase('idle')}
+                      variant="outline"
+                      className="w-full h-9 rounded-xl text-xs"
+                    >
+                      Try again
+                    </Button>
+                  </GlassCard>
+                )}
+
+                {/* ── Generated plan ── */}
+                {planPhase === 'done' && activePlan && (
+                  <PubCrawlPlan
+                    plan={activePlan}
+                    onRecalculate={() => {
+                      setPlanPhase('idle')
+                      setActivePlan(null)
+                      setPlanError(null)
+                    }}
+                  />
+                )}
+              </>
+            ) : (
+              /* ── Coming soon for other activities ── */
+              <GlassCard className="mb-6 p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">
+                    {resolvedActivity?.label ?? 'Activity'} Planner
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  A dedicated planner for this activity is coming soon. Nexus
+                  will handle the details — venues, timing, and routing — all
+                  in one tap.
+                </p>
+              </GlassCard>
+            )}
+          </>
         )}
 
         {/* ── Mock-group Golden Window banner (legacy demo groups only) ── */}
