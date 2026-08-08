@@ -38,9 +38,15 @@ const QUALITY_LABELS: Record<MatchQuality, string> = {
   compromise: 'BEST OPTION',
 }
 
-// ── Shared providers (module-level singletons) ────────────────────────────────
-const osmProvider = new OpenStreetMapVenueProvider(1500)
+// ── Shared providers ──────────────────────────────────────────────────────────
+// MockVenueProvider is stateless and location-agnostic — a single instance is fine.
+// OpenStreetMapVenueProvider encapsulates the search radius, so it is created
+// per-request using groupLocation.radiusMetres to respect the group's planning
+// context (urban-core 800m / suburban 2km / town 3.5km / rural 8km).
 const mockProvider = new MockVenueProvider()
+
+/** Default OSM search radius when no planning intelligence radius is stored (1500 m). */
+const DEFAULT_RADIUS_METRES = 1500
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 
@@ -82,12 +88,21 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
 
       const startTime = goldenWindow.start_time
 
+      // Adaptive planning radius — from Location Intelligence when available,
+      // else DEFAULT_RADIUS_METRES. Used for both OSM discovery and distance scoring
+      // so they stay in sync with the group's actual planning context.
+      const radiusMetres = groupLocation.radiusMetres ?? DEFAULT_RADIUS_METRES
+      const planningRadiusKm = radiusMetres / 1000
+
       // ── Venue discovery ────────────────────────────────────────────────────
+      // OSM provider is created per-request (not a singleton) so each request
+      // uses the correct search radius for the group's area type.
       let venues: PlannerVenue[] = []
       let dataSource: 'real' | 'mock' = 'real'
       let providerName = 'OpenStreetMap'
 
       try {
+        const osmProvider = new OpenStreetMapVenueProvider(radiusMetres)
         const realVenues = await osmProvider.getVenues(activityId, groupLocation)
         if (realVenues.length >= MIN_OSM_RESULTS) {
           venues = realVenues
@@ -110,7 +125,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
 
       // ── Score & filter ─────────────────────────────────────────────────────
       const candidates = venues.map((venue) => {
-        const scored = scoreVenueForActivity(venue, activityId, budgetPreference, startTime)
+        const scored = scoreVenueForActivity(venue, activityId, budgetPreference, startTime, planningRadiusKm)
         const openDuringWindow =
           isVenueOpenAt(venue, startTime) ||
           isVenueOpenAt(venue, addMinutesToTime(startTime, 30)) ||

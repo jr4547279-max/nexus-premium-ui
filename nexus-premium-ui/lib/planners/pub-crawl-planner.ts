@@ -179,13 +179,29 @@ function scoreVenue(
   venue: PlannerVenue,
   budget: BudgetPreference,
   startTime: string,
+  /**
+   * Planning radius in km — derived from groupLocation.radiusMetres.
+   * Defaults to DEFAULT_RADIUS_METRES / 1000 = 1.5 km for backward compatibility.
+   * Location Intelligence provides the adaptive value:
+   *   urban-core → 0.8 km | suburban → 2 km | town → 3.5 km | rural → 8 km
+   */
+  planningRadiusKm: number = DEFAULT_RADIUS_METRES / 1000,
 ): PlannerScore {
   // Rating (0–20): linear scale against 5-star max
   const rating = Math.round((venue.rating / 5) * 20)
 
-  // Distance (0–20): venues within 0.3 km score highest; cap at 1.5 km
-  const maxDist = 1.5
-  const distScore = Math.max(0, Math.round(((maxDist - Math.min(venue.distanceFromCentre, maxDist)) / maxDist) * 20))
+  // Distance (0–20): linear decay from 20 at 0 km to 0 at planningRadiusKm.
+  // Venues beyond the planning radius score 0 (heavily penalised).
+  // Adaptive to the group's area type — a 2 km pub in a town (3.5 km radius)
+  // scores ~9, whereas a 2 km pub in an urban-core (0.8 km radius) scores 0.
+  const distScore = Math.max(
+    0,
+    Math.round(
+      ((planningRadiusKm - Math.min(venue.distanceFromCentre, planningRadiusKm)) /
+        planningRadiusKm) *
+        20,
+    ),
+  )
 
   // Price match (0–15): exact match = 15, ±1 = 9, ±2 = 4, ±3 = 0
   const targetPrice = BUDGET_PRICE_MAP[budget]
@@ -373,6 +389,12 @@ export const pubCrawlPlanner: PlannerDefinition = {
       locationName,
     } = request
 
+    // Derive planning radius for adaptive distance scoring.
+    // Uses Location Intelligence radius when stored (urban-core 800m / suburban
+    // 2km / town 3.5km / rural 8km). Falls back to DEFAULT_RADIUS_METRES (1500m)
+    // so existing requests without radiusMetres continue to work unchanged.
+    const planningRadiusKm = (groupLocation?.radiusMetres ?? DEFAULT_RADIUS_METRES) / 1000
+
     // ── 1. Requirement check ─────────────────────────────────────────────────
     if (!goldenWindow) {
       throw new Error(
@@ -388,7 +410,7 @@ export const pubCrawlPlanner: PlannerDefinition = {
     const startTime = goldenWindow.start_time
 
     const candidates: PlannerCandidate[] = allVenues.map(venue => {
-      const score = scoreVenue(venue, budgetPreference, startTime)
+      const score = scoreVenue(venue, budgetPreference, startTime, planningRadiusKm)
 
       // Exclude venues that are definitely closed and don't open within 30 min
       const open = isOpenAt(venue, startTime)
@@ -436,7 +458,7 @@ export const pubCrawlPlanner: PlannerDefinition = {
       const departure = addMinutes(arrival, MINUTES_PER_STOP)
       currentTime = departure
 
-      const score = scoreVenue(venue, budgetPreference, startTime)
+      const score = scoreVenue(venue, budgetPreference, startTime, planningRadiusKm)
 
       return {
         order: i + 1,

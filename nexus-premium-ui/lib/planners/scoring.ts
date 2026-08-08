@@ -65,11 +65,24 @@ export interface ScoredVenue extends PlannerScore {
   reasons: string[]
 }
 
+// Default scoring radius when no planning intelligence radius is available.
+// Matches the pub-crawl planner's DEFAULT_RADIUS_METRES (1500m) in km.
+// Do NOT duplicate the Location Intelligence radius table here — the planning
+// radius is always passed in via PlannerRequest.groupLocation.radiusMetres.
+const DEFAULT_SCORING_RADIUS_KM = 1.5
+
 export function scoreVenueForActivity(
   venue: PlannerVenue,
   activityId: string,
   budget: BudgetPreference,
   startTime: string,
+  /**
+   * Planning radius in km derived from PlannerRequest.groupLocation.radiusMetres.
+   * Defaults to 1.5 km (1500 m) for backward compatibility when no radius is
+   * available. Adaptive values come from Location Intelligence:
+   *   urban-core → 0.8 km  |  suburban → 2 km  |  town → 3.5 km  |  rural → 8 km
+   */
+  planningRadiusKm: number = DEFAULT_SCORING_RADIUS_KM,
 ): ScoredVenue {
   const reasons: string[] = []
 
@@ -83,14 +96,27 @@ export function scoreVenueForActivity(
   }
 
   // ── Distance (0–20) ───────────────────────────────────────────────────────
-  const maxDist = 1.5 // km — venues beyond 1.5 km score 0
+  // Score degrades linearly from 20 (at 0 km) to 0 (at planningRadiusKm).
+  // Venues beyond the planning radius score 0 (heavily penalised).
+  // The radius adapts to the group's planning context via groupLocation.radiusMetres:
+  //   urban-core (0.8 km) → tight cluster preferred
+  //   town (3.5 km) → 2 km venue scores ~9, not 0
+  //   rural (8 km) → 5 km venue scores ~8, not 0
   const distScore = Math.max(
     0,
-    Math.round(((maxDist - Math.min(venue.distanceFromCentre, maxDist)) / maxDist) * 20),
+    Math.round(
+      ((planningRadiusKm - Math.min(venue.distanceFromCentre, planningRadiusKm)) /
+        planningRadiusKm) *
+        20,
+    ),
   )
   const distKm = Math.round(venue.distanceFromCentre * 10) / 10
-  if (distKm <= 0.3) reasons.push(`${distKm} km from your group — very close`)
-  else if (distKm <= 0.8) reasons.push(`${distKm} km from your group`)
+  // Reason-text thresholds scale with the radius so "very close" and "nearby"
+  // mean the same relative thing regardless of area type.
+  const veryCloseThreshold = planningRadiusKm * 0.15
+  const nearbyThreshold    = planningRadiusKm * 0.50
+  if (distKm <= veryCloseThreshold) reasons.push(`${distKm} km from your group — very close`)
+  else if (distKm <= nearbyThreshold) reasons.push(`${distKm} km from your group`)
 
   // ── Opening hours (0–17) ──────────────────────────────────────────────────
   let openingScore = 0
