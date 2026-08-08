@@ -3,7 +3,7 @@
 import { TopHeader, BottomNav } from './navigation'
 import { GroupCard } from './glass-card'
 import { Button } from '@/components/ui/button'
-import { Plus } from 'lucide-react'
+import { Plus, Beaker } from 'lucide-react'
 import { mockGroups } from '@/lib/mock-data'
 import { useGroups } from '@/lib/use-groups'
 
@@ -52,6 +52,17 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
           Create New Group
         </Button>
       </main>
+
+      {/* DEV-ONLY: floating badge — visible only in development builds */}
+      {process.env.NODE_ENV !== 'production' && (
+        <button
+          onClick={() => onNavigate('dev-test')}
+          className="fixed bottom-24 right-4 z-50 flex items-center gap-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 text-[11px] font-semibold px-3 py-1.5 rounded-full shadow-lg transition-colors"
+        >
+          <Beaker className="w-3 h-3" />
+          DEV
+        </button>
+      )}
 
       <BottomNav
         activeTab="groups"

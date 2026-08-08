@@ -15,6 +15,10 @@ import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
+// DEV-ONLY: remove this import (and the 'dev-test' case below) before production
+const DevTestPanel = process.env.NODE_ENV !== 'production'
+  ? require('./dev-test-panel').DevTestPanel
+  : null
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
@@ -29,6 +33,8 @@ type Screen =
   | 'golden-window'
   | 'activity'
   | 'profile'
+  // DEV-ONLY — remove before production
+  | 'dev-test'
 
 export function NexusApp() {
   const { session, loading, profile, profileLoading, signOut } = useAuth()
@@ -274,6 +280,13 @@ export function NexusApp() {
           onLogout={handleLogout}
         />
       )
+      break
+
+    // DEV-ONLY — remove this case before production
+    case 'dev-test':
+      screenContent = DevTestPanel
+        ? <DevTestPanel onBack={() => setCurrentScreen('groups')} />
+        : null
       break
 
     default:
