@@ -1,1 +1,2 @@
 - [Next build generated files](next-build-generated-files.md) — Next.js 16 may rewrite the tracked route-type import during local builds.
+- [Golden Window v2 architecture](golden-window-v2.md) — persistence + progressive scoring model; key decisions for future changes.
