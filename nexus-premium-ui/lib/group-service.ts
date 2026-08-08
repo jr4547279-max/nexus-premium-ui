@@ -4,6 +4,7 @@ export interface Group {
   id: string
   name: string
   emoji: string | null
+  activity_id: string | null
   invite_code: string | null
   created_by: string
   created_at: string
@@ -14,6 +15,7 @@ export interface GroupSummary {
   id: string
   name: string
   emoji: string
+  activity_id: string | null
   memberCount: number
   members: { name: string; avatar: string }[]
   pendingConfirmations: number
@@ -47,6 +49,7 @@ function formatError(error: { code?: string | null; message: string; hint?: stri
 export async function createGroup(
   name: string,
   emoji: string,
+  activityId?: string,
 ): Promise<CreateGroupResult> {
   const { data: userData } = await supabase.auth.getUser()
   const uid = userData.user?.id
@@ -63,13 +66,33 @@ export async function createGroup(
     return { group: null, errorMessage: msg }
   }
 
-  return { group: data as Group, errorMessage: null }
+  const group = data as Group
+
+  // Persist the activity choice if one was made.
+  // This requires the `activity_id` column to exist on the `groups` table —
+  // run supabase/activity_id_migration.sql if it hasn't been applied yet.
+  if (activityId && group?.id) {
+    const { error: updateError } = await supabase
+      .from('groups')
+      .update({ activity_id: activityId })
+      .eq('id', group.id)
+
+    if (updateError) {
+      // Non-fatal: the group was created; activity is just not persisted yet.
+      // This happens before the SQL migration has been applied.
+      console.warn('[group-service] Could not persist activity_id — has the migration been applied?', updateError.message)
+    } else {
+      group.activity_id = activityId
+    }
+  }
+
+  return { group, errorMessage: null }
 }
 
 export async function listMyGroups(): Promise<GroupSummary[]> {
   const { data, error } = await supabase
     .from('groups')
-    .select('id, name, emoji, group_members(count)')
+    .select('id, name, emoji, activity_id, group_members(count)')
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -83,6 +106,7 @@ export async function listMyGroups(): Promise<GroupSummary[]> {
       id: row.id,
       name: row.name,
       emoji: row.emoji ?? '👥',
+      activity_id: (row.activity_id as string | null) ?? null,
       memberCount: countRow?.count ?? 0,
       members: [],
       pendingConfirmations: 0,

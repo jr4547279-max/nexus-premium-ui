@@ -184,6 +184,7 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
                 key={group.id}
                 name={group.name}
                 emoji={group.emoji}
+                activityId={'activity_id' in group ? group.activity_id : null}
                 memberCount={group.memberCount}
                 members={group.members}
                 pendingCount={group.pendingConfirmations}

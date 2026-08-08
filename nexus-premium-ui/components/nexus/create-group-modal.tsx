@@ -16,6 +16,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { createGroup } from '@/lib/group-service'
 import { toast } from 'sonner'
 import { ActivityPickerContent, ActivityBadge } from './activity-picker'
+import { isCustomActivity } from '@/lib/activities/types'
 import type { AnyActivity } from '@/lib/activities/types'
 
 interface CreateGroupModalProps {
@@ -47,7 +48,13 @@ export function CreateGroupModal({ open, onOpenChange, onCreated }: CreateGroupM
     const trimmed = name.trim()
     if (!trimmed || submitting) return
     setSubmitting(true)
-    const { group, errorMessage } = await createGroup(trimmed, emoji)
+
+    // Build the storage ID: registry ID for predefined, 'custom:<label>' for custom.
+    const activityStorageId = activity
+      ? isCustomActivity(activity) ? `custom:${activity.label}` : activity.id
+      : undefined
+
+    const { group, errorMessage } = await createGroup(trimmed, emoji, activityStorageId)
     setSubmitting(false)
     if (!group) {
       toast.error(errorMessage ?? 'Could not create group. Please try again.')

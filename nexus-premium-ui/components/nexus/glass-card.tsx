@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { ChevronRight } from 'lucide-react'
+import { getActivityById } from '@/lib/activities/registry'
 
 interface GlassCardProps {
   children: React.ReactNode
@@ -33,6 +34,7 @@ export function GlassCard({ children, className, hover = false, onClick, glow = 
 interface GroupCardProps {
   name: string
   emoji?: string
+  activityId?: string | null
   memberCount: number
   members: { avatar: string; name: string }[]
   pendingCount?: number
@@ -44,6 +46,7 @@ interface GroupCardProps {
 export function GroupCard({
   name,
   emoji,
+  activityId,
   memberCount,
   members,
   pendingCount = 0,
@@ -51,6 +54,13 @@ export function GroupCard({
   onClick,
   className,
 }: GroupCardProps) {
+  // Resolve the activity definition for display (predefined or custom).
+  const activityDef = activityId && !activityId.startsWith('custom:')
+    ? getActivityById(activityId)
+    : null
+  const customLabel = activityId?.startsWith('custom:') ? activityId.slice('custom:'.length) : null
+  const ActivityIcon = activityDef?.Icon
+
   return (
     <GlassCard hover onClick={onClick} className={cn('flex items-center gap-3', className)}>
       {/* Icon/Emoji */}
@@ -69,7 +79,22 @@ export function GroupCard({
             <span className="text-primary text-xs">✨</span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{memberCount} members</p>
+        {(activityDef || customLabel) ? (
+          <div className="flex items-center gap-1 mt-0.5">
+            {ActivityIcon && activityDef ? (
+              <div className={cn('w-3.5 h-3.5 rounded flex items-center justify-center', activityDef.color.bg)}>
+                <ActivityIcon className={cn('w-2 h-2', activityDef.color.text)} />
+              </div>
+            ) : (
+              <span className="text-[10px]">✨</span>
+            )}
+            <span className="text-[11px] text-muted-foreground truncate">
+              {activityDef?.label ?? customLabel}
+            </span>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">{memberCount} member{memberCount === 1 ? '' : 's'}</p>
+        )}
       </div>
       
       {/* Avatars */}

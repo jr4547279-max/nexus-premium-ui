@@ -17,6 +17,8 @@ import {
   type Group,
   type GroupMember,
 } from '@/lib/group-service'
+import { getActivityById } from '@/lib/activities/registry'
+import { ActivityBadge } from './activity-picker'
 import { InviteMemberModal } from './invite-member-modal'
 import { AvailabilityEditor } from './availability-editor'
 import { useAuth } from '@/lib/auth-context'
@@ -306,6 +308,20 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const memberCount = realMode ? realMembers.length : mockGroup.memberCount
   const inviteCode = realMode ? realGroup?.invite_code ?? null : null
 
+  // Resolve the activity from the registry (predefined) or parse custom label.
+  const rawActivityId = realMode ? realGroup?.activity_id : null
+  const activityDef = rawActivityId && !rawActivityId.startsWith('custom:')
+    ? getActivityById(rawActivityId)
+    : null
+  const customActivityLabel = rawActivityId?.startsWith('custom:')
+    ? rawActivityId.slice('custom:'.length)
+    : null
+  const resolvedActivity = activityDef
+    ? activityDef
+    : customActivityLabel
+      ? { id: 'custom' as const, label: customActivityLabel, emoji: '✨', isCustom: true as const }
+      : null
+
   const avatars = realMode
     ? realMembers.map((m) => ({
         id: m.user_id,
@@ -338,6 +354,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             <p className="text-muted-foreground">
               {loading ? 'Loading members…' : `${memberCount} member${memberCount === 1 ? '' : 's'}`}
             </p>
+            {resolvedActivity && (
+              <div className="mt-2">
+                <ActivityBadge activity={resolvedActivity} className="text-xs py-1" />
+              </div>
+            )}
           </div>
           <button
             onClick={() => onNavigate?.('profile')}
