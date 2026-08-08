@@ -25,7 +25,7 @@ import type {
   BudgetPreference,
   MatchQuality,
 } from './types'
-import { MockVenueProvider } from './mock-venue-provider'
+import { MockVenueProvider } from './providers/mock-venue-provider'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -383,6 +383,8 @@ export const pubCrawlPlanner: PlannerDefinition = {
       generatedAt: new Date().toISOString(),
       goldenWindowQuality: matchQuality,
       groupMatchPercent,
+      dataSource: 'mock',
+      providerName: 'Demo Venues',
     }
   },
 }

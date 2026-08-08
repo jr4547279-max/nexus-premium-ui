@@ -40,16 +40,20 @@ export function runDevGoldenWindow(scenario: DevScenario): DevGwResult {
 }
 
 /**
- * Run the real Pub Crawl Planner against a GoldenWindow produced by
+ * Run the real Activity Planner against a GoldenWindow produced by
  * runDevGoldenWindow. Uses the deterministic MockVenueProvider internally.
+ *
+ * @param activityIdOverride  When set, overrides the scenario's activityId —
+ *   lets the dev panel test any registered planner against any scenario.
  */
 export async function runDevPlanner(
   scenario: DevScenario,
   goldenWindow: GoldenWindow,
+  activityIdOverride?: string,
 ): Promise<DevPlanResult> {
   return runPlanner({
     groupId: scenario.id,
-    activityId: scenario.activityId,
+    activityId: activityIdOverride ?? scenario.activityId,
     goldenWindow: {
       day_of_week:            goldenWindow.day_of_week,
       start_time:             goldenWindow.start_time,
@@ -62,5 +66,6 @@ export async function runDevPlanner(
     },
     budgetPreference: 'medium',
     desiredStops: 4,
+    // No groupLocation in dev mode — planners fall back to their internal default
   })
 }

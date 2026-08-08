@@ -19,16 +19,32 @@ export interface PlannerVenue {
   name: string
   lat: number
   lng: number
-  rating: number           // 0–5
+  rating: number           // 0–5; 0 = unknown (check ratingKnown)
   priceLevel: PriceLevel
   openingTime: string      // "HH:MM" 24-hour
   closingTime: string      // "HH:MM" 24-hour (may be "02:00" i.e. next-day early)
   atmosphere: string[]     // e.g. ['lively', 'cosy', 'classic']
   tags: string[]           // e.g. ['real-ale', 'beer-garden', 'sports']
-  estimatedCostPerPerson: number  // £ per round / visit
+  estimatedCostPerPerson: number  // £ per round / visit; 0 = unknown
   capacity: VenueCapacity
   features: string[]       // e.g. ['outdoor-seating', 'live-music', 'pool-table']
   distanceFromCentre: number  // km from the group's reference point
+
+  // ── Provider transparency (all optional, backward-compatible) ─────────────
+  /** "Open in Maps" deep-link (OpenStreetMap or similar) */
+  mapsUrl?: string | null
+  /** Human-readable address or district */
+  address?: string | null
+  /** Venue website URL */
+  website?: string | null
+  /** true when sourced from a real-world provider (OSM etc); false/undefined = mock */
+  isRealData?: boolean
+  /** false = rating was unavailable; 0 is a neutral placeholder, do not display */
+  ratingKnown?: boolean
+  /** false = price level is a default; do not display as authoritative */
+  priceLevelKnown?: boolean
+  /** false = opening hours were not available or could not be parsed */
+  openingHoursKnown?: boolean
 }
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
@@ -98,6 +114,13 @@ export interface PlannerResult {
   goldenWindowQuality?: MatchQuality
   /** Percentage of group available during the selected window */
   groupMatchPercent?: number
+  // ── Provider metadata ─────────────────────────────────────────────────────
+  /** 'real' = live OSM/API data; 'mock' = deterministic demo data */
+  dataSource?: 'real' | 'mock'
+  /** Human-readable provider label shown in the UI */
+  providerName?: string
+  /** Transparent reasons for the top venue pick — "Why did Nexus choose this?" */
+  scoreReasons?: string[]
 }
 
 // ── Request ───────────────────────────────────────────────────────────────────

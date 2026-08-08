@@ -1,0 +1,493 @@
+TASK: Nexus Real Venue Engine + Universal Planner Architecture
+
+We are moving Nexus from a prototype planner into a real-world planning engine.
+
+IMPORTANT:
+- Do NOT add Gemini or any AI chatbot.
+- Do NOT introduce any paid API requirement for this task.
+- Do NOT break the existing Golden Window, Activity System, Pub Crawl Planner, group creation, availability, or persistence.
+- Before changing anything, inspect the existing architecture and reuse existing abstractions wherever possible.
+- Build this incrementally and keep the app compiling after each major change.
+- Do not replace working functionality unnecessarily.
+
+CURRENT ARCHITECTURE
+
+Nexus currently has:
+
+Activity Registry
+→ Activity selected when creating a group
+→ Availability
+→ Golden Window Engine
+→ Persistent Golden Window
+→ Activity-specific Planner
+→ Pub Crawl Planner
+→ MockVenueProvider
+
+The Pub Crawl Planner already uses a VenueProvider abstraction.
+
+We now need to evolve this into a UNIVERSAL PLANNING SYSTEM where every activity can eventually have its own planner and real venue provider.
+
+==================================================
+PHASE 1 — UNIVERSAL PLANNER ARCHITECTURE
+==================================================
+
+Inspect the existing files under:
+
+lib/planners/
+lib/activities/
+components/nexus/
+
+Preserve the existing Pub Crawl Planner behaviour.
+
+Create/extend the architecture so planners are activity plugins.
+
+The architecture should conceptually become:
+
+Activity
+    ↓
+Planner Registry
+    ↓
+Planner
+    ↓
+Venue Provider
+    ↓
+Planner Result
+    ↓
+Plan UI
+
+Adding a new planner should require registering one planner definition rather than modifying the entire application.
+
+Create or extend types for:
+
+PlannerDefinition
+PlannerRequest
+PlannerResult
+PlannerCandidate
+PlannerStop
+PlannerRequirements
+VenueProvider
+
+A planner definition should include things such as:
+
+- activityId
+- displayName
+- description
+- supported capabilities
+- planner function
+- venue requirements
+
+Do NOT hard-code Pub Crawl logic into the generic planner engine.
+
+==================================================
+PHASE 2 — REAL VENUE PROVIDER
+==================================================
+
+Replace the current mock-only architecture with a provider abstraction that supports real-world venue discovery.
+
+Because we want to keep this zero-cost initially:
+
+Use OpenStreetMap-compatible public data as the first real provider where practical.
+
+Prefer:
+- OpenStreetMap / Overpass for venue discovery
+- OpenStreetMap coordinates
+- existing Nexus location data if already available
+
+Do NOT require a Google Places API key.
+
+Do NOT require a paid service.
+
+Create:
+
+lib/planners/providers/
+
+venue-provider.ts
+openstreetmap-venue-provider.ts
+mock-venue-provider.ts
+
+The existing MockVenueProvider must remain available for development/testing.
+
+The new provider should implement the existing VenueProvider interface.
+
+It should be capable of discovering relevant real venues based on:
+
+- activity
+- latitude
+- longitude
+- search radius
+- category
+
+For example:
+
+Pub Crawl
+→ pubs/bars
+
+Restaurant
+→ restaurants
+
+Coffee
+→ cafes
+
+Bowling
+→ bowling alleys
+
+Cinema
+→ cinemas
+
+Live Music
+→ music venues
+
+Beach
+→ beaches
+
+Hiking
+→ trails / parks where available
+
+Do NOT pretend that OpenStreetMap provides ratings, prices, booking availability, etc. when it doesn't.
+
+If a field isn't available, represent it as unknown/null rather than inventing data.
+
+==================================================
+PHASE 3 — PROVIDER FALLBACK
+==================================================
+
+The planner must never crash simply because real venue data isn't available.
+
+Provider strategy:
+
+1. Try the real venue provider.
+2. If real data is unavailable or insufficient, gracefully fall back to the mock provider in development/test environments.
+3. In production, show a useful empty state explaining that no suitable venues were found.
+
+Expose which provider generated the result so the UI can distinguish:
+
+REAL VENUES
+or
+DEMO VENUES
+
+Never present fictional venues as real venues.
+
+==================================================
+PHASE 4 — UNIVERSAL ACTIVITY PLANNER REGISTRY
+==================================================
+
+Extend the existing planner registry.
+
+Initially register planners for:
+
+1. Pub Crawl
+2. Restaurant
+3. Coffee
+4. Bowling
+5. Cinema
+6. Live Music
+
+Do NOT build six completely different complex algorithms.
+
+Instead:
+
+Pub Crawl:
+- existing multi-stop route planner
+
+Restaurant:
+- choose best single venue
+
+Coffee:
+- choose best single venue
+
+Bowling:
+- choose best suitable venue
+
+Cinema:
+- choose best suitable cinema
+
+Live Music:
+- choose best suitable venue
+
+Each planner should use the same underlying:
+
+Golden Window
+→ Venue Provider
+→ Candidate scoring
+→ Planner Result
+
+architecture.
+
+Activities without a specialised planner yet should simply show:
+
+"Planning for this activity is coming soon."
+
+==================================================
+PHASE 5 — SMART UNIVERSAL SCORING
+==================================================
+
+Create a reusable scoring layer.
+
+For example:
+
+lib/planners/scoring.ts
+
+Support transparent scoring based on whatever information is actually available:
+
+- distance
+- opening hours
+- activity suitability
+- group availability
+- venue type
+- price when available
+- rating when available
+- planner-specific preferences
+
+Do NOT invent unavailable information.
+
+Keep scoring explainable.
+
+A future UI should be able to say:
+
+"Why did Nexus choose this?"
+
+and receive something like:
+
+✓ 8 min from the group
+✓ Open during the Golden Window
+✓ Matches your activity
+✓ Within your preferred area
+
+==================================================
+PHASE 6 — REAL VENUE UI
+==================================================
+
+Update the planner UI so real venues look significantly more useful than the current mock output.
+
+For each venue display:
+
+- venue name
+- real/demo indicator
+- distance
+- opening status if available
+- relevant metadata
+- activity match
+- location
+- score/reasoning
+
+Do not display fake ratings or prices for real venues.
+
+Add a CTA:
+
+"Open in Maps"
+
+using a generated map/search URL where appropriate.
+
+Keep the current premium Nexus visual language:
+
+- deep navy
+- gold accents
+- glass cards
+- subtle glow
+- clean typography
+- cinematic but restrained
+
+==================================================
+PHASE 7 — PUB CRAWL
+==================================================
+
+Upgrade the existing Pub Crawl Planner to use the provider abstraction.
+
+The flow should become:
+
+Golden Window
+↓
+Find real pubs
+↓
+Filter suitable venues
+↓
+Score venues
+↓
+Optimise walking route
+↓
+Generate Pub Crawl Plan
+
+Keep the existing route optimisation.
+
+Do NOT remove the MockVenueProvider because the developer test mode currently depends on deterministic mock data.
+
+The developer test scenarios must continue working exactly as they do now.
+
+==================================================
+PHASE 8 — LOCATION
+==================================================
+
+Inspect the existing Nexus location system before implementing anything new.
+
+If Nexus already stores or obtains a group/member location, reuse it.
+
+Do NOT create a second competing location system.
+
+If the planner needs a planning centre, use the best available group location.
+
+If no usable location exists, show:
+
+"Add a location to find nearby places."
+
+with the appropriate existing Nexus location UI/flow.
+
+==================================================
+PHASE 9 — GOLDEN WINDOW INTEGRATION
+==================================================
+
+The planner must use the existing persistent Golden Window.
+
+Do NOT recalculate the Golden Window unnecessarily.
+
+The flow should be:
+
+Saved Golden Window
+↓
+User selects activity
+↓
+Planner checks whether that activity has a planner
+↓
+Planner obtains venue candidates
+↓
+Planner generates result
+
+If availability changes and the Golden Window becomes stale, use the existing stale/recalculate system.
+
+==================================================
+PHASE 10 — DEVELOPER TEST MODE
+==================================================
+
+Do NOT break Developer Test Mode.
+
+Update it so we can test:
+
+- Pub Crawl with mock venues
+- Restaurant with mock venue
+- Coffee with mock venue
+- Bowling with mock venue
+- Cinema with mock venue
+- Live Music with mock venue
+
+The test harness must remain deterministic.
+
+Add a clear provider indicator:
+
+MOCK DATA
+
+or
+
+REAL VENUES
+
+This is extremely important so I don't mistake test data for real data.
+
+==================================================
+PHASE 11 — ERROR HANDLING
+==================================================
+
+No planner should ever get stuck loading indefinitely.
+
+Every async planner operation must have:
+
+- loading state
+- success state
+- empty state
+- error state
+
+Errors must be human-readable.
+
+Example:
+
+"Couldn't find suitable venues nearby. Try expanding your search area."
+
+Never silently swallow errors.
+
+==================================================
+PHASE 12 — COST CONTROL
+==================================================
+
+This version must remain usable without paid APIs.
+
+Do NOT add:
+
+- Google Places billing
+- Google Maps billing
+- Gemini
+- OpenAI API
+- paid venue APIs
+
+The architecture should make it easy to add those providers later.
+
+For example:
+
+VenueProvider
+├── OpenStreetMapVenueProvider
+├── MockVenueProvider
+└── GooglePlacesVenueProvider (future)
+
+The same should work for routing:
+
+RouteProvider
+├── HaversineRouteProvider
+└── GoogleDirectionsProvider (future)
+
+Do not implement the paid providers yet.
+
+==================================================
+PHASE 13 — ARCHITECTURAL REQUIREMENT
+==================================================
+
+The most important principle:
+
+ADDING A NEW ACTIVITY SHOULD NOT REQUIRE REWRITING THE APP.
+
+Ideally:
+
+Add activity to activity registry
++
+Add planner definition
++
+Add provider mapping if necessary
+
+and Nexus automatically understands how to surface it.
+
+Avoid giant switch statements such as:
+
+if activity === "pub-crawl"
+else if activity === "restaurant"
+else if activity === "coffee"
+
+Prefer registries and interfaces.
+
+==================================================
+PHASE 14 — FINAL VERIFICATION
+==================================================
+
+Before declaring the task complete:
+
+1. Run TypeScript/build checks.
+2. Verify Developer Test Mode.
+3. Verify Pub Crawl still works.
+4. Verify mock venues still work.
+5. Verify at least one real OpenStreetMap venue search works.
+6. Verify Golden Window integration.
+7. Verify no Gemini code has been reintroduced.
+8. Verify no paid API key is required.
+9. Verify the app doesn't hang on provider errors.
+10. Verify mobile layout.
+
+Then give me a concise report containing:
+
+- files created
+- files modified
+- architecture changes
+- how real venue discovery works
+- what is still mock
+- what requires an API later
+- how to test it from my phone
+- any manual setup required
+
+IMPORTANT:
+Do not stop after writing a plan.
+Actually implement the changes.
+
+If something is ambiguous, inspect the existing code and make the least invasive architectural decision rather than asking me unnecessary questions.

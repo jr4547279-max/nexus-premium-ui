@@ -17,13 +17,28 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   Sparkles, RefreshCw, Save, AlertTriangle,
-  ChevronDown, ChevronUp, Check, Beaker,
+  ChevronDown, ChevronUp, Check, Beaker, Database, Globe,
 } from 'lucide-react'
-import { PubCrawlPlan } from './pub-crawl-plan'
+import { ActivityPlanCard } from './activity-plan-card'
 import { DEV_SCENARIOS, type DevScenario } from '@/lib/dev/test-scenarios'
 import { runDevGoldenWindow, runDevPlanner, type DevGwResult } from '@/lib/dev/dev-harness'
 import type { GoldenWindow } from '@/lib/golden-window'
 import type { PlannerResult } from '@/lib/planners/planner-engine'
+
+// ── Plannable activities (all registered planners) ────────────────────────────
+
+const PLANNER_ACTIVITIES = [
+  { id: 'pub-crawl',    emoji: '🍺', label: 'Pub Crawl' },
+  { id: 'cocktail-bar', emoji: '🍹', label: 'Cocktail Bar' },
+  { id: 'restaurant',   emoji: '🍽️', label: 'Restaurant' },
+  { id: 'brunch',       emoji: '🥞', label: 'Brunch' },
+  { id: 'coffee',       emoji: '☕', label: 'Coffee' },
+  { id: 'cinema',       emoji: '🎬', label: 'Cinema' },
+  { id: 'bowling',      emoji: '🎳', label: 'Bowling' },
+  { id: 'live-music',   emoji: '🎵', label: 'Live Music' },
+  { id: 'board-games',  emoji: '🎲', label: 'Board Games' },
+  { id: 'escape-room',  emoji: '🔐', label: 'Escape Room' },
+] as const
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +66,28 @@ const QUALITY_CONFIG = {
   partial:    { label: 'PARTIAL MATCH', cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
   compromise: { label: 'BEST OPTION',   cls: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
 } as const
+
+// ── Data source badge ─────────────────────────────────────────────────────────
+
+function DataSourceIndicator({ result }: { result: PlannerResult }) {
+  const isReal = result.dataSource === 'real'
+  return (
+    <div className={cn(
+      'inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-bold tracking-wider border',
+      isReal
+        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+        : 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    )}>
+      {isReal ? <Globe className="w-2.5 h-2.5" /> : <Database className="w-2.5 h-2.5" />}
+      {isReal ? 'REAL VENUES' : 'DEMO VENUES'}
+      {result.providerName && (
+        <span className="font-normal normal-case tracking-normal opacity-60">
+          · {result.providerName}
+        </span>
+      )}
+    </div>
+  )
+}
 
 // ── GoldenWindow result card ──────────────────────────────────────────────────
 
@@ -263,6 +300,35 @@ function ScenarioCard({
   )
 }
 
+// ── Activity picker ───────────────────────────────────────────────────────────
+
+function ActivityPicker({
+  selected,
+  onChange,
+}: {
+  selected: string
+  onChange: (id: string) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {PLANNER_ACTIVITIES.map(a => (
+        <button
+          key={a.id}
+          onClick={() => onChange(a.id)}
+          className={cn(
+            'px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all',
+            selected === a.id
+              ? 'bg-primary/20 text-primary border-primary/40'
+              : 'bg-muted/10 text-muted-foreground border-border/20 hover:bg-muted/20 hover:border-border/40',
+          )}
+        >
+          {a.emoji} {a.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface DevTestPanelProps {
@@ -271,6 +337,7 @@ interface DevTestPanelProps {
 
 export function DevTestPanel({ onBack }: DevTestPanelProps) {
   const [selectedScenario, setSelectedScenario] = useState<DevScenario | null>(null)
+  const [selectedActivity, setSelectedActivity] = useState<string>('pub-crawl')
   const [gwResult, setGwResult]     = useState<DevGwResult | null>(null)
   const [gwPhase, setGwPhase]       = useState<'idle' | 'done'>('idle')
   const [savedWindow, setSavedWindow] = useState<GoldenWindow | null>(null)
@@ -279,27 +346,33 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
   const [planPhase, setPlanPhase]     = useState<'idle' | 'planning' | 'done' | 'error'>('idle')
   const [planError, setPlanError]     = useState<string | null>(null)
 
+  const clearPlan = useCallback(() => {
+    setPlanResult(null)
+    setPlanPhase('idle')
+    setPlanError(null)
+  }, [])
+
   const selectScenario = useCallback((scenario: DevScenario) => {
     setSelectedScenario(scenario)
     setGwResult(null)
     setGwPhase('idle')
     setSavedWindow(null)
     setIsStale(false)
-    setPlanResult(null)
-    setPlanPhase('idle')
-    setPlanError(null)
-  }, [])
+    clearPlan()
+  }, [clearPlan])
+
+  const handleActivityChange = useCallback((id: string) => {
+    setSelectedActivity(id)
+    clearPlan()
+  }, [clearPlan])
 
   const handleFindGoldenWindow = useCallback(() => {
     if (!selectedScenario) return
     const result = runDevGoldenWindow(selectedScenario)
     setGwResult(result)
     setGwPhase('done')
-    // Clear plan when recalculating
-    setPlanResult(null)
-    setPlanPhase('idle')
-    setPlanError(null)
-  }, [selectedScenario])
+    clearPlan()
+  }, [selectedScenario, clearPlan])
 
   const handleSaveWindow = useCallback(() => {
     if (!gwResult?.best) return
@@ -317,11 +390,11 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
     setSavedWindow(null)
   }, [handleFindGoldenWindow])
 
-  const handlePlanPubCrawl = useCallback(async () => {
+  const handlePlanActivity = useCallback(async () => {
     if (!selectedScenario || !gwResult?.best) return
     setPlanPhase('planning')
     setPlanError(null)
-    const result = await runDevPlanner(selectedScenario, gwResult.best)
+    const result = await runDevPlanner(selectedScenario, gwResult.best, selectedActivity)
     if (result.ok) {
       setPlanResult(result.result)
       setPlanPhase('done')
@@ -329,9 +402,10 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
       setPlanError(result.error)
       setPlanPhase('error')
     }
-  }, [selectedScenario, gwResult])
+  }, [selectedScenario, gwResult, selectedActivity])
 
   const activeWindow = gwResult?.best ?? null
+  const activeActivityDef = PLANNER_ACTIVITIES.find(a => a.id === selectedActivity)
 
   return (
     <div className="min-h-screen bg-background pb-8">
@@ -447,24 +521,33 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
               )}
             </div>
 
-            {/* ── Pub Crawl Planner section ── */}
+            {/* ── Activity Planner section ── */}
             {gwPhase === 'done' && activeWindow && (
               <div className="mb-5">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                  Pub Crawl Planner
+                  Activity Planner
                 </p>
+
+                {/* Activity selector */}
+                <div className="mb-3">
+                  <p className="text-[10px] text-muted-foreground mb-2">Test any activity:</p>
+                  <ActivityPicker
+                    selected={selectedActivity}
+                    onChange={handleActivityChange}
+                  />
+                </div>
 
                 {planPhase === 'idle' && (
                   <GlassCard className="p-4">
                     <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                      Run the real Pub Crawl Planner using the above Golden Window.
-                      Uses the deterministic mock venue provider — no external APIs.
+                      Run the {activeActivityDef?.label ?? selectedActivity} planner using the
+                      above Golden Window. Uses mock venue data — no external APIs called.
                     </p>
                     <Button
-                      onClick={handlePlanPubCrawl}
+                      onClick={handlePlanActivity}
                       className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
                     >
-                      🍺 Plan Pub Crawl
+                      {activeActivityDef?.emoji ?? '✨'} Plan {activeActivityDef?.label ?? selectedActivity}
                     </Button>
                   </GlassCard>
                 )}
@@ -473,11 +556,13 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
                   <GlassCard className="p-4">
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center">
-                        <span className="text-sm animate-pulse">🍺</span>
+                        <span className="text-sm animate-pulse">{activeActivityDef?.emoji ?? '✨'}</span>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">Planning…</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Scoring venues and optimising route</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Discovering venues and scoring the best match
+                        </p>
                       </div>
                     </div>
                   </GlassCard>
@@ -499,14 +584,20 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
                 )}
 
                 {planPhase === 'done' && planResult && (
-                  <PubCrawlPlan
-                    plan={planResult}
-                    onRecalculate={() => {
-                      setPlanPhase('idle')
-                      setPlanResult(null)
-                      setPlanError(null)
-                    }}
-                  />
+                  <div>
+                    {/* Data source indicator above the card */}
+                    <div className="mb-2">
+                      <DataSourceIndicator result={planResult} />
+                    </div>
+                    <ActivityPlanCard
+                      plan={planResult}
+                      onRecalculate={() => {
+                        setPlanPhase('idle')
+                        setPlanResult(null)
+                        setPlanError(null)
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             )}

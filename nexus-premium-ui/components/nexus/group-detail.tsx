@@ -41,7 +41,7 @@ import { WeatherChip } from './weather-chip'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
 import { computeMidpoint } from '@/lib/venue-service'
 import { GoldenWindowSearching } from './golden-window-searching'
-import { PubCrawlPlan } from './pub-crawl-plan'
+import { ActivityPlanCard } from './activity-plan-card'
 import {
   runPlanner,
   hasPlannerFor,
@@ -695,9 +695,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
         )}
 
         {/* ── Activity Planner section ──────────────────────────────────────
-            Shown in real mode when the group has an activity set.
-            • Pub Crawl → full planning flow
-            • Other activities with no planner → tasteful "coming soon" card
+            Shown in real mode when the group has a plannable activity set.
         ── */}
         {realMode && availabilityLoaded && rawActivityId && (
           <>
@@ -707,14 +705,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 {planPhase === 'idle' && (
                   <GlassCard className="mb-6 p-5">
                     <div className="flex items-center gap-2 mb-3">
-                      <Beer className="w-4 h-4 text-primary" />
+                      <Sparkles className="w-4 h-4 text-primary" />
                       <span className="text-sm font-medium text-foreground">
-                        Pub Crawl Planner
+                        {resolvedActivity?.label ?? 'Activity'} Planner
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                      Nexus will choose the best pubs, score them, and build an
-                      optimised route — all based on your Golden Window.
+                      Nexus will find the best venues near your group, score
+                      them, and build a plan — timed to your Golden Window.
                     </p>
                     {!activeWindow && (
                       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
@@ -732,8 +730,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                           : 'opacity-40 cursor-not-allowed',
                       )}
                     >
-                      <Beer className="w-4 h-4 mr-2" />
-                      Plan Pub Crawl
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Plan {resolvedActivity?.label ?? 'Activity'}
                     </Button>
                   </GlassCard>
                 )}
@@ -743,14 +741,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                   <GlassCard className="mb-6 p-5">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Beer className="w-4 h-4 text-primary animate-pulse" />
+                        <Sparkles className="w-4 h-4 text-primary animate-pulse" />
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">
-                          Planning your crawl…
+                          Planning your {resolvedActivity?.label?.toLowerCase() ?? 'activity'}…
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Scoring venues and optimising your route
+                          Discovering venues and scoring the best match
                         </p>
                       </div>
                     </div>
@@ -761,9 +759,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 {planPhase === 'error' && planError && (
                   <GlassCard className="mb-6 p-5">
                     <div className="flex items-center gap-2 mb-3">
-                      <Beer className="w-4 h-4 text-muted-foreground" />
+                      <Sparkles className="w-4 h-4 text-muted-foreground" />
                       <span className="text-sm font-medium text-foreground">
-                        Pub Crawl Planner
+                        {resolvedActivity?.label ?? 'Activity'} Planner
                       </span>
                     </div>
                     <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
@@ -781,7 +779,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
                 {/* ── Generated plan ── */}
                 {planPhase === 'done' && activePlan && (
-                  <PubCrawlPlan
+                  <ActivityPlanCard
                     plan={activePlan}
                     onRecalculate={() => {
                       setPlanPhase('idle')
