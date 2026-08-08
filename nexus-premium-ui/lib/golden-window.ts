@@ -185,9 +185,16 @@ function buildCompromiseWindow(
     return { uid, centre: (s + e) / 2, start: s, end: e }
   })
 
-  // Compromise centre = median of all member centres (robust against outliers).
-  const sorted       = [...memberInfo].sort((a, b) => a.centre - b.centre)
-  const medianCentre = sorted[Math.floor(sorted.length / 2)]!.centre
+  // Compromise centre = true median of all member centres (robust against outliers).
+  // For ODD n: the middle element. For EVEN n: arithmetic mean of the two middle
+  // elements — NOT just the upper-middle element, which biases the window toward
+  // the later member and causes the earlier member to fail the reachability check.
+  const sorted = [...memberInfo].sort((a, b) => a.centre - b.centre)
+  const mid    = Math.floor(sorted.length / 2)
+  const medianCentre =
+    sorted.length % 2 === 1
+      ? sorted[mid]!.centre
+      : (sorted[mid - 1]!.centre + sorted[mid]!.centre) / 2
 
   const compStart = Math.round(medianCentre - 30)
   const compEnd   = compStart + 60
