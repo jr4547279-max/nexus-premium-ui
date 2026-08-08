@@ -242,6 +242,83 @@ function dayLabel(dayOfWeek: number): string {
   return DAY_LABELS[dayOfWeek] ?? 'Unknown'
 }
 
+// ── Crawl arc roles ───────────────────────────────────────────────────────────
+
+/**
+ * Assign a crawl-arc role label based on stop position and total stop count.
+ * Labels communicate where in the evening this pub sits — not invented data.
+ *
+ * 2 stops:   Opener → Finale
+ * 3 stops:   Opener → Mid-crawl → Finale
+ * 4 stops:   Opener → Building → Peak → Finale
+ * 5+ stops:  Opener → Building → Peak × N → Finale
+ */
+function deriveCrawlRole(index: number, total: number): string {
+  if (total <= 1) return ''
+  if (index === 0) return 'Opener'
+  if (index === total - 1) return 'Finale'
+  if (total === 3) return 'Mid-crawl'
+  const midPos = (index - 1) / (total - 2) // 0–1 through the middle stops
+  return midPos < 0.5 ? 'Building' : 'Peak'
+}
+
+// ── Stop reasons ──────────────────────────────────────────────────────────────
+
+/**
+ * Derive an honest short reason for selecting a venue.
+ *
+ * For mock venues: uses rich atmosphere/feature data from the mock provider.
+ * For real OSM venues: only states verifiable facts — distance from the start,
+ * venue type from OSM amenity/leisure tags, and confirmed opening hours.
+ * Never invents characteristics that OSM doesn't provide.
+ */
+function deriveStopReason(
+  venue: PlannerVenue,
+  index: number,
+  dataSource: 'real' | 'mock',
+): string {
+  // Mock venues carry rich atmosphere and feature tags — use them honestly
+  if (dataSource === 'mock') {
+    if (venue.atmosphere.length > 0) {
+      const atm = venue.atmosphere
+        .slice(0, 2)
+        .map(a => a.charAt(0).toUpperCase() + a.slice(1))
+      return `${atm.join(' & ')} atmosphere`
+    }
+    if (venue.features.length > 0) {
+      return `Known for ${venue.features[0].replace(/-/g, ' ')}`
+    }
+    return 'Highly rated for your group'
+  }
+
+  // Real OSM venues — only state what the data confirms
+  const parts: string[] = []
+
+  // Distance context
+  if (index === 0) {
+    parts.push(venue.distanceFromCentre < 0.25 ? 'Right at your start point' : 'Close to your start point')
+  } else {
+    parts.push(venue.distanceFromCentre < 0.5 ? 'Nearby' : 'On your route')
+  }
+
+  // Venue type from OSM amenity/leisure tags
+  const typeTag = venue.tags.find(t => ['pub', 'bar', 'nightclub', 'biergarten'].includes(t))
+  if (typeTag) {
+    const typeLabel =
+      typeTag === 'nightclub' ? 'nightclub' :
+      typeTag === 'biergarten' ? 'beer garden' :
+      typeTag === 'bar' ? 'bar' : 'pub'
+    parts.push(typeLabel)
+  }
+
+  // Confirmed hours (only when OSM actually provided them)
+  if (venue.openingHoursKnown) {
+    parts.push('hours confirmed')
+  }
+
+  return parts.join(' · ')
+}
+
 // ── Venue discovery (OSM-first, mock fallback) ────────────────────────────────
 
 /**
@@ -293,6 +370,7 @@ export const pubCrawlPlanner: PlannerDefinition = {
       budgetPreference = DEFAULT_BUDGET,
       desiredStops = DEFAULT_STOPS,
       groupLocation,
+      locationName,
     } = request
 
     // ── 1. Requirement check ─────────────────────────────────────────────────
@@ -368,6 +446,8 @@ export const pubCrawlPlanner: PlannerDefinition = {
         walkingFromPrevious: walkMins,
         distanceFromPrevious: Math.round(distFromPrev * 100) / 100,
         score,
+        role:   deriveCrawlRole(i, orderedVenues.length),
+        reason: deriveStopReason(venue, i, dataSource),
       }
     })
 
@@ -421,8 +501,22 @@ export const pubCrawlPlanner: PlannerDefinition = {
       )
     }
 
+    // Location-aware title — e.g. "Brighton Pub Crawl" instead of generic fallback
+    const crawlTitle = locationName
+      ? `🍺 ${locationName} Pub Crawl`
+      : '🍺 Nexus Pub Crawl'
+
+    // Crawl summary — specific about what was found and how the route was built
+    const sourceLabel = dataSource === 'real'
+      ? `real ${providerName} venues`
+      : 'demo venues'
+    const crawlExplanation =
+      `Nexus selected ${stops.length} ${sourceLabel} for your crawl — ` +
+      `scored by proximity, budget (${budgetPreference}), and opening hours. ` +
+      `Route was optimised to minimise backtracking across ${totalDistanceKm} km total.`
+
     return {
-      title: '🍺 Nexus Pub Crawl',
+      title: crawlTitle,
       subtitle: `${dayLabel(gw.day_of_week)} · ${format12h(gw.start_time)}`,
       activityId: 'pub-crawl',
       durationMinutes,
@@ -431,7 +525,7 @@ export const pubCrawlPlanner: PlannerDefinition = {
       walkingMinutes: totalWalkingMinutes,
       stops,
       overallScore,
-      explanation: `Nexus selected ${stops.length} pubs based on rating, proximity, ${budgetPreference} budget, and opening hours. Route was optimised to minimise walking.`,
+      explanation: crawlExplanation,
       warnings,
       generatedAt: new Date().toISOString(),
       goldenWindowQuality: matchQuality,

@@ -86,6 +86,18 @@ export interface PlannerStop {
   /** Walking distance FROM the previous stop in km (0 for the first stop) */
   distanceFromPrevious: number
   score: PlannerScore
+  /**
+   * Crawl arc role: 'Opener' | 'Building' | 'Peak' | 'Mid-crawl' | 'Finale'.
+   * Communicates where in the evening's arc this stop sits.
+   * Derived from position and total stop count — not invented data.
+   */
+  role?: string
+  /**
+   * Short honest reason for selecting this stop.
+   * For mock venues: atmosphere/feature description.
+   * For real OSM venues: only states verifiable facts (distance, type, hours).
+   */
+  reason?: string
 }
 
 export interface PlannerRoute {
@@ -148,6 +160,12 @@ export interface PlannerRequest {
    * PlanningLocation type. Falls back to provider defaults when absent.
    */
   groupLocation?: { lat: number; lng: number; radiusMetres?: number }
+  /**
+   * Human-readable location name (city or neighbourhood) for use in plan
+   * titles and summaries. e.g. "Brighton", "Soho, London".
+   * Optional — planners degrade gracefully when absent.
+   */
+  locationName?: string
   preferredDurationMinutes?: number
   desiredStops?: number
   budgetPreference?: BudgetPreference

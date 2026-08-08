@@ -359,6 +359,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             radiusMetres: planningLocation.planningRadiusMetres,
           }
         : undefined,
+      locationName:     planningLocation?.planningCity || planningLocation?.name || undefined,
       budgetPreference: 'medium',
       desiredStops:     4,
     })
