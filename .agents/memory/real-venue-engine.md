@@ -1,82 +1,94 @@
 ---
 name: Real Venue Engine architecture
-description: Provider abstraction, OSM Overpass integration, single-venue planner factory, group planning location — key constraints for future planner changes.
+description: Provider abstraction, OSM Overpass integration, location intelligence, planning radius — key decisions for future planner work.
 ---
 
-## What was built
+## Architecture overview
 
-A layered venue discovery + planning system with a group-level planning location.
+```
+Group → Planning Location → Location Intelligence → Planning Radius
+     → Golden Window → Activity → Real Venues (OSM/Overpass) → Planner → Plan
+```
 
-### File structure
+## Module map
 
 ```
 lib/
-  types/planning-location.ts           — PlanningLocation type + PlanningLocationSource
-  group-service.ts                      — Group now has planning_location_* fields;
-                                          extractPlanningLocation(), saveGroupPlanningLocation(),
-                                          clearGroupPlanningLocation()
+  types/planning-location.ts           — PlanningLocation type (includes intelligence fields)
+  location-intelligence/
+    types.ts                            — AreaType, LocationIntelligence, AREA_TYPE_RADII,
+                                          AREA_TYPE_LABELS, formatRadius (client+server safe)
+    area-classifier.ts                  — classifyArea(), buildLocationIntelligence()
+                                          (pure fns, no network, client+server safe)
+    resolver.ts                         — resolveLocationIntelligence() SERVER ONLY
+                                          calls Nominatim zoom=14, 1h in-process cache
+    index.ts                            — barrel (types+classifier only; resolver not re-exported)
+  group-service.ts                      — Group has 9 planning_ columns; extract/save/clear updated
   planners/
-    types.ts                            — PlannerRequest.groupLocation?: {lat,lng}
-    scoring.ts                          — universal scorer + format12h + helpers
-    single-venue-planner.ts             — factory; OSM→mock fallback; THROWS if no location
-    registry.ts                         — 10 planners registered
+    types.ts                            — PlannerRequest.groupLocation has optional radiusMetres
+    pub-crawl-planner.ts                — OSM-first/mock-fallback (fetchVenues helper)
+    single-venue-planner.ts             — OSM-first/mock-fallback (unchanged)
     providers/
-      venue-provider.ts                 — VenueProvider re-export + ACTIVITY_OSM_TAGS
-      openstreetmap-venue-provider.ts   — Overpass API, 15s timeout
-      mock-venue-provider.ts            — multi-activity demo data
-  dev/
-    dev-harness.ts                      — runDevPlanner() accepts planningLocation?: {lat,lng}
+      openstreetmap-venue-provider.ts   — Overpass API (POI discovery; NOT Nominatim)
+      mock-venue-provider.ts            — deterministic demo data
 
-supabase/
-  group_planning_location.sql          — idempotent migration (5 columns on groups table)
+app/
+  nx/location/resolve/route.ts          — POST {lat,lng} → LocationIntelligence (server-only)
 
 components/nexus/
-  group-location-section.tsx           — planning location card for group detail
-  location-picker.tsx                  — extended with onSave/title/confirmLabel/hidePrivacyNote
-  single-venue-plan.tsx                — single-venue plan card
-  activity-plan-card.tsx               — router: pub-crawl → PubCrawlPlan, else → SingleVenuePlan
-  dev-test-panel.tsx                   — 6 test locations, location picker for non-pub-crawl
+  group-location-section.tsx            — calls /nx/location/resolve after save; shows
+                                          "Urban Core · 800 m radius" subtitle row
+
+supabase/
+  group_planning_location.sql           — 5 base columns (lat/lng/name/address/source)
+  group_location_intelligence.sql       — 4 intelligence columns (radius/area_type/neighborhood/city)
 ```
 
 ## Key constraints
 
-**No London fallback:** `single-venue-planner.ts` now throws when `groupLocation` is undefined. Error message: "Add a planning location so Nexus can find [activity] venues nearby." This surfaces in the existing plan error state in group-detail.tsx.
+**Nominatim is for address/area resolution ONLY.**
+Venue/POI discovery uses the Overpass API via `OpenStreetMapVenueProvider`.
+Never use Nominatim as a POI search — it doesn't support bounding-box POI queries.
 
-**Pub-crawl is exempt:** `pub-crawl-planner.ts` uses `MockVenueProvider` only and does not require a location (mock data is location-agnostic). No location error for pub-crawl.
+**Resolver is server-side only.**
+`resolveLocationIntelligence` must only be called from API routes / server actions.
+Clients call `POST /nx/location/resolve`. The barrel export intentionally omits the resolver.
 
-**VenueProvider interface signature:**
+**Nominatim User-Agent policy.**
+Every Nominatim request includes `User-Agent: NexusApp/1.0 (contact@nexus.app)`.
+Results are cached 1 hour in-process (keyed by ≈50 m grid).
+On failure the resolver returns `{ areaType: 'suburban', planningRadiusMetres: 2000, ... }` — never throws.
+
+**Planning radius by area type (AREA_TYPE_RADII):**
+- urban-core → 800 m
+- suburban   → 2000 m
+- town       → 3500 m
+- rural      → 8000 m
+
+**Pub-crawl planner is now OSM-first.**
+`fetchVenues()` helper tries `OpenStreetMapVenueProvider(radius)` first (Overpass API).
+Falls back to `MockVenueProvider` when OSM returns < 2 results or throws.
+Result carries `dataSource: 'real' | 'mock'` and `providerName`.
+
+**Known scoring bug (Tech Debt #16):**
+Both planners use a hardcoded `maxDist = 1.5 km` in `scoreVenue()`.
+Rural radii (8 km) cause all OSM venues beyond 1.5 km to score 0 on distance.
+Fix: scale `maxDist` to match the planning radius.
+
+**No London fallback.**
+`single-venue-planner.ts` throws when `groupLocation` is undefined.
+Pub-crawl falls back to mock (no throw) when no location — pub crawl is still usable without one.
+
+**PlannerRequest.groupLocation extended:**
 ```typescript
-getVenues(activityId: string, location?: { lat: number; lng: number }): Promise<PlannerVenue[]>
+groupLocation?: { lat: number; lng: number; radiusMetres?: number }
 ```
-MockVenueProvider must declare the optional second argument or TypeScript errors at call sites that use the concrete type.
+Existing callers that omit `radiusMetres` still work (defaults to 1500 m in providers).
 
-**LocationPicker reuse:** The existing `LocationPicker` now accepts `onSave?: (result) => Promise<boolean>` to override the default profile save. `GroupLocationSection` uses this to write to the groups table instead of the user's profile. Also accepts `title`, `confirmLabel`, `hidePrivacyNote` props.
+**DB migration — two SQL files to run in order:**
+1. `supabase/group_planning_location.sql` (5 base columns — may already be applied)
+2. `supabase/group_location_intelligence.sql` (4 new columns — must be applied for intelligence to persist)
 
-**Migration SQL:**
-```sql
-ALTER TABLE groups
-  ADD COLUMN IF NOT EXISTS planning_location_lat     DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS planning_location_lng     DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS planning_location_name    TEXT,
-  ADD COLUMN IF NOT EXISTS planning_location_address TEXT,
-  ADD COLUMN IF NOT EXISTS planning_location_source  TEXT;
-```
-This is in `supabase/group_planning_location.sql`. Must be applied before planning location saves work.
-
-**Group detail flow:**
-- `GroupLocationSection` renders after group header, before Golden Window
-- On load: `extractPlanningLocation(realGroup)` → `setPlanningLocation()`
-- `handlePlanActivity` passes `groupLocation: { lat, lng }` from `planningLocation` state
-- Location-needed hint shown in Plan CTA for non-pub-crawl activities with no location
-
-**Dev test panel:** 6 preset test locations (Brighton, Manchester, Edinburgh, London Soho, Birmingham, None). Location picker only shown for non-pub-crawl activities. "None" tests the "location needed" error path.
-
-**OSM Overpass:** Returns `[]` when no location given (unchanged — guard in single-venue-planner handles this now with an explicit error rather than London fallback).
-
-## Why
-
-**Why no London fallback:** Silent fallback showed London venues to users in Brighton/Edinburgh/etc. Honest error prompting location setup is better UX than silently wrong data.
-
-**Why LocationPicker was extended (not duplicated):** The existing picker already has GPS + Google Places search + Leaflet map — all needed for group location too. Adding `onSave` prop makes it composable without duplicating 500 lines.
-
-**Why planning location is on the group (not per-member):** "Where are we meeting?" is a group decision, not individual. Multi-member midpoint is a future feature (task proposed separately).
+**GlassCard never renders as `<button>`.**
+Always renders `<div role="button" tabIndex={0} onKeyDown=...>` when clickable.
+This prevents nested-button hydration errors when action buttons live inside clickable cards.

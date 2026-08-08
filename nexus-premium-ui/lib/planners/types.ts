@@ -141,8 +141,13 @@ export interface PlannerRequest {
   groupId: string
   activityId: string
   goldenWindow?: GoldenWindowLike
-  /** Reference point for distance scoring */
-  groupLocation?: { lat: number; lng: number }
+  /**
+   * Reference point for distance scoring and venue discovery.
+   * `radiusMetres` carries the intelligence-derived search radius so planners
+   * can instantiate the right OSM provider without needing the full
+   * PlanningLocation type. Falls back to provider defaults when absent.
+   */
+  groupLocation?: { lat: number; lng: number; radiusMetres?: number }
   preferredDurationMinutes?: number
   desiredStops?: number
   budgetPreference?: BudgetPreference

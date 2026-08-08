@@ -17,6 +17,11 @@ export interface Group {
   planning_location_name?:    string | null
   planning_location_address?: string | null
   planning_location_source?:  string | null
+  // ── Location Intelligence (populated after /nx/location/resolve) ──────────
+  planning_radius_metres?:    number | null
+  planning_area_type?:        string | null
+  planning_neighborhood?:     string | null
+  planning_city?:             string | null
 }
 
 export interface GroupSummary {
@@ -59,13 +64,26 @@ export interface CreateGroupResult {
 export function extractPlanningLocation(group: Group): PlanningLocation | null {
   const { planning_location_lat: lat, planning_location_lng: lng } = group
   if (lat == null || lng == null) return null
-  return {
+
+  const location: PlanningLocation = {
     lat,
     lng,
     name:    group.planning_location_name    ?? '',
     address: group.planning_location_address ?? '',
     source:  (group.planning_location_source as PlanningLocationSource) ?? 'saved',
   }
+
+  // Attach intelligence fields when present
+  if (group.planning_radius_metres != null)
+    location.planningRadiusMetres = group.planning_radius_metres
+  if (group.planning_area_type != null)
+    location.areaType = group.planning_area_type as PlanningLocation['areaType']
+  if (group.planning_neighborhood != null)
+    location.neighborhood = group.planning_neighborhood
+  if (group.planning_city != null)
+    location.planningCity = group.planning_city
+
+  return location
 }
 
 // ── Error formatter ───────────────────────────────────────────────────────────
@@ -242,6 +260,11 @@ export async function saveGroupPlanningLocation(
       planning_location_name:    location.name,
       planning_location_address: location.address,
       planning_location_source:  location.source,
+      // Intelligence fields — null when not yet resolved
+      planning_radius_metres:    location.planningRadiusMetres  ?? null,
+      planning_area_type:        location.areaType              ?? null,
+      planning_neighborhood:     location.neighborhood          ?? null,
+      planning_city:             location.planningCity          ?? null,
     })
     .eq('id', groupId)
 
@@ -264,6 +287,11 @@ export async function clearGroupPlanningLocation(groupId: string): Promise<boole
       planning_location_name:    null,
       planning_location_address: null,
       planning_location_source:  null,
+      // Clear intelligence fields too
+      planning_radius_metres:    null,
+      planning_area_type:        null,
+      planning_neighborhood:     null,
+      planning_city:             null,
     })
     .eq('id', groupId)
 

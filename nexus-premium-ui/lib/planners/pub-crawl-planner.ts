@@ -3,15 +3,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Accepts a PlannerRequest and returns a fully-formed PlannerResult.
 //
-// Pipeline:
+// Venue discovery pipeline (OSM-first, mock fallback):
 //   1.  Check requirements (Golden Window must exist)
-//   2.  Fetch candidate venues from the provider
-//   3.  Filter unsuitable venues (closed during the window, etc.)
-//   4.  Score each candidate (transparent, deterministic)
-//   5.  Select the best N venues
-//   6.  Optimise the route (nearest-neighbour permutation for ≤8 venues)
-//   7.  Calculate per-stop times and walking legs
-//   8.  Build and return PlannerResult
+//   2.  If groupLocation is set, try OpenStreetMapVenueProvider (Overpass API)
+//       using the stored planningRadiusMetres (default 1 500 m).
+//       Fall back to MockVenueProvider when OSM returns < MIN_OSM_RESULTS.
+//   3.  Score, filter, select, and optimise route
+//   4.  Return result with dataSource: 'real' | 'mock' and providerName
+//
+// Venue providers are modular — swap or add Google/Mapbox/etc. by implementing
+// the VenueProvider interface without touching planner logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -26,14 +27,25 @@ import type {
   MatchQuality,
 } from './types'
 import { MockVenueProvider } from './providers/mock-venue-provider'
+import { OpenStreetMapVenueProvider } from './providers/openstreetmap-venue-provider'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MINUTES_PER_STOP = 42          // average time spent at each pub
-const WALKING_SPEED_KM_PER_MIN = 0.083 // ~5 km/h
-const DEFAULT_STOPS = 4
+const MINUTES_PER_STOP           = 42          // average time spent at each pub
+const WALKING_SPEED_KM_PER_MIN   = 0.083       // ~5 km/h
+const DEFAULT_STOPS              = 4
 const DEFAULT_BUDGET: BudgetPreference = 'medium'
-const PRICE_SYMBOLS = ['', '£', '££', '£££', '££££'] as const
+const PRICE_SYMBOLS              = ['', '£', '££', '£££', '££££'] as const
+/** Default search radius when no planning intelligence radius is stored */
+const DEFAULT_RADIUS_METRES      = 1500
+/** Minimum OSM results to prefer real data over mock fallback */
+const MIN_OSM_RESULTS            = 2
+
+// ── Singleton providers ───────────────────────────────────────────────────────
+// MockVenueProvider is location-agnostic, so a single instance is fine.
+// OSM provider is created per-request with the group's stored radius.
+
+const mockProvider = new MockVenueProvider()
 
 // ── Time utilities ────────────────────────────────────────────────────────────
 
@@ -230,9 +242,44 @@ function dayLabel(dayOfWeek: number): string {
   return DAY_LABELS[dayOfWeek] ?? 'Unknown'
 }
 
-// ── Planner ───────────────────────────────────────────────────────────────────
+// ── Venue discovery (OSM-first, mock fallback) ────────────────────────────────
 
-const provider = new MockVenueProvider()
+/**
+ * Fetch venue candidates using real OSM data when a location is available.
+ * Falls back to mock data transparently when:
+ *   - No groupLocation is provided (dev mode / no location set)
+ *   - OSM returns fewer than MIN_OSM_RESULTS venues
+ *   - The Overpass API call fails for any reason
+ *
+ * Returns { venues, dataSource, providerName } so the result can carry
+ * accurate metadata for the UI data-source badge.
+ */
+async function fetchVenues(
+  groupLocation: { lat: number; lng: number; radiusMetres?: number } | undefined,
+): Promise<{ venues: PlannerVenue[]; dataSource: 'real' | 'mock'; providerName: string }> {
+  if (groupLocation) {
+    const radius = groupLocation.radiusMetres ?? DEFAULT_RADIUS_METRES
+    try {
+      // Overpass API — the correct OSM POI/venue discovery endpoint.
+      // Nominatim is NOT used here; it is only for address/area resolution.
+      const osmProvider = new OpenStreetMapVenueProvider(radius)
+      const osmVenues = await osmProvider.getVenues('pub-crawl', groupLocation)
+      if (osmVenues.length >= MIN_OSM_RESULTS) {
+        return { venues: osmVenues, dataSource: 'real', providerName: 'OpenStreetMap' }
+      }
+      console.warn(
+        `[pub-crawl-planner] OSM returned ${osmVenues.length} result(s) (< ${MIN_OSM_RESULTS}), using mock fallback`,
+      )
+    } catch (err) {
+      console.warn('[pub-crawl-planner] OSM/Overpass call failed, using mock fallback:', err)
+    }
+  }
+
+  const mockVenues = await mockProvider.getVenues('pub-crawl', groupLocation)
+  return { venues: mockVenues, dataSource: 'mock', providerName: 'Demo Venues' }
+}
+
+// ── Planner ───────────────────────────────────────────────────────────────────
 
 export const pubCrawlPlanner: PlannerDefinition = {
   id: 'pub-crawl-planner',
@@ -255,8 +302,9 @@ export const pubCrawlPlanner: PlannerDefinition = {
       )
     }
 
-    // ── 2. Fetch candidates ──────────────────────────────────────────────────
-    const allVenues = await provider.getVenues('pub-crawl', groupLocation)
+    // ── 2. Fetch candidates (OSM-first, mock fallback) ───────────────────────
+    const { venues: allVenues, dataSource, providerName } =
+      await fetchVenues(groupLocation)
 
     // ── 3. Score and filter ──────────────────────────────────────────────────
     const startTime = goldenWindow.start_time
@@ -367,6 +415,11 @@ export const pubCrawlPlanner: PlannerDefinition = {
         'This time is a compromise — not everyone is fully available. Consider finding a new Golden Window.',
       )
     }
+    if (dataSource === 'mock') {
+      warnings.push(
+        'Using demo venue data. Set a planning location so Nexus can find real pubs nearby.',
+      )
+    }
 
     return {
       title: '🍺 Nexus Pub Crawl',
@@ -383,8 +436,9 @@ export const pubCrawlPlanner: PlannerDefinition = {
       generatedAt: new Date().toISOString(),
       goldenWindowQuality: matchQuality,
       groupMatchPercent,
-      dataSource: 'mock',
-      providerName: 'Demo Venues',
+      dataSource,
+      providerName,
     }
   },
 }
+

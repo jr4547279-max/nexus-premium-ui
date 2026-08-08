@@ -4,6 +4,8 @@
 // Represents the geographic centre for a group's activity planning.
 // Kept separate from profile location (which is per-user).
 
+import type { AreaType } from '../location-intelligence/types'
+
 export type PlanningLocationSource = 'gps' | 'search' | 'map' | 'saved' | 'system'
 
 export interface PlanningLocation {
@@ -15,6 +17,17 @@ export interface PlanningLocation {
   address: string
   /** How this location was set */
   source: PlanningLocationSource
+
+  // ── Location Intelligence fields (populated after resolve) ────────────────
+  /** Urban density classification: 'urban-core' | 'suburban' | 'town' | 'rural' */
+  areaType?: AreaType
+  /** Recommended venue-search radius in metres, derived from areaType */
+  planningRadiusMetres?: number
+  /** Fine-grained area name: suburb, neighbourhood, or quarter */
+  neighborhood?: string
+  /** Settlement name: city or town */
+  planningCity?: string
+
   createdAt?: string
   updatedAt?: string
 }

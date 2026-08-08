@@ -353,7 +353,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           }
         : undefined,
       groupLocation: planningLocation
-        ? { lat: planningLocation.lat, lng: planningLocation.lng }
+        ? {
+            lat:          planningLocation.lat,
+            lng:          planningLocation.lng,
+            radiusMetres: planningLocation.planningRadiusMetres,
+          }
         : undefined,
       budgetPreference: 'medium',
       desiredStops:     4,
