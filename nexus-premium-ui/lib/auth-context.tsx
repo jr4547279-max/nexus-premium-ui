@@ -40,6 +40,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = useCallback(async (userId: string, email: string) => {
     setProfileLoading(true)
+    // Safety cap: if the Supabase profiles query hangs (slow network, paused
+    // project), release the loading state after 8 s so the user is never stuck
+    // on the resolving splash indefinitely.
+    const profileTimeout = setTimeout(() => setProfileLoading(false), 8000)
     try {
       let p = await getProfile(userId)
       if (!p) {
@@ -49,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Non-fatal: profile table may not exist yet
     } finally {
+      clearTimeout(profileTimeout)
       setProfileLoading(false)
     }
   }, [])
