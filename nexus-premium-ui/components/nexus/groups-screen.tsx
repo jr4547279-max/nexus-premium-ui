@@ -53,8 +53,8 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
         </Button>
       </main>
 
-      {/* DEV-ONLY: floating badge — visible only in development builds */}
-      {process.env.NODE_ENV !== 'production' && (
+      {/* DEV-ONLY: floating badge — shown when NEXT_PUBLIC_DEV_TOOLS=true */}
+      {process.env.NEXT_PUBLIC_DEV_TOOLS === 'true' && (
         <button
           onClick={() => onNavigate('dev-test')}
           className="fixed bottom-24 right-4 z-50 flex items-center gap-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 text-[11px] font-semibold px-3 py-1.5 rounded-full shadow-lg transition-colors"

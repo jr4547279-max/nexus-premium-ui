@@ -15,10 +15,9 @@ import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
-// DEV-ONLY: remove this import (and the 'dev-test' case below) before production
-const DevTestPanel = process.env.NODE_ENV !== 'production'
-  ? require('./dev-test-panel').DevTestPanel
-  : null
+// DEV-ONLY: static import is fine — badge + panel are gated at render time by
+// NODE_ENV. Remove this import + the 'dev-test' Screen entry to strip entirely.
+import { DevTestPanel } from './dev-test-panel'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
@@ -282,9 +281,9 @@ export function NexusApp() {
       )
       break
 
-    // DEV-ONLY — remove this case before production
+    // DEV-ONLY — gated by NEXT_PUBLIC_DEV_TOOLS=true; not reachable in production
     case 'dev-test':
-      screenContent = DevTestPanel
+      screenContent = process.env.NEXT_PUBLIC_DEV_TOOLS === 'true'
         ? <DevTestPanel onBack={() => setCurrentScreen('groups')} />
         : null
       break
