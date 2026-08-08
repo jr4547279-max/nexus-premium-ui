@@ -12,6 +12,49 @@ import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
+// ---------------------------------------------------------------------------
+// getCallbackUrl()
+//
+// Returns the absolute URL for /auth/callback on the CURRENT origin.
+//
+// Why this matters:
+//   Supabase validates every `redirectTo` / `emailRedirectTo` against its
+//   "Redirect URLs" allow-list. If the URL is not on the list, Supabase
+//   silently falls back to its configured Site URL — which is typically the
+//   *production* .replit.app domain. That causes the dev preview (.replit.dev)
+//   to bounce the user to the published app immediately after sign-in.
+//
+// Resolution order (most-specific → least-specific):
+//   1. NEXT_PUBLIC_SITE_URL  — set explicitly for the production deployment;
+//      pinned to the stable .replit.app URL.  Do NOT set this in the shared
+//      environment; leave it for the production env only.
+//   2. NEXT_PUBLIC_REPLIT_DEV_DOMAIN — baked at build time from REPLIT_DEV_DOMAIN
+//      (injected by next.config.mjs → env). Resolves to the exact hostname of
+//      the current Replit workspace (dev preview or deployed app).
+//   3. window.location.origin — runtime fallback; always correct in the browser.
+//
+// When to add a URL to Supabase Redirect URLs:
+//   Authentication → URL Configuration → Redirect URLs
+//   Add both:
+//     https://<NEXT_PUBLIC_REPLIT_DEV_DOMAIN>/auth/callback   ← dev preview
+//     https://*.replit.app/**                                  ← production
+// ---------------------------------------------------------------------------
+function getCallbackUrl(): string {
+  // 1. Explicit production pin (set only in production env, not shared)
+  const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim()
+  if (pinned) return `${pinned}/auth/callback`
+
+  // 2. Build-time Replit domain (works before window is available, and survives
+  //    hydration without a mismatch — both server and client see the same value)
+  const replitDomain = process.env.NEXT_PUBLIC_REPLIT_DEV_DOMAIN?.trim()
+  if (replitDomain) return `https://${replitDomain}/auth/callback`
+
+  // 3. Runtime browser origin — correct for any other environment
+  if (typeof window !== 'undefined') return `${window.location.origin}/auth/callback`
+
+  return '/auth/callback'
+}
+
 interface AuthContextValue {
   session: Session | null
   user: User | null
@@ -140,6 +183,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } as unknown as AuthError,
         }
       }
+      // signInWithPassword returns the session inline — no browser redirect.
+      // (emailRedirectTo is not an option here; it only applies to signUp and
+      //  signInWithOtp. Confirmation emails are only sent for new accounts.)
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       return { error }
     },
@@ -158,7 +204,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } as unknown as AuthError,
         }
       }
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          // Confirmation email links must resolve on the CURRENT origin so new
+          // accounts confirmed on the dev preview stay on .replit.dev.
+          emailRedirectTo: getCallbackUrl(),
+        },
+      })
       if (!error && data.user) {
         await ensureProfile(data.user.id, email)
       }
@@ -201,16 +255,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Prefer a pinned NEXT_PUBLIC_SITE_URL (stable across deploys) but always
-    // fall back to window.location.origin so preview URLs work out of the box.
-    const origin =
-      (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_SITE_URL?.trim()) ||
-      window.location.origin
-
-    const redirectTo = `${origin}/auth/callback`
+    // Use getCallbackUrl() — see its definition above for resolution order.
+    // The resolved URL must be whitelisted in Supabase → Authentication →
+    // URL Configuration → Redirect URLs. For Replit, add:
+    //   https://<your-repl-dev-domain>/auth/callback   ← dev preview
+    //   https://*.replit.app/**                         ← production
+    const redirectTo = getCallbackUrl()
 
     console.log('[auth] signInWithGoogle → redirectTo:', redirectTo,
-      '| Add this origin to Supabase → Authentication → URL Configuration → Redirect URLs if sign-in fails.')
+      '| Add this URL to Supabase → Authentication → URL Configuration → Redirect URLs if sign-in fails.')
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
