@@ -203,15 +203,23 @@ export function PubCrawlPlan({ plan, onRecalculate, className }: PubCrawlPlanPro
       {/* ── Stop timeline ── */}
       <div className="mb-4">
         {plan.stops.map((stop, i) => {
-          // Only display rating when the provider confirmed it is real data.
+          // Guard: venue is always defined for pub-crawl (kind:'venue') plans.
+          // The early return satisfies TypeScript's optional-field check and
+          // ensures this component stays safe if ever called with a route plan.
+          const venue = stop.venue
+          if (!venue) return null
+
+          // Only display rating when the provider confirmed real data.
           // OSM venues have rating: 0 with ratingKnown: false — showing "0.0 ★"
           // would mislead the user about venue quality.
-          const ratingKnown = stop.venue.ratingKnown !== false && stop.venue.rating > 0
-          const priceKnown  = stop.venue.priceLevelKnown !== false
-          const roleStyle   = stop.role ? (ROLE_STYLES[stop.role] ?? 'bg-muted/20 text-muted-foreground border-border/20') : null
+          const ratingKnown = venue.ratingKnown !== false && venue.rating > 0
+          const priceKnown  = venue.priceLevelKnown !== false
+          const roleStyle   = stop.role
+            ? (ROLE_STYLES[stop.role] ?? 'bg-muted/20 text-muted-foreground border-border/20')
+            : null
 
           return (
-            <div key={stop.venue.id}>
+            <div key={venue.id}>
               {/* Walking leg between stops */}
               {i > 0 && (
                 <WalkingLeg
@@ -229,7 +237,7 @@ export function PubCrawlPlan({ plan, onRecalculate, className }: PubCrawlPlanPro
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-foreground leading-tight truncate">
-                        {stop.venue.name}
+                        {venue.name}
                       </p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Clock className="w-3 h-3 text-muted-foreground flex-shrink-0" />
@@ -249,20 +257,20 @@ export function PubCrawlPlan({ plan, onRecalculate, className }: PubCrawlPlanPro
                         <div className="flex items-center gap-1 justify-end">
                           <Star className="w-3 h-3 text-primary fill-primary" />
                           <span className="text-xs font-medium text-primary">
-                            {stop.venue.rating.toFixed(1)}
+                            {venue.rating.toFixed(1)}
                           </span>
                         </div>
                       ) : (
                         /* Real venue without a rating — show venue type from OSM tags */
-                        stop.venue.tags.length > 0 ? (
+                        venue.tags.length > 0 ? (
                           <span className="text-[10px] text-muted-foreground/60 capitalize">
-                            {stop.venue.tags[0]}
+                            {venue.tags[0]}
                           </span>
                         ) : null
                       )}
                       {priceKnown && (
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {priceLevelLabel(stop.venue.priceLevel)}
+                          {priceLevelLabel(venue.priceLevel)}
                         </p>
                       )}
                     </div>
@@ -282,7 +290,7 @@ export function PubCrawlPlan({ plan, onRecalculate, className }: PubCrawlPlanPro
                       </span>
                     )}
                     {/* Atmosphere tags (mock venues only — real venues have none) */}
-                    {stop.venue.atmosphere.slice(0, 2).map(tag => (
+                    {venue.atmosphere.slice(0, 2).map(tag => (
                       <span
                         key={tag}
                         className="text-[10px] text-muted-foreground bg-muted/20 px-1.5 py-0.5 rounded-full capitalize"
@@ -300,9 +308,9 @@ export function PubCrawlPlan({ plan, onRecalculate, className }: PubCrawlPlanPro
                   )}
 
                   {/* Address — real venues only, when OSM provides it */}
-                  {stop.venue.address && stop.venue.isRealData && (
+                  {venue.address && venue.isRealData && (
                     <p className="text-[10px] text-muted-foreground/50 mt-0.5 truncate">
-                      {stop.venue.address}
+                      {venue.address}
                     </p>
                   )}
                 </div>

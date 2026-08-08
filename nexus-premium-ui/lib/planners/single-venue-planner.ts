@@ -63,6 +63,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
   return {
     id: `${activityId}-planner`,
     activityId,
+    kind: 'venue',
     name: `${activityLabel} Planner`,
     description: `Finds the best ${activityLabel.toLowerCase()} venue for your group based on location and availability.`,
 
@@ -183,6 +184,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       void QUALITY_LABELS
 
       return {
+        kind: 'venue',
         title: `${activityEmoji} ${activityLabel}`,
         subtitle: `${dayName} · ${format12h(startTime)}`,
         activityId,

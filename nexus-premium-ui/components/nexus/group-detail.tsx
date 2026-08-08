@@ -48,6 +48,7 @@ import { ActivityPlanCard } from './activity-plan-card'
 import {
   runPlanner,
   hasPlannerFor,
+  getPlannerFor,
   type PlannerResult,
 } from '@/lib/planners/planner-engine'
 
@@ -736,21 +737,28 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                         {resolvedActivity?.label ?? 'Activity'} Planner
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                      Nexus will find the best venues near your group, score
-                      them, and build a plan — timed to your Golden Window.
-                    </p>
+                    {/* CTA description — adapts to venue vs route planners */}
+                    {(() => {
+                      const isRoutePlanner = getPlannerFor(rawActivityId)?.kind === 'route'
+                      return (
+                        <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                          {isRoutePlanner
+                            ? 'Nexus will plan a route for your group — timed to your Golden Window.'
+                            : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.'}
+                        </p>
+                      )
+                    })()}
                     {!activeWindow && (
                       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
                         Find a Golden Window first so Nexus can plan around your
                         group&apos;s available time.
                       </p>
                     )}
-                    {/* Location hint — only for activities that need real venue search */}
-                    {rawActivityId !== 'pub-crawl' && !planningLocation && (
+                    {/* Location hint — shown for all planned activities */}
+                    {!planningLocation && (
                       <p className="text-xs text-muted-foreground bg-muted/20 border border-border/30 rounded-xl px-3 py-2 mb-3 leading-relaxed">
                         <MapPin className="w-3 h-3 inline mr-1 opacity-60" />
-                        Set a planning location above so Nexus can find real venues nearby.
+                        Set a planning location above so Nexus knows where to plan.
                       </p>
                     )}
                     <Button
@@ -781,7 +789,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                           Planning your {resolvedActivity?.label?.toLowerCase() ?? 'activity'}…
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Discovering venues and scoring the best match
+                          {getPlannerFor(rawActivityId)?.kind === 'route'
+                            ? 'Planning your route…'
+                            : 'Discovering venues and scoring the best match'}
                         </p>
                       </div>
                     </div>

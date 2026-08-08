@@ -377,6 +377,7 @@ async function fetchVenues(
 export const pubCrawlPlanner: PlannerDefinition = {
   id: 'pub-crawl-planner',
   activityId: 'pub-crawl',
+  kind: 'venue',
   name: 'Pub Crawl Planner',
   description: 'Plans a group pub crawl using the Golden Window for timing.',
 
@@ -538,6 +539,7 @@ export const pubCrawlPlanner: PlannerDefinition = {
       `Route was optimised to minimise backtracking across ${totalDistanceKm} km total.`
 
     return {
+      kind: 'venue',
       title: crawlTitle,
       subtitle: `${dayLabel(gw.day_of_week)} · ${format12h(gw.start_time)}`,
       activityId: 'pub-crawl',
