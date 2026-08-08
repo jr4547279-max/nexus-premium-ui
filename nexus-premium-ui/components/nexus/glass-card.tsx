@@ -13,11 +13,27 @@ interface GlassCardProps {
 }
 
 export function GlassCard({ children, className, hover = false, onClick, glow = false }: GlassCardProps) {
-  const Component = onClick ? 'button' : 'div'
-  
+  // Always render a <div> — never a <button> — so nested interactive
+  // elements (buttons, links, inputs) are valid HTML and React won't
+  // produce hydration errors. Keyboard accessibility is preserved for
+  // clickable cards via role, tabIndex, and onKeyDown.
+  const interactiveProps = onClick
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick,
+        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onClick()
+          }
+        },
+      }
+    : {}
+
   return (
-    <Component
-      onClick={onClick}
+    <div
+      {...interactiveProps}
       className={cn(
         'rounded-xl p-3',
         hover ? 'glass-card-hover cursor-pointer' : 'glass-card',
@@ -27,7 +43,7 @@ export function GlassCard({ children, className, hover = false, onClick, glow = 
       )}
     >
       {children}
-    </Component>
+    </div>
   )
 }
 
