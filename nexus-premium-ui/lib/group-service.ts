@@ -51,41 +51,54 @@ export async function createGroup(
   emoji: string,
   activityId?: string,
 ): Promise<CreateGroupResult> {
-  const { data: userData } = await supabase.auth.getUser()
-  const uid = userData.user?.id
-  if (!uid) {
-    return { group: null, errorMessage: 'Not signed in — auth.uid() is null' }
-  }
-
-  const { data, error, status } = await supabase
+  // ── Step 1: create the group via stored procedure ──────────────────────────
+  // The RPC uses auth.uid() internally — no need to call getUser() here.
+  console.log('[createGroup] Step 1 — calling create_group RPC', { name, emoji, activityId })
+  const { data, error: rpcError, status } = await supabase
     .rpc('create_group', { p_name: name.trim(), p_emoji: emoji || '👥' })
 
-  if (error) {
-    const msg = formatError(error, status)
-    console.error('[group-service] createGroup FAILED', msg, error)
+  if (rpcError) {
+    const msg = formatError(rpcError, status)
+    console.error('[createGroup] Step 1 FAILED — RPC error', msg, rpcError)
     return { group: null, errorMessage: msg }
+  }
+
+  console.log('[createGroup] Step 1 OK — RPC returned', data)
+
+  if (!data) {
+    console.error('[createGroup] Step 1 FAILED — RPC returned null/empty data')
+    return { group: null, errorMessage: 'Group creation returned no data. Please try again.' }
   }
 
   const group = data as Group
 
-  // Persist the activity choice if one was made.
-  // This requires the `activity_id` column to exist on the `groups` table —
-  // run supabase/activity_id_migration.sql if it hasn't been applied yet.
-  if (activityId && group?.id) {
-    const { error: updateError } = await supabase
+  if (!group.id) {
+    console.error('[createGroup] Step 1 FAILED — returned group has no id', group)
+    return { group: null, errorMessage: 'Group created but missing an ID. Please try again.' }
+  }
+
+  // ── Step 2: persist the activity (if one was chosen) ──────────────────────
+  if (activityId) {
+    console.log('[createGroup] Step 2 — updating activity_id', { groupId: group.id, activityId })
+    const { error: updateError, status: updateStatus } = await supabase
       .from('groups')
       .update({ activity_id: activityId })
       .eq('id', group.id)
 
     if (updateError) {
-      // Non-fatal: the group was created; activity is just not persisted yet.
-      // This happens before the SQL migration has been applied.
-      console.warn('[group-service] Could not persist activity_id — has the migration been applied?', updateError.message)
-    } else {
-      group.activity_id = activityId
+      // Surface this as a real error — the group was created but activity was lost.
+      const msg = formatError(updateError, updateStatus)
+      console.error('[createGroup] Step 2 FAILED — activity_id UPDATE error', msg, updateError)
+      // Return the group anyway so the user isn't left with nothing, but
+      // include a warning in the message so callers can decide how to surface it.
+      return { group, errorMessage: `Group created but activity could not be saved: ${msg}` }
     }
+
+    console.log('[createGroup] Step 2 OK — activity_id persisted')
+    group.activity_id = activityId
   }
 
+  console.log('[createGroup] Complete —', group)
   return { group, errorMessage: null }
 }
 

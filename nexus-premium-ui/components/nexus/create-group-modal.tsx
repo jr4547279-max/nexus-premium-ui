@@ -48,22 +48,43 @@ export function CreateGroupModal({ open, onOpenChange, onCreated }: CreateGroupM
     const trimmed = name.trim()
     if (!trimmed || submitting) return
     setSubmitting(true)
+    console.log('[CreateGroupModal] handleCreate — start', { trimmed, emoji, activity })
 
     // Build the storage ID: registry ID for predefined, 'custom:<label>' for custom.
     const activityStorageId = activity
       ? isCustomActivity(activity) ? `custom:${activity.label}` : activity.id
       : undefined
 
-    const { group, errorMessage } = await createGroup(trimmed, emoji, activityStorageId)
-    setSubmitting(false)
-    if (!group) {
-      toast.error(errorMessage ?? 'Could not create group. Please try again.')
-      return
+    try {
+      console.log('[CreateGroupModal] calling createGroup', { trimmed, emoji, activityStorageId })
+      const { group, errorMessage } = await createGroup(trimmed, emoji, activityStorageId)
+      console.log('[CreateGroupModal] createGroup returned', { group: group?.id, errorMessage })
+
+      if (!group) {
+        toast.error(errorMessage ?? 'Could not create group. Please try again.')
+        return
+      }
+
+      // If the group was created but activity save failed, still proceed —
+      // show a gentle warning rather than blocking the user.
+      if (errorMessage) {
+        console.warn('[CreateGroupModal] group created with activity warning:', errorMessage)
+        toast.warning('Group created — activity could not be saved yet.')
+      } else {
+        toast.success(`Created ${emoji} ${group.name}`)
+      }
+
+      console.log('[CreateGroupModal] calling onCreated / closing modal')
+      onCreated?.(group.id, activity ?? undefined)
+      onOpenChange(false)
+      reset()
+    } catch (err) {
+      console.error('[CreateGroupModal] handleCreate unexpected error', err)
+      toast.error('Something went wrong. Please try again.')
+    } finally {
+      // Always release the button — no matter what happened above.
+      setSubmitting(false)
     }
-    toast.success(`Created ${emoji} ${group.name}`)
-    onCreated?.(group.id, activity ?? undefined)
-    onOpenChange(false)
-    reset()
   }
 
   const handleActivitySelect = (selected: AnyActivity) => {
