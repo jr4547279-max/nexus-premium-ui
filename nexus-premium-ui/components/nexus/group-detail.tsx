@@ -7,7 +7,7 @@ import { GoldenRing } from './golden-ring'
 import { Button } from '@/components/ui/button'
 import {
   Calendar, MapPin, ChevronRight, Sparkles,
-  Clock, Check, AlertCircle, Plus, Settings,
+  Clock, Check, AlertCircle, Plus, Settings, RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mockGroups } from '@/lib/mock-data'
@@ -22,14 +22,20 @@ import { ActivityBadge } from './activity-picker'
 import { InviteMemberModal } from './invite-member-modal'
 import { AvailabilityEditor } from './availability-editor'
 import { useAuth } from '@/lib/auth-context'
-import { getGroupAvailability } from '@/lib/availability-service'
+import { getGroupAvailability, type GroupAvailabilityRow } from '@/lib/availability-service'
 import {
   computeGoldenWindows,
+  checkGoldenWindowRequirements,
   formatTime12h,
   formatDuration,
   dayLabel,
   type GoldenWindow,
+  type MatchQuality,
 } from '@/lib/golden-window'
+import {
+  loadSavedGoldenWindow,
+  saveGoldenWindow,
+} from '@/lib/golden-window-persistence'
 import { VenueRecommendations } from './venue-recommendations'
 import { WeatherChip } from './weather-chip'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
@@ -61,6 +67,31 @@ function displayNameFor(member: GroupMember) {
   return member.display_name || member.email?.split('@')[0] || 'Member'
 }
 
+// ─── Quality badge helpers ────────────────────────────────────────────────────
+
+const QUALITY_LABELS: Record<MatchQuality, string> = {
+  perfect:    'PERFECT MATCH',
+  strong:     'STRONG MATCH',
+  partial:    'PARTIAL MATCH',
+  compromise: 'BEST OPTION',
+}
+
+const QUALITY_CLASSES: Record<MatchQuality, string> = {
+  perfect:    'bg-emerald-500/20 text-emerald-400',
+  strong:     'bg-primary/20 text-primary',
+  partial:    'bg-amber-500/20 text-amber-400',
+  compromise: 'bg-orange-500/20 text-orange-400',
+}
+
+const QUALITY_HEADER: Record<MatchQuality, string> = {
+  perfect:    'Golden Window ✨',
+  strong:     'Golden Window ✨',
+  partial:    'Best Available Time',
+  compromise: 'Best Available Option',
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }: GroupDetailProps) {
   const realMode = isUuid(groupId)
   const mockGroup = mockGroups.find((g) => g.id === groupId) || mockGroups[0]
@@ -69,101 +100,106 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
   const [activeSection, setActiveSection] = useState<'members' | 'availability' | 'preferences'>('members')
   const [inviteOpen, setInviteOpen] = useState(false)
 
-  const [realGroup, setRealGroup] = useState<Group | null>(null)
+  // ── Real-group data ──────────────────────────────────────────────────────
+  const [realGroup, setRealGroup]     = useState<Group | null>(null)
   const [realMembers, setRealMembers] = useState<GroupMember[]>([])
-  const [loading, setLoading] = useState(realMode)
-  const [realWindows, setRealWindows] = useState<GoldenWindow[] | null>(null)
+  const [loading, setLoading]         = useState(realMode)
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
-  const [weather, setWeather] = useState<Weather | null>(null)
+
+  // Raw availability rows — kept in state so we can compute on demand.
+  const [allAvailability, setAllAvailability] = useState<GroupAvailabilityRow[]>([])
+
+  // ── Persisted Golden Window (from DB) ────────────────────────────────────
+  const [savedWindow, setSavedWindow]               = useState<GoldenWindow | null>(null)
+  const [savedWindowStale, setSavedWindowStale]     = useState(false)
+  const [savedWindowComputedAt, setSavedWindowComputedAt] = useState<string | null>(null)
+
+  // activeWindow = what is displayed. Set from DB on load, or freshly computed.
+  const [activeWindow, setActiveWindow] = useState<GoldenWindow | null>(null)
+
+  // ── Weather ──────────────────────────────────────────────────────────────
+  const [weather, setWeather]           = useState<Weather | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
 
-  // Reveal state — now user-triggered.
+  // ── Reveal state machine ─────────────────────────────────────────────────
   //
-  // Flow on a fresh visit to a real group:
-  //   'idle'      → "Search Golden Window" button is visible; nothing else.
-  //   'searching' → user tapped the button; full-screen overlay is up.
-  //   'closing'   → overlay fades out, Golden Window card scale-ins under.
-  //   'revealed'  → card sits with a "Tap to explore nearby fits" hint.
+  // States:
+  //   'idle'      → CTA shown; nothing revealed yet.
+  //   'searching' → cinematic overlay playing.
+  //   'closing'   → overlay fading out; GW card scaling in below.
+  //   'revealed'  → GW card visible. Entered immediately if a saved window was
+  //                 loaded from DB, or after the cinematic completes.
   //
-  // Once-per-session flag (`nexus:revealed:<groupId>`): if set, we skip the
-  // button + overlay and snap straight to 'revealed' on mount. Venues stay
-  // hidden until the user taps the Golden Window card either way.
-  //
-  // prefers-reduced-motion users still see the button (the request is
-  // user-initiated regardless), but their click jumps straight to
-  // 'revealed' with no overlay.
-  //
-  // revealMode controls whether the card uses scale/fade-in animation
-  // classes — 'cinematic' for first-ever discovery, 'instant' for
-  // reduced-motion or already-revealed-this-session.
+  // revealMode:
+  //   'cinematic' → scale/fade animation classes applied (first discovery).
+  //   'instant'   → no animation (DB-loaded window or reduced-motion).
   const [revealPhase, setRevealPhase] = useState<
     'idle' | 'searching' | 'closing' | 'revealed'
   >('idle')
   const [revealMode, setRevealMode] = useState<'cinematic' | 'instant'>('cinematic')
-  // Venues are now their own gate — only render after the user presses the
-  // explicit "Explore nearby fits" button (or taps the GW card as a
-  // secondary path). Resets per group via the [groupId] cleanup effect.
-  //
-  // We mount the venue section immediately on press — the map's scale-in
-  // and the staggered card fade-up animations *are* the cinematic loading
-  // state. No separate pending placeholder, because that placeholder
-  // became the scroll target and the user landed on a tiny row with
-  // empty space below.
+
+  // Venues gate — only reveals after explicit user tap.
   const [venuesRevealed, setVenuesRevealed] = useState(false)
-  // Ref on the venue section wrapper so we can smooth-scroll to it on
-  // reveal. Critically, this lives on the wrapper that mounts the venues
-  // themselves — never a child animation element.
   const venuesRef = useRef<HTMLDivElement | null>(null)
-  // Timer IDs are held in a ref so the dedicated [groupId] cleanup effect
-  // can clear them. We deliberately do NOT clear timers in the click
-  // handler's own scope — under React 18 Strict Mode (dev) the
-  // mount → cleanup → mount cycle would otherwise strand the sequence.
+
+  // Timer refs — cleared only in the [groupId] cleanup effect so Strict Mode
+  // mount→cleanup→mount cycles don't strand the sequence.
   const revealTimersRef = useRef<{
     close?: ReturnType<typeof setTimeout>
     reveal?: ReturnType<typeof setTimeout>
   }>({})
+
+  // ── Data loading ─────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!realMode) return
     let cancelled = false
     setLoading(true)
     setAvailabilityLoaded(false)
+    setActiveWindow(null)
+    setSavedWindow(null)
+    setSavedWindowStale(false)
+    setSavedWindowComputedAt(null)
+
     Promise.all([
       getGroup(groupId),
       listGroupMembers(groupId),
       getGroupAvailability(groupId),
-    ]).then(([g, m, avail]) => {
+      loadSavedGoldenWindow(groupId),
+    ]).then(([g, m, avail, saved]) => {
       if (cancelled) return
       setRealGroup(g)
       setRealMembers(m)
-      const windows = computeGoldenWindows(
-        m.map((mem) => ({ id: mem.user_id, name: mem.display_name })),
-        avail.map((r) => ({
-          user_id: r.user_id,
-          day_of_week: r.day_of_week,
-          start_time: r.start_time,
-          end_time: r.end_time,
-        })),
-      )
-      setRealWindows(windows)
+      setAllAvailability(avail)
+      setSavedWindow(saved.window)
+      setSavedWindowStale(saved.isStale)
+      setSavedWindowComputedAt(saved.computedAt)
+      if (saved.window) {
+        setActiveWindow(saved.window)
+      }
       setAvailabilityLoaded(true)
       setLoading(false)
     })
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [groupId, realMode])
 
-  const bestWindow = realWindows && realWindows[0] ? realWindows[0] : null
-
-  // Once the Golden Window is computed, decide the *initial* phase:
-  //   - already-revealed-this-session → snap to 'revealed' (instant mode),
-  //     skip the search button entirely
-  //   - otherwise → stay in 'idle', wait for the user to tap the button
-  // We never auto-trigger the cinematic sequence anymore — that's the
-  // user's call.
+  // ── Auto-reveal when DB window is loaded ─────────────────────────────────
+  //
+  // If a saved window was loaded from the database, skip the cinematic and
+  // show the card immediately. Session-storage also bypasses the cinematic for
+  // windows computed in this session that the user has already seen.
   useEffect(() => {
-    if (!realMode || !availabilityLoaded || !bestWindow) return
+    if (!realMode || !availabilityLoaded || !activeWindow) return
+    if (revealPhase === 'searching' || revealPhase === 'closing') return
+
+    // DB-loaded window → always instant reveal (no cinematic needed).
+    if (savedWindow) {
+      setRevealMode('instant')
+      setRevealPhase('revealed')
+      return
+    }
+
+    // Session-flag → instant reveal for already-seen windows.
     const storageKey = `nexus:revealed:${groupId}`
     let alreadyRevealed = false
     try {
@@ -171,19 +207,19 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
         typeof window !== 'undefined' &&
         window.sessionStorage.getItem(storageKey) === '1'
     } catch {
-      // sessionStorage can throw in restricted contexts — treat as not revealed.
+      // non-fatal
     }
     if (alreadyRevealed) {
       setRevealMode('instant')
       setRevealPhase('revealed')
     }
-  }, [realMode, availabilityLoaded, bestWindow, groupId])
+  }, [realMode, availabilityLoaded, activeWindow, savedWindow, groupId, revealPhase])
 
-  // Reset all reveal/venue state whenever the user switches to a different
-  // group, and on true unmount. This is the only place timers are cleared.
+  // ── Group-switch cleanup ──────────────────────────────────────────────────
+
   useEffect(() => {
     return () => {
-      if (revealTimersRef.current.close) clearTimeout(revealTimersRef.current.close)
+      if (revealTimersRef.current.close)  clearTimeout(revealTimersRef.current.close)
       if (revealTimersRef.current.reveal) clearTimeout(revealTimersRef.current.reveal)
       revealTimersRef.current = {}
       setRevealPhase('idle')
@@ -192,37 +228,60 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     }
   }, [groupId])
 
-  // User-triggered: kick off the cinematic searching → closing → revealed
-  // sequence. Honors prefers-reduced-motion by snapping straight to
-  // 'revealed' (still user-initiated, just no animation).
+  // ── Find / Recalculate Golden Window ─────────────────────────────────────
+  //
+  // Computes windows synchronously (pure TS, fast), then fires a DB save in
+  // the background while the 3-second cinematic overlay plays. By the time the
+  // overlay ends the save is already done.
+
   const handleStartSearch = () => {
-    if (revealPhase !== 'idle') return
+    if (revealPhase === 'searching' || revealPhase === 'closing') return
+
+    // Reset venues if recalculating.
+    setVenuesRevealed(false)
+
+    // Compute immediately — synchronous, no network.
+    const windows = computeGoldenWindows(
+      realMembers.map((m) => ({ id: m.user_id, name: m.display_name })),
+      allAvailability.map((r) => ({
+        user_id:     r.user_id,
+        day_of_week: r.day_of_week,
+        start_time:  r.start_time,
+        end_time:    r.end_time,
+      })),
+    )
+    const best = windows[0] ?? null
+    setActiveWindow(best)
+
+    // Fire-and-forget save to DB in the background.
+    if (best) {
+      saveGoldenWindow(groupId, best).then((ok) => {
+        if (ok) {
+          setSavedWindow(best)
+          setSavedWindowStale(false)
+          setSavedWindowComputedAt(new Date().toISOString())
+        }
+      })
+    }
+
     const storageKey = `nexus:revealed:${groupId}`
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
     if (prefersReducedMotion) {
       setRevealMode('instant')
       setRevealPhase('revealed')
-      try {
-        window.sessionStorage.setItem(storageKey, '1')
-      } catch {
-        // non-fatal
-      }
+      try { window.sessionStorage.setItem(storageKey, '1') } catch { /* */ }
       return
     }
+
     setRevealMode('cinematic')
     setRevealPhase('searching')
-    //   0 ms    → overlay mounts, phrases rotate
-    //   3000 ms → 'closing': overlay fades, GW card scale-ins beneath
-    //   3600 ms → 'revealed': overlay unmounts
+
     revealTimersRef.current.close = setTimeout(() => {
       setRevealPhase('closing')
-      try {
-        window.sessionStorage.setItem(storageKey, '1')
-      } catch {
-        // non-fatal
-      }
+      try { window.sessionStorage.setItem(storageKey, '1') } catch { /* */ }
     }, 3000)
     revealTimersRef.current.reveal = setTimeout(
       () => setRevealPhase('revealed'),
@@ -230,14 +289,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     )
   }
 
-  // User-triggered: mount the venue section immediately and smooth-scroll
-  // to it once the new DOM has been committed AND painted. Idempotent —
-  // repeated taps once venues are visible just re-scroll.
-  //
-  // We use a double requestAnimationFrame so the scroll fires AFTER the
-  // venue wrapper has actually rendered and its real geometry is known.
-  // setTimeout(0) is unreliable across browsers/Strict Mode; rAF is the
-  // proper signal that a frame is on screen.
+  // ── Reveal venues ─────────────────────────────────────────────────────────
+
   const handleRevealVenues = () => {
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
@@ -252,34 +305,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
       })
     }
     if (typeof window === 'undefined' || prefersReducedMotion) {
-      // Snap-scroll: one frame is enough once the mount commits.
       requestAnimationFrame(doScroll)
     } else {
-      // Double-rAF: first frame schedules the commit, second frame
-      // guarantees the venue wrapper is painted before scrollIntoView
-      // reads its position. Avoids landing in blank space.
       requestAnimationFrame(() => requestAnimationFrame(doScroll))
     }
   }
 
-  // Animation classes are only applied on the first cinematic reveal.
-  // Reduced-motion users and returning visitors get static, instant content.
-  const shouldAnimateReveal = revealMode === 'cinematic'
+  // ── Weather fetch for the active window ───────────────────────────────────
 
-  // Convenience flags read by the JSX below.
-  // The overlay stays mounted through 'closing' so it can fade out.
-  // The Golden Window card mounts at 'closing' too so it scale-ins
-  // *underneath* the fading overlay — that's the true crossfade.
-  const showSearchingOverlay =
-    realMode && bestWindow && (revealPhase === 'searching' || revealPhase === 'closing')
-  const showRevealedContent =
-    realMode && bestWindow && (revealPhase === 'closing' || revealPhase === 'revealed')
-
-  // Phase 6A — fetch real weather for the Golden Window slot. We have no
-  // per-member coords yet, so the midpoint falls back to Eastbourne.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!realMode || !bestWindow) {
+    if (!realMode || !activeWindow) {
       setWeather(null)
       setWeatherLoading(false)
       return
@@ -288,35 +324,52 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     setWeatherLoading(true)
     const mp = computeMidpoint([])
     fetchWeather({
-      lat: mp.fallback ? undefined : mp.lat,
-      lng: mp.fallback ? undefined : mp.lng,
-      dayOfWeek: bestWindow.day_of_week,
-      startTime: bestWindow.start_time,
+      lat:       mp.fallback ? undefined : mp.lat,
+      lng:       mp.fallback ? undefined : mp.lng,
+      dayOfWeek: activeWindow.day_of_week,
+      startTime: activeWindow.start_time,
     }).then((w) => {
       if (cancelled) return
       setWeather(w)
       setWeatherLoading(false)
     })
-    return () => {
-      cancelled = true
-    }
-  }, [realMode, bestWindow?.day_of_week, bestWindow?.start_time])
+    return () => { cancelled = true }
+  }, [realMode, activeWindow?.day_of_week, activeWindow?.start_time])
 
-  // Derived view-model: same shape regardless of real vs mock.
-  const name = realMode ? realGroup?.name ?? 'Loading…' : mockGroup.name
-  const emoji = realMode ? realGroup?.emoji ?? '👥' : mockGroup.emoji
+  // ── Derived flags ─────────────────────────────────────────────────────────
+
+  const shouldAnimateReveal = revealMode === 'cinematic'
+
+  const showSearchingOverlay =
+    realMode && activeWindow && (revealPhase === 'searching' || revealPhase === 'closing')
+
+  const showRevealedContent =
+    realMode && activeWindow && (revealPhase === 'closing' || revealPhase === 'revealed')
+
+  // Stale banner: shown when the active window came from DB and is marked stale.
+  const showStaleBanner =
+    revealPhase === 'revealed' && savedWindowStale && !!savedWindow
+
+  // Requirements check — shown when we don't have a window yet.
+  const gwRequirements =
+    realMode && availabilityLoaded && !activeWindow
+      ? checkGoldenWindowRequirements(
+          realMembers.map((m) => ({ id: m.user_id, name: m.display_name })),
+          allAvailability,
+        )
+      : null
+
+  // ── View-model ────────────────────────────────────────────────────────────
+
+  const name        = realMode ? realGroup?.name ?? 'Loading…' : mockGroup.name
+  const emoji       = realMode ? realGroup?.emoji ?? '👥' : mockGroup.emoji
   const memberCount = realMode ? realMembers.length : mockGroup.memberCount
-  const inviteCode = realMode ? realGroup?.invite_code ?? null : null
+  const inviteCode  = realMode ? realGroup?.invite_code ?? null : null
 
-  // Resolve the activity from the registry (predefined) or parse custom label.
-  const rawActivityId = realMode ? realGroup?.activity_id : null
-  const activityDef = rawActivityId && !rawActivityId.startsWith('custom:')
-    ? getActivityById(rawActivityId)
-    : null
-  const customActivityLabel = rawActivityId?.startsWith('custom:')
-    ? rawActivityId.slice('custom:'.length)
-    : null
-  const resolvedActivity = activityDef
+  const rawActivityId     = realMode ? realGroup?.activity_id : null
+  const activityDef       = rawActivityId && !rawActivityId.startsWith('custom:') ? getActivityById(rawActivityId) : null
+  const customActivityLabel = rawActivityId?.startsWith('custom:') ? rawActivityId.slice('custom:'.length) : null
+  const resolvedActivity  = activityDef
     ? activityDef
     : customActivityLabel
       ? { id: 'custom' as const, label: customActivityLabel, emoji: '✨', isCustom: true as const }
@@ -324,15 +377,16 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
   const avatars = realMode
     ? realMembers.map((m) => ({
-        id: m.user_id,
-        name: displayNameFor(m),
+        id:     m.user_id,
+        name:   displayNameFor(m),
         avatar: avatarFor(m),
         synced: false,
       }))
     : mockGroup.members
 
-  // Golden Window / preferences / sync indicators stay mock-only for now.
   const showGoldenWindow = !realMode && mockGroup.hasGoldenWindow && mockGroup.goldenWindow
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-background pb-8">
@@ -344,6 +398,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
       />
 
       <main className="px-4 py-6 max-w-md mx-auto">
+
         {/* Group Header */}
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center text-3xl">
@@ -368,28 +423,85 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* "Search Golden Window" — primary call-to-action shown before the
-            user has triggered discovery on this group this session. */}
-        {realMode && availabilityLoaded && bestWindow && revealPhase === 'idle' && (
-          <Button
-            onClick={handleStartSearch}
-            className="w-full h-14 mb-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
-          >
-            <Sparkles className="w-5 h-5 mr-2" />
-            Search Golden Window
-          </Button>
+        {/* ── Stale banner ── shown when a saved window exists but availability
+            changed after it was computed. Never overwrites automatically. */}
+        {showStaleBanner && (
+          <div className="mb-4 flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-400">Availability changed</p>
+              <p className="text-xs text-muted-foreground">This result may be outdated.</p>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleStartSearch}
+              className="shrink-0 h-8 px-3 text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border-0"
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              Recalculate
+            </Button>
+          </div>
         )}
 
-        {/* Full-screen cinematic searching overlay. Mounts only on the first
-            user-initiated discovery and fades out smoothly during 'closing'. */}
+        {/* ── "Find Golden Window" CTA ──
+            Shown when availability is loaded but no window has been found/
+            saved yet, and the cinematic isn't running. Always visible so the
+            user never hits a dead end. */}
+        {realMode && availabilityLoaded && !activeWindow && revealPhase === 'idle' && (
+          <GlassCard className="mb-6 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium text-foreground">Golden Window</span>
+            </div>
+
+            {gwRequirements?.canCompute ? (
+              <>
+                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                  Nexus will find the best time for your group — even if there&apos;s no perfect
+                  overlap, it&apos;ll find the closest option and explain the match.
+                </p>
+                <Button
+                  onClick={handleStartSearch}
+                  className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Find Golden Window
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                  {gwRequirements?.missingExplanation ??
+                    'Add your availability so Nexus can find the best time for your group.'}
+                </p>
+                <Button
+                  disabled
+                  className="w-full h-11 rounded-xl opacity-40 cursor-not-allowed"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Find Golden Window
+                </Button>
+                <Button
+                  onClick={() => setActiveSection('availability')}
+                  className="mt-2 w-full h-9 rounded-xl bg-muted/30 hover:bg-muted/50 text-muted-foreground text-xs border-0"
+                >
+                  Set your availability
+                </Button>
+              </>
+            )}
+          </GlassCard>
+        )}
+
+        {/* ── Cinematic searching overlay ── */}
         {showSearchingOverlay && (
           <GoldenWindowSearching exiting={revealPhase === 'closing'} />
         )}
 
-        {/* Real Golden Window — computed from member availability.
-            Wrapped in the reveal animation so it scales+fades in once
-            the searching phase ends. Tap reveals venues below. */}
-        {showRevealedContent && (
+        {/* ── Revealed Golden Window card ──
+            Mounts during 'closing' so it scale-ins under the fading overlay
+            for a true crossfade. Active window may be perfect, strong,
+            partial, or a compromise — the card adapts to the quality. */}
+        {showRevealedContent && activeWindow && (
           <GlassCard
             glow
             className={cn(
@@ -398,42 +510,66 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
             )}
             onClick={handleRevealVenues}
           >
+            {/* Header row */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-sm text-primary font-medium">Golden Window Found ✨</span>
+                <span className="text-sm text-primary font-medium">
+                  {QUALITY_HEADER[activeWindow.match_quality]}
+                </span>
               </div>
-              <span className="text-xs px-2 py-1 bg-primary/20 text-primary rounded-full">
-                {bestWindow.label || 'BEST MATCH'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'text-xs px-2 py-1 rounded-full font-medium',
+                  QUALITY_CLASSES[activeWindow.match_quality],
+                )}>
+                  {QUALITY_LABELS[activeWindow.match_quality]}
+                </span>
+              </div>
             </div>
 
+            {/* Time + date */}
             <div className="flex items-center gap-4">
               <GoldenRing size="md" intensity="normal" />
               <div className="flex-1">
-                <p className="text-2xl font-bold">{formatTime12h(bestWindow.start_time)}</p>
+                <p className="text-2xl font-bold">{formatTime12h(activeWindow.start_time)}</p>
                 <p className="text-muted-foreground">
-                  {dayLabel(bestWindow.day_of_week, bestWindow.days_until)}
+                  {dayLabel(activeWindow.day_of_week, activeWindow.days_until)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {formatDuration(bestWindow.duration_minutes)} • {formatTime12h(bestWindow.start_time)} – {formatTime12h(bestWindow.end_time)}
+                  {formatDuration(activeWindow.duration_minutes)}
+                  {' · '}
+                  {formatTime12h(activeWindow.start_time)}
+                  {' – '}
+                  {formatTime12h(activeWindow.end_time)}
                 </p>
               </div>
               <ChevronRight className="w-5 h-5 text-muted-foreground" />
             </div>
 
+            {/* Compromise / partial explanation */}
+            {activeWindow.compromise_note && (
+              <div className="mt-3 pt-3 border-t border-border/30">
+                <p className="text-xs text-muted-foreground italic leading-relaxed">
+                  {activeWindow.is_compromise
+                    ? "I couldn't find a perfect overlap — this is your best option."
+                    : activeWindow.compromise_note}
+                </p>
+              </div>
+            )}
+
+            {/* Member availability */}
             <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/30">
               <AvatarStack avatars={avatars} max={5} />
               <div className="flex items-center gap-1 text-emerald-500 text-sm">
                 <Check className="w-4 h-4" />
                 <span>
-                  {bestWindow.available_member_count} of {bestWindow.total_member_count} free
+                  {activeWindow.available_member_count} of {activeWindow.total_member_count} free
                 </span>
               </div>
             </div>
 
-            {/* Phase 6A: real weather chip for the Golden Window slot.
-                Hidden entirely if the fetch errored, so we never show fake context. */}
+            {/* Weather chip */}
             {(weatherLoading || (weather && !weather.error)) && (
               <div
                 className="mt-3 pt-3 border-t border-border/30"
@@ -442,13 +578,24 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 <WeatherChip weather={weather} loading={weatherLoading} />
               </div>
             )}
-
           </GlassCard>
         )}
 
-        {/* Primary call-to-action — explicit, obvious, can't be missed.
-            Only shown after the Golden Window is revealed and before the
-            user has started exploring venues. */}
+        {/* ── Recalculate button — shown below the revealed card ──
+            Subtle so it doesn't compete with "Explore nearby fits". */}
+        {revealPhase === 'revealed' && activeWindow && !showStaleBanner && (
+          <div className="flex justify-end mb-2">
+            <button
+              onClick={handleStartSearch}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 px-2 rounded-lg hover:bg-muted/30"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Recalculate
+            </button>
+          </div>
+        )}
+
+        {/* ── Explore nearby fits CTA ── */}
         {showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && (
           <Button
             onClick={handleRevealVenues}
@@ -463,47 +610,22 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </Button>
         )}
 
-        {/* Venue section — mounts immediately on reveal so the scroll
-            target has real geometry. The ref lives on the wrapper, NOT
-            on a child animation element. The map's scale-in + staggered
-            card fade-up animations provide the cinematic loading feel
-            (no height-auto animation, no separate pending placeholder
-            that would land us in blank space). */}
+        {/* ── Venues section ── */}
         {showRevealedContent && venuesRevealed && (
           <div ref={venuesRef} className="scroll-mt-20">
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
               goldenWindow={{
-                day_of_week: bestWindow.day_of_week,
-                start_time: bestWindow.start_time,
-                end_time: bestWindow.end_time,
+                day_of_week: activeWindow!.day_of_week,
+                start_time:  activeWindow!.start_time,
+                end_time:    activeWindow!.end_time,
               }}
               weather={weather}
             />
           </div>
         )}
 
-        {/* Real Golden Window — empty state when nobody (or only one) has overlapping availability */}
-        {realMode && availabilityLoaded && !bestWindow && (
-          <GlassCard className="mb-6 p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm font-medium">No Golden Window yet</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Once two or more members share at least an hour of overlapping availability,
-              your group's best time will appear here. Add yours in the Availability tab.
-            </p>
-            <Button
-              onClick={() => setActiveSection('availability')}
-              className="mt-4 h-9 px-4 rounded-lg bg-primary/15 text-primary hover:bg-primary/25 text-xs font-medium"
-            >
-              Set your availability
-            </Button>
-          </GlassCard>
-        )}
-
-        {/* Golden Window Banner (mock-only — legacy demo groups) */}
+        {/* ── Mock-group Golden Window banner (legacy demo groups only) ── */}
         {showGoldenWindow && mockGroup.goldenWindow && (
           <GlassCard
             glow
@@ -519,19 +641,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 BEST MATCH
               </span>
             </div>
-
             <div className="flex items-center gap-4">
               <GoldenRing size="md" intensity="normal" />
               <div className="flex-1">
                 <p className="text-2xl font-bold">{mockGroup.goldenWindow.time}</p>
                 <p className="text-muted-foreground">{mockGroup.goldenWindow.date}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {mockGroup.goldenWindow.duration} • {mockGroup.goldenWindow.time} - {mockGroup.goldenWindow.endTime}
+                  {mockGroup.goldenWindow.duration} · {mockGroup.goldenWindow.time} - {mockGroup.goldenWindow.endTime}
                 </p>
               </div>
               <ChevronRight className="w-5 h-5 text-muted-foreground" />
             </div>
-
             <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/30">
               <AvatarStack avatars={mockGroup.members} max={5} showSyncStatus />
               <div className="flex items-center gap-1 text-emerald-500 text-sm">
@@ -542,7 +662,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </GlassCard>
         )}
 
-        {/* Stats Row */}
+        {/* ── Stats row ── */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           <StatBadge
             label="members"
@@ -566,17 +686,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
               />
             </>
           )}
-          {realMode && bestWindow && (
+          {realMode && activeWindow && (
             <>
               <StatBadge
                 label="confidence"
-                value={`${bestWindow.confidence_score}%`}
+                value={`${activeWindow.confidence_score}%`}
                 variant="gold"
                 icon={<Sparkles className="w-3 h-3" />}
               />
               <StatBadge
                 label="fairness"
-                value={`${bestWindow.fairness_score}%`}
+                value={`${activeWindow.fairness_score}%`}
                 variant="default"
                 icon={<Check className="w-3 h-3" />}
               />
@@ -584,7 +704,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           )}
         </div>
 
-        {/* Section Tabs */}
+        {/* ── Section tabs ── */}
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => setActiveSection('members')}
@@ -623,7 +743,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </button>
         </div>
 
-        {/* Availability (real groups only) */}
+        {/* ── Availability editor (real groups only) ── */}
         {realMode && activeSection === 'availability' && (
           <AvailabilityEditor
             groupId={groupId}
@@ -631,7 +751,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           />
         )}
 
-        {/* Members List */}
+        {/* ── Members list ── */}
         {activeSection === 'members' && (
           <div className="space-y-3">
             {realMode
@@ -698,7 +818,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </div>
         )}
 
-        {/* Shared Preferences */}
+        {/* ── Shared preferences ── */}
         {activeSection === 'preferences' && (
           <div className="space-y-3">
             <GlassCard className="p-4">
@@ -711,7 +831,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                   </div>
                   <span className="font-medium">Budget</span>
                 </div>
-                <span className="text-muted-foreground text-sm">££ (£20-30 per person)</span>
+                <span className="text-muted-foreground text-sm">££ (£20–30 per person)</span>
               </div>
             </GlassCard>
 
@@ -769,7 +889,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
           </div>
         )}
 
-        {/* Find Window Button — mock groups only */}
+        {/* ── Mock-only "Find Golden Window" CTA ── */}
         {!realMode && !mockGroup.hasGoldenWindow && (
           <Button
             onClick={onViewGoldenWindow}

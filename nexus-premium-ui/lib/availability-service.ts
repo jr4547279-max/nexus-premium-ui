@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { markGoldenWindowStale } from './golden-window-persistence'
 
 export interface AvailabilitySlot {
   day_of_week: number   // 0 = Sun, 1 = Mon, … 6 = Sat
@@ -51,6 +52,10 @@ export async function getMyAvailability(groupId: string): Promise<AvailabilitySl
 /**
  * Atomically replaces ALL of the current user's slots for a group with
  * the supplied list. Returns the number of rows that landed.
+ *
+ * After a successful save the group's persisted Golden Window is marked stale
+ * so the UI can prompt recalculation. The stale marking is best-effort —
+ * a failure there is non-fatal and does not affect the save result.
  */
 export async function saveAvailability(
   groupId: string,
@@ -64,6 +69,12 @@ export async function saveAvailability(
     console.error('[availability-service] saveAvailability FAILED', msg, error)
     return { inserted: null, errorMessage: msg }
   }
+
+  // Mark the saved Golden Window stale only after a confirmed successful save.
+  markGoldenWindowStale(groupId).catch(() => {
+    // Best-effort — stale marking is non-fatal.
+  })
+
   return { inserted: (data as number) ?? 0, errorMessage: null }
 }
 

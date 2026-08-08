@@ -89,8 +89,6 @@ export async function createGroup(
       // Surface this as a real error — the group was created but activity was lost.
       const msg = formatError(updateError, updateStatus)
       console.error('[createGroup] Step 2 FAILED — activity_id UPDATE error', msg, updateError)
-      // Return the group anyway so the user isn't left with nothing, but
-      // include a warning in the message so callers can decide how to surface it.
       return { group, errorMessage: `Group created but activity could not be saved: ${msg}` }
     }
 
@@ -105,7 +103,7 @@ export async function createGroup(
 export async function listMyGroups(): Promise<GroupSummary[]> {
   const { data, error } = await supabase
     .from('groups')
-    .select('id, name, emoji, activity_id, group_members(count)')
+    .select('id, name, emoji, activity_id, golden_window_data, group_members(count)')
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -123,7 +121,7 @@ export async function listMyGroups(): Promise<GroupSummary[]> {
       memberCount: countRow?.count ?? 0,
       members: [],
       pendingConfirmations: 0,
-      hasGoldenWindow: false,
+      hasGoldenWindow: !!(row.golden_window_data as unknown),
     }
   })
 }
