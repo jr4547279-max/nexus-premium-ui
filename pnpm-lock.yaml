@@ -108,6 +108,13 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@types/leaflet':
+        specifier: ^1.9.22
+        version: 1.9.22
+      leaflet:
+        specifier: ^1.9.4
+        version: 1.9.4
     devDependencies:
       prettier:
         specifier: ^3.8.3
