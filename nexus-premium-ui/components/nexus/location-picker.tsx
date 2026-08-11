@@ -232,6 +232,7 @@ export function LocationPicker({
 
   const handleSelectSuggestion = async (s: Suggestion) => {
     setSuggestions([])
+    setSearchError(null)   // a result was found and selected — clear any prior error
     setQuery(`${s.mainText}${s.secondaryText ? `, ${s.secondaryText}` : ''}`)
     setDetailLoading(true)
     try {
@@ -364,6 +365,7 @@ export function LocationPicker({
               searchLoading={searchLoading}
               detailLoading={detailLoading}
               searchError={searchError}
+              hasSelection={!!selected}
               onQueryChange={handleQueryChange}
               onSelectSuggestion={handleSelectSuggestion}
             />
@@ -494,6 +496,7 @@ function SearchTab({
   searchLoading,
   detailLoading,
   searchError,
+  hasSelection,
   onQueryChange,
   onSelectSuggestion,
 }: {
@@ -502,6 +505,8 @@ function SearchTab({
   searchLoading:      boolean
   detailLoading:      boolean
   searchError:        string | null
+  /** True once the user has picked a suggestion and detail has resolved. */
+  hasSelection:       boolean
   onQueryChange:      (val: string) => void
   onSelectSuggestion: (s: Suggestion) => void
 }) {
@@ -556,8 +561,8 @@ function SearchTab({
         </div>
       )}
 
-      {/* Genuine zero results */}
-      {!searchError && !suggestions.length && !searchLoading && !detailLoading && query.trim() && (
+      {/* Genuine zero results — suppressed when a location is already selected */}
+      {!searchError && !hasSelection && !suggestions.length && !searchLoading && !detailLoading && query.trim() && (
         <p className="text-xs text-muted-foreground text-center py-4">
           No results — try a different search term.
         </p>

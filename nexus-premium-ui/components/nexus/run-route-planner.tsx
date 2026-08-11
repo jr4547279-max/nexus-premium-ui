@@ -53,6 +53,9 @@ interface RunRoutePlannerProps {
   groupId: string
   activityId: string
   goldenWindow: GoldenWindowLike | null
+  /** First raw availability slot for this group — used as timing fallback when
+   *  no Golden Window exists (e.g. solo jogging before running GW search). */
+  availabilityStart?: { day_of_week: number; start_time: string; end_time: string }
   planningLocation: { lat: number; lng: number; radiusMetres?: number } | null
   locationName?: string
   onStartRun?: (plan: PlannerResult) => void
@@ -320,6 +323,7 @@ export function RunRoutePlanner({
   groupId,
   activityId,
   goldenWindow,
+  availabilityStart,
   planningLocation,
   locationName,
   onStartRun,
@@ -340,8 +344,26 @@ export function RunRoutePlanner({
     ? `${planningLocation.lat.toFixed(4)},${planningLocation.lng.toFixed(4)},${prefs.distanceKm},${prefs.routeTypePreference},${prefs.surfacePreference}`
     : null
 
+  // ── Effective timing window ─────────────────────────────────────────────────
+  // For solo/group runs without a Golden Window, synthesise a minimal window
+  // from the group's first availability slot. The window is only used for
+  // waypoint arrival-time labels — it does not affect OSRM route generation.
+  const effectiveWindow: GoldenWindowLike | null = goldenWindow ?? (
+    availabilityStart
+      ? {
+          day_of_week:            availabilityStart.day_of_week,
+          start_time:             availabilityStart.start_time,
+          end_time:               availabilityStart.end_time,
+          duration_minutes:       0,
+          match_quality:          'perfect',
+          available_member_count: 1,
+          total_member_count:     1,
+        }
+      : null
+  )
+
   const handleFindRoutes = useCallback(async () => {
-    if (!goldenWindow || !planningLocation) return
+    if (!effectiveWindow || !planningLocation) return
 
     setPhase('searching')
     setError(null)
@@ -357,7 +379,7 @@ export function RunRoutePlanner({
     const engineResult = await runPlanner({
       groupId,
       activityId,
-      goldenWindow,
+      goldenWindow: effectiveWindow ?? undefined,
       groupLocation: planningLocation,
       locationName,
       routePreferences: prefs,
@@ -384,7 +406,7 @@ export function RunRoutePlanner({
     if (cacheKey) cacheRef.current.set(cacheKey, allCandidates)
     setCandidates(allCandidates)
     setPhase('results')
-  }, [goldenWindow, planningLocation, prefs, groupId, activityId, locationName, cacheKey])
+  }, [effectiveWindow, planningLocation, prefs, groupId, activityId, locationName, cacheKey])
 
   const handleSelectRoute = useCallback((idx: number) => {
     setSelectedIdx(idx)
@@ -392,10 +414,10 @@ export function RunRoutePlanner({
 
   const handleStartRun = useCallback(() => {
     const candidate = candidates[selectedIdx]
-    if (!candidate || !goldenWindow || !onStartRun) return
-    const plan = candidateToPlannerResult(candidate, { goldenWindow, locationName }, prefs)
+    if (!candidate || !effectiveWindow || !onStartRun) return
+    const plan = candidateToPlannerResult(candidate, { goldenWindow: effectiveWindow, locationName }, prefs)
     onStartRun(plan)
-  }, [candidates, selectedIdx, goldenWindow, locationName, prefs, onStartRun])
+  }, [candidates, selectedIdx, effectiveWindow, locationName, prefs, onStartRun])
 
   const handleBackToPrefs = useCallback(() => {
     setPhase('prefs')
@@ -421,10 +443,11 @@ export function RunRoutePlanner({
   const selectedCandidate = candidates[selectedIdx] ?? null
 
   // ── Missing requirements messaging ─────────────────────────────────────────
-
-  const missingWindow   = !goldenWindow
+  // Solo jogging: only planning location is required (Golden Window is optional).
+  // Group runs with an explicit Golden Window also always satisfy timing.
   const missingLocation = !planningLocation
-  const canSearch       = !missingWindow && !missingLocation
+  const missingTiming   = !effectiveWindow   // true only when no GW AND no availability
+  const canSearch       = !missingLocation && !missingTiming
 
   // ── Honest failure: loop requested but none found ──────────────────────────
 
@@ -447,8 +470,11 @@ export function RunRoutePlanner({
             <div>
               <p className="text-sm font-semibold text-foreground">Find a Run</p>
               <p className="text-xs text-muted-foreground">
-                {isSolo ? 'Nexus will find real routes timed to your Golden Window.'
-                        : 'Nexus will find real routes timed to your group\'s Golden Window.'}
+                {goldenWindow
+                  ? (isSolo
+                      ? 'Nexus will find real routes timed to your Golden Window.'
+                      : 'Nexus will find real routes timed to your group\'s Golden Window.')
+                  : 'Nexus will find real running routes near your planning location.'}
               </p>
             </div>
           </div>
@@ -548,14 +574,12 @@ export function RunRoutePlanner({
           />
 
           {/* Requirement notices */}
-          {missingWindow && (
+          {missingTiming && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-              {isSolo
-                ? 'Find your Golden Window first so Nexus can plan around your available time.'
-                : 'Find a Golden Window first so Nexus can plan around your group\'s available time.'}
+              Add your availability so Nexus knows when you want to run.
             </p>
           )}
-          {!missingWindow && missingLocation && (
+          {missingLocation && (
             <p className="text-xs text-muted-foreground bg-muted/20 border border-border/30 rounded-xl px-3 py-2 mb-3 leading-relaxed">
               <MapPin className="w-3 h-3 inline mr-1 opacity-60" />
               Set a planning location above so Nexus knows where to search.

@@ -538,6 +538,20 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
   const showGoldenWindow = !realMode && mockGroup.hasGoldenWindow && mockGroup.goldenWindow
 
+  // Route activities (e.g. jogging) don't need the Golden Window flow or venue
+  // discovery — they go straight to the route planner. Hide GW + venue UI for them.
+  const isRouteActivity = !!rawActivityId && getPlannerFor(rawActivityId)?.kind === 'route'
+
+  // First available slot in this group — used as timing fallback for route
+  // planners when no Golden Window has been computed yet.
+  const firstAvailSlot = allAvailability[0]
+    ? {
+        day_of_week: allAvailability[0].day_of_week,
+        start_time:  allAvailability[0].start_time,
+        end_time:    allAvailability[0].end_time,
+      }
+    : undefined
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -609,8 +623,10 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         {/* ── "Find Golden Window" CTA ──
             Shown when availability is loaded but no window has been found/
             saved yet, and the cinematic isn't running. Always visible so the
-            user never hits a dead end. */}
-        {realMode && availabilityLoaded && !activeWindow && revealPhase === 'idle' && (
+            user never hits a dead end.
+            Hidden for route activities (jogging etc.) — they go straight to
+            the route planner and don't need a Golden Window. */}
+        {realMode && availabilityLoaded && !activeWindow && revealPhase === 'idle' && !isRouteActivity && (
           <GlassCard className="mb-6 p-5">
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -668,7 +684,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             Mounts during 'closing' so it scale-ins under the fading overlay
             for a true crossfade. Active window may be perfect, strong,
             partial, or a compromise — the card adapts to the quality. */}
-        {showRevealedContent && activeWindow && (
+        {showRevealedContent && activeWindow && !isRouteActivity && (
           <GlassCard
             glow
             className={cn(
@@ -754,7 +770,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
         {/* ── Recalculate button — shown below the revealed card ──
             Subtle so it doesn't compete with "Explore nearby fits". */}
-        {revealPhase === 'revealed' && activeWindow && !showStaleBanner && (
+        {revealPhase === 'revealed' && activeWindow && !showStaleBanner && !isRouteActivity && (
           <div className="flex justify-end mb-2">
             <button
               onClick={handleStartSearch}
@@ -767,7 +783,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         )}
 
         {/* ── Explore nearby fits CTA ── */}
-        {showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && (
+        {showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (
           <Button
             onClick={handleRevealVenues}
             className={cn(
@@ -782,7 +798,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         )}
 
         {/* ── Venues section ── */}
-        {showRevealedContent && venuesRevealed && (
+        {showRevealedContent && venuesRevealed && !isRouteActivity && (
           <div ref={venuesRef} className="scroll-mt-20">
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
@@ -814,6 +830,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     groupId={groupId}
                     activityId={rawActivityId}
                     goldenWindow={activeWindow ?? null}
+                    availabilityStart={firstAvailSlot}
                     planningLocation={
                       planningLocation
                         ? {

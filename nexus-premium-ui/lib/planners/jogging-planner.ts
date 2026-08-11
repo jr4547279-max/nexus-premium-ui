@@ -365,11 +365,19 @@ export const joggingPlanner: PlannerDefinition = {
         DEFAULT_ROUTE_PREFERENCES.routeTypePreference,
     }
 
-    // ── 1. Require Golden Window ──────────────────────────────────────────────
-    if (!goldenWindow) {
-      throw new Error(
-        'Find a Golden Window first — the jogging planner needs to know when your group is free.',
-      )
+    // ── 1. Resolve timing window ──────────────────────────────────────────────
+    // Golden Window is optional for jogging — solo users can plan a route without
+    // one. When absent, synthesise a minimal window with a sensible start time.
+    // The window is only used for waypoint arrival-time labels and route subtitle;
+    // it does not affect OSRM route generation.
+    const window: GoldenWindowLike = goldenWindow ?? {
+      day_of_week:            new Date().getDay(),
+      start_time:             '09:00',
+      end_time:               '22:00',
+      duration_minutes:       780,
+      match_quality:          'perfect',
+      available_member_count: 1,
+      total_member_count:     1,
     }
 
     // ── 2. Require planning location ──────────────────────────────────────────
@@ -416,7 +424,7 @@ export const joggingPlanner: PlannerDefinition = {
     const best = rankedCandidates[0]!
 
     // ── 6. Build the main PlannerResult from the best candidate ───────────────
-    const result = candidateToPlannerResult(best, { goldenWindow, locationName }, prefs)
+    const result = candidateToPlannerResult(best, { goldenWindow: window, locationName }, prefs)
 
     // Attach all candidates for the multi-route UI
     result.allCandidates = rankedCandidates
