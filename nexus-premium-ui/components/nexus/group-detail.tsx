@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { TopHeader } from './navigation'
 import { GlassCard, AvatarStack, StatBadge } from './glass-card'
 import { GoldenRing } from './golden-ring'
@@ -542,15 +542,34 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   // discovery — they go straight to the route planner. Hide GW + venue UI for them.
   const isRouteActivity = !!rawActivityId && getPlannerFor(rawActivityId)?.kind === 'route'
 
-  // First available slot in this group — used as timing fallback for route
-  // planners when no Golden Window has been computed yet.
-  const firstAvailSlot = allAvailability[0]
-    ? {
-        day_of_week: allAvailability[0].day_of_week,
-        start_time:  allAvailability[0].start_time,
-        end_time:    allAvailability[0].end_time,
-      }
-    : undefined
+  // ── Shared availability window for route activities ───────────────────────
+  // Uses the same computeGoldenWindows engine as the Golden Window feature,
+  // but without any GW UI. Rules:
+  //   • 'perfect' | 'strong' | 'partial' = real intersection → use it.
+  //   • 'compromise' = no true overlap → reject; set runTimingError instead.
+  //   • Solo: engine with minMembers=1 finds the user's best slot.
+  //   • Multi-member: engine finds the earliest slot where ≥2 members are free.
+  const sharedRunWindow = useMemo(() => {
+    if (!isRouteActivity || !availabilityLoaded) return null
+    const members = realMembers.map(m => ({ id: m.user_id, name: m.display_name }))
+    const windows = computeGoldenWindows(members, allAvailability)
+    // Compromise windows have no true shared intersection — reject them for runs.
+    return windows.find(w => w.match_quality !== 'compromise') ?? null
+  }, [isRouteActivity, availabilityLoaded, realMembers, allAvailability])
+
+  const runTimingError = useMemo<string | null>(() => {
+    if (!isRouteActivity || !availabilityLoaded) return null
+    if (sharedRunWindow) return null
+    const members = realMembers.map(m => ({ id: m.user_id, name: m.display_name }))
+    const req = checkGoldenWindowRequirements(members, allAvailability)
+    if (!req.canCompute) {
+      return req.missingExplanation ?? 'Add your availability to find a run time.'
+    }
+    // canCompute is true but no real intersection exists → scheduling conflict
+    return realMembers.length === 1
+      ? 'Add your availability so Nexus knows when you want to run.'
+      : "No shared time found — there's no slot when everyone in this group is free. Ask members to add or extend their availability."
+  }, [isRouteActivity, availabilityLoaded, realMembers, allAvailability, sharedRunWindow])
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -830,7 +849,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     groupId={groupId}
                     activityId={rawActivityId}
                     goldenWindow={activeWindow ?? null}
-                    availabilityStart={firstAvailSlot}
+                    sharedWindow={sharedRunWindow}
+                    timingError={runTimingError}
                     planningLocation={
                       planningLocation
                         ? {

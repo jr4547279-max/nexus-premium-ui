@@ -53,9 +53,20 @@ interface RunRoutePlannerProps {
   groupId: string
   activityId: string
   goldenWindow: GoldenWindowLike | null
-  /** First raw availability slot for this group — used as timing fallback when
-   *  no Golden Window exists (e.g. solo jogging before running GW search). */
-  availabilityStart?: { day_of_week: number; start_time: string; end_time: string }
+  /**
+   * Pre-computed shared availability window for route activities.
+   * Derived from computeGoldenWindows() with compromise windows excluded —
+   * so this is always a real intersection (perfect / strong / partial) or null.
+   * Null means either no availability data exists yet, or there is no true
+   * shared slot (see timingError for the user-facing explanation).
+   */
+  sharedWindow?: GoldenWindowLike | null
+  /**
+   * Honest message to show when sharedWindow is null.
+   * e.g. "No shared time found — …" for scheduling conflicts,
+   *      "Add your availability …" when no data exists yet.
+   */
+  timingError?: string | null
   planningLocation: { lat: number; lng: number; radiusMetres?: number } | null
   locationName?: string
   onStartRun?: (plan: PlannerResult) => void
@@ -323,7 +334,8 @@ export function RunRoutePlanner({
   groupId,
   activityId,
   goldenWindow,
-  availabilityStart,
+  sharedWindow,
+  timingError,
   planningLocation,
   locationName,
   onStartRun,
@@ -345,22 +357,12 @@ export function RunRoutePlanner({
     : null
 
   // ── Effective timing window ─────────────────────────────────────────────────
-  // For solo/group runs without a Golden Window, synthesise a minimal window
-  // from the group's first availability slot. The window is only used for
-  // waypoint arrival-time labels — it does not affect OSRM route generation.
-  const effectiveWindow: GoldenWindowLike | null = goldenWindow ?? (
-    availabilityStart
-      ? {
-          day_of_week:            availabilityStart.day_of_week,
-          start_time:             availabilityStart.start_time,
-          end_time:               availabilityStart.end_time,
-          duration_minutes:       0,
-          match_quality:          'perfect',
-          available_member_count: 1,
-          total_member_count:     1,
-        }
-      : null
-  )
+  // Prefer the explicit Golden Window (social/venue run).
+  // Fall back to the pre-computed shared availability window passed in from the
+  // parent (computed via computeGoldenWindows — real intersection only, no
+  // compromise). When neither is available, effectiveWindow is null and
+  // canSearch is false.
+  const effectiveWindow: GoldenWindowLike | null = goldenWindow ?? sharedWindow ?? null
 
   const handleFindRoutes = useCallback(async () => {
     if (!effectiveWindow || !planningLocation) return
@@ -576,7 +578,7 @@ export function RunRoutePlanner({
           {/* Requirement notices */}
           {missingTiming && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-              Add your availability so Nexus knows when you want to run.
+              {timingError ?? 'Add your availability so Nexus knows when you want to run.'}
             </p>
           )}
           {missingLocation && (
