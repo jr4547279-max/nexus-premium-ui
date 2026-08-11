@@ -106,6 +106,8 @@ export function LocationPicker({
   const [suggestions,   setSuggestions]   = useState<Suggestion[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
+  // Distinguishes a genuine "0 results" from an API/network failure
+  const [searchError,  setSearchError]   = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Best-known device GPS position — used to bias autocomplete toward the user's
   // actual physical location so ambiguous place names (e.g. "Willingdon") resolve
@@ -190,15 +192,37 @@ export function LocationPicker({
 
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true)
+      setSearchError(null)
       try {
         // Include device GPS as a location bias so ambiguous place names
         // (e.g. "Willingdon") resolve to the user's actual country.
+        // GPS is a ranking hint only — it never overrides explicit user selection.
         const gps  = gpsRef.current
         const bias = gps ? `&lat=${gps.lat.toFixed(6)}&lng=${gps.lng.toFixed(6)}` : ''
         const res  = await fetch(`/nx/places/autocomplete?q=${encodeURIComponent(val)}${bias}`)
-        const data = res.ok ? await res.json() : { suggestions: [] }
-        setSuggestions(data.suggestions ?? [])
+        const data = await res.json() as {
+          suggestions?: Suggestion[]
+          error?: { kind: string; message: string }
+        }
+
+        if (!res.ok || data.error) {
+          // Distinguish API failures from genuine zero results
+          const err = data.error
+          if (err?.kind === 'quota') {
+            setSearchError('Location search quota exceeded — please try again later.')
+          } else if (err?.kind === 'invalid_key') {
+            setSearchError('Location search is temporarily unavailable (API key issue).')
+          } else if (err?.kind === 'no_key_configured') {
+            setSearchError('Location search is not configured on this server.')
+          } else {
+            setSearchError('Location search failed — check your connection and try again.')
+          }
+          setSuggestions([])
+        } else {
+          setSuggestions(data.suggestions ?? [])
+        }
       } catch {
+        setSearchError('Could not reach the search service — check your connection.')
         setSuggestions([])
       } finally {
         setSearchLoading(false)
@@ -339,6 +363,7 @@ export function LocationPicker({
               suggestions={suggestions}
               searchLoading={searchLoading}
               detailLoading={detailLoading}
+              searchError={searchError}
               onQueryChange={handleQueryChange}
               onSelectSuggestion={handleSelectSuggestion}
             />
@@ -468,6 +493,7 @@ function SearchTab({
   suggestions,
   searchLoading,
   detailLoading,
+  searchError,
   onQueryChange,
   onSelectSuggestion,
 }: {
@@ -475,6 +501,7 @@ function SearchTab({
   suggestions:        Suggestion[]
   searchLoading:      boolean
   detailLoading:      boolean
+  searchError:        string | null
   onQueryChange:      (val: string) => void
   onSelectSuggestion: (s: Suggestion) => void
 }) {
@@ -521,8 +548,16 @@ function SearchTab({
         </div>
       )}
 
-      {/* Empty states */}
-      {!suggestions.length && !searchLoading && !detailLoading && query.trim() && (
+      {/* Error state — distinct from genuine zero results */}
+      {searchError && !searchLoading && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/8 px-3 py-2.5">
+          <X className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-amber-400 leading-relaxed">{searchError}</p>
+        </div>
+      )}
+
+      {/* Genuine zero results */}
+      {!searchError && !suggestions.length && !searchLoading && !detailLoading && query.trim() && (
         <p className="text-xs text-muted-foreground text-center py-4">
           No results — try a different search term.
         </p>
