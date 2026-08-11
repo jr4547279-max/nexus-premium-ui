@@ -124,6 +124,65 @@ export function nearestPointOnRoute(
   }
 }
 
+// ── Coordinate order validation ───────────────────────────────────────────────
+
+/**
+ * Validates that routeCoords are in GeoJSON [lng, lat] order (not [lat, lng])
+ * by comparing the first coordinate against a reference point whose lat and lng
+ * are known via named fields (e.g. from a PlannerWaypoint).
+ *
+ * Decision rule: if coords[0][0] is closer to refLat than refLng, the pair is
+ * almost certainly [lat, lng] — swap every pair and log an error.
+ *
+ * This is a last-resort defensive layer. If a swap is detected, it always means
+ * there is an upstream coordinate-order bug that should be fixed at the source.
+ *
+ * Returns the coords array (same reference if order was correct, new array if
+ * swapped), guaranteed to be [lng, lat] order after the call.
+ *
+ * Edge case: when |refLat - refLng| < 0.5° the heuristic cannot reliably
+ * discriminate; in that case the input is returned unchanged and a warning is
+ * logged.
+ */
+export function normalizeRouteCoords(
+  coords:  ReadonlyArray<[number, number]>,
+  refLat:  number,
+  refLng:  number,
+): Array<[number, number]> {
+  if (coords.length === 0) return []
+
+  // If the gap between lat and lng is too small we can't discriminate reliably.
+  const gap = Math.abs(refLat - refLng)
+  if (gap < 0.5) {
+    // Cannot distinguish — return as-is and log a warning in dev.
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        '[normalizeRouteCoords] ref lat/lng too close to discriminate coordinate order',
+        { refLat, refLng, gap },
+      )
+    }
+    return coords as Array<[number, number]>
+  }
+
+  const [c0] = coords[0]!
+  const distToLng = Math.abs(c0! - refLng)
+  const distToLat = Math.abs(c0! - refLat)
+
+  if (distToLat < distToLng) {
+    // coords[0][0] is closer to latitude than longitude → coords are [lat, lng]
+    // This is a bug upstream — log loudly and swap.
+    console.error(
+      '[normalizeRouteCoords] ⚠️  routeGeometry is in [lat, lng] order — swapping to [lng, lat].',
+      'This is an upstream coordinate-order bug. Report the call site.',
+      { firstPair: coords[0], refLat, refLng },
+    )
+    return (coords as Array<[number, number]>).map(([a, b]) => [b, a])
+  }
+
+  // Correct [lng, lat] order — return same reference (no allocation)
+  return coords as Array<[number, number]>
+}
+
 // ── Formatting ────────────────────────────────────────────────────────────────
 
 /**

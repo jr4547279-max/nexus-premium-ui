@@ -86,6 +86,22 @@ Converts RouteCandidate → PlannerResult without a network call.
 Called when user selects a different route from the multi-route UI.
 Takes {goldenWindow, locationName}, uses waypointsToStops() internally.
 The resulting PlannerResult carries full routeGeometry for GPS tracker.
+Applies normalizeRouteCoords() against candidate.waypoints[0].lat/lng to
+detect and correct any [lat,lng] inversion before storing routeGeometry.
+
+## normalizeRouteCoords() — defensive coordinate validator (geo.ts)
+Uses a reference point with named lat/lng fields to detect coordinate order.
+Decision rule: if coords[0][0] is closer to refLat than refLng → swap.
+Only reliable when |refLat - refLng| > 0.5° (almost always true outside equatorial zones).
+Logs console.error when a swap is needed — surfaces the upstream bug.
+Is idempotent: calling twice on correct [lng,lat] input is a no-op.
+Applied at TWO layers: candidateToPlannerResult() + run-tracker.tsx routeCoords useMemo.
+
+## run-tracker.tsx — routeCoords is now useMemo + ref-backed
+routeCoords is computed via useMemo (calls normalizeRouteCoords with startWp as reference).
+Mirrored into routeCoordsRef so the GPS watchPosition callback ([] deps) always reads
+the canonical validated array, not a stale closure capture.
+handlePosition reads routeCoordsRef.current for the off-route calculation.
 
 ## GPS lifecycle (no leaks)
 - `watchPosition` only started when user taps "Start Run"

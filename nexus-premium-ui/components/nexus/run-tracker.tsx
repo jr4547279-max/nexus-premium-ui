@@ -27,7 +27,7 @@
 //          Trail data is session-local only — no Supabase writes.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, Play, Pause, Square, RotateCcw,
   MapPin, Clock, Zap, TrendingUp, Navigation,
@@ -41,6 +41,7 @@ import type { PlannerResult } from '@/lib/planners/planner-engine'
 import {
   haversineKm,
   nearestPointOnRoute,
+  normalizeRouteCoords,
   formatPace,
   formatRunTime,
 } from '@/lib/running/geo'
@@ -175,16 +176,40 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
   const [summary,        setSummary]        = useState<RunSummary | null>(null)
 
   // ── Route geometry ────────────────────────────────────────────────────────────
-  // Use full OSRM geometry if available; fall back to sampled waypoint coordinates.
-  const routeCoords: Array<[number, number]> = plan.routeGeometry?.length
-    ? plan.routeGeometry
-    : plan.stops
-        .filter(s => s.waypoint)
-        .map(s => [s.waypoint!.lng, s.waypoint!.lat])  // [lng, lat] GeoJSON order
+  // routeGeometry comes from OSRM via candidateToPlannerResult and must be in
+  // GeoJSON [lng, lat] order.  normalizeRouteCoords() validates this using the
+  // start waypoint (which has unambiguous named lat/lng fields) and auto-corrects
+  // if the pair is inverted, logging a loud error to surface the upstream bug.
+  //
+  // The result is memoised (plan prop is stable once the tracker mounts) and
+  // mirrored into a ref so the GPS callback closure — which has [] deps — always
+  // reads the canonical, validated array rather than a stale capture.
 
-  // Start waypoint for initial map centre
   const startWp = plan.stops.find(s => s.waypoint?.waypointType === 'start')?.waypoint
     ?? plan.stops[0]?.waypoint
+
+  const routeCoords = useMemo((): Array<[number, number]> => {
+    // Fallback: build from named waypoint fields (lat/lng are unambiguous here)
+    const fromStops: Array<[number, number]> = plan.stops
+      .filter(s => s.waypoint)
+      .map(s => [s.waypoint!.lng, s.waypoint!.lat])
+
+    if (!plan.routeGeometry?.length) return fromStops
+
+    // Validate and normalise coordinate order.
+    // startWp gives us a reference with named lat/lng to detect [lat,lng] inversions.
+    if (startWp) {
+      return normalizeRouteCoords(plan.routeGeometry, startWp.lat, startWp.lng)
+    }
+    return plan.routeGeometry
+  // plan is a stable prop that never changes while the tracker is mounted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan])
+
+  // Mirror into a ref so the GPS watchPosition callback ([] deps) always reads
+  // the current canonical value without a stale-closure risk.
+  const routeCoordsRef = useRef(routeCoords)
+  useEffect(() => { routeCoordsRef.current = routeCoords }, [routeCoords])
 
   // ── Keep runStateRef in sync ──────────────────────────────────────────────────
   useEffect(() => {
@@ -419,8 +444,11 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
     }
 
     // Route progress + off-route detection
-    if (routeCoords.length >= 2) {
-      const nearest = nearestPointOnRoute(latitude, longitude, routeCoords)
+    // Always read from routeCoordsRef so we get the validated, canonical coords
+    // even if this callback was captured before the ref was populated.
+    const coords = routeCoordsRef.current
+    if (coords.length >= 2) {
+      const nearest = nearestPointOnRoute(latitude, longitude, coords)
       setProgressPercent(Math.round(nearest.progressFraction * 100))
 
       const nowOffRoute = nearest.distanceToRouteKm > OFF_ROUTE_THRESHOLD_KM

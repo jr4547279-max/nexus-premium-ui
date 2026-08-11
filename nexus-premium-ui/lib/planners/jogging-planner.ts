@@ -36,6 +36,7 @@ import { DEFAULT_ROUTE_PREFERENCES } from './types'
 import { OsrmRouteProvider } from './providers/osrm-route-provider'
 import { getRouteConfigForActivity } from './providers/route-provider'
 import { addMinutesToTime, format12h } from './scoring'
+import { normalizeRouteCoords } from '../running/geo'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -310,7 +311,16 @@ export function candidateToPlannerResult(
     routeType:          candidate.routeType,
     isLoop:             candidate.routeType === 'loop',
     elevationGainMetres: undefined,
-    routeGeometry:      candidate.geometry,
+    // Explicitly validate and normalise coordinate order to [lng, lat] GeoJSON.
+    // normalizeRouteCoords() uses the start waypoint's named lat/lng as a reference
+    // and emits a loud console.error if a swap is detected, identifying the upstream bug.
+    routeGeometry: (() => {
+      const geom = candidate.geometry
+      if (!geom?.length) return geom
+      const startWp = candidate.waypoints[0]
+      if (!startWp) return geom
+      return normalizeRouteCoords(geom, startWp.lat, startWp.lng)
+    })(),
   }
 }
 
