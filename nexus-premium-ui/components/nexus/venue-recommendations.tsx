@@ -30,6 +30,12 @@ interface Props {
     start_time: string
     end_time: string
   } | null
+  /**
+   * Group planning location — takes priority over memberCoords for the
+   * venue search midpoint. When present, this is the real coordinates
+   * the group has set via the map picker (stored in Supabase).
+   */
+  planningLocation?: { lat: number; lng: number } | null
   /** Future-proof: when member coords exist, pass them and the midpoint will shift. */
   memberCoords?: Array<{ lat: number; lng: number }>
   /** Phase 6A — real weather around the Golden Window, used for light scoring. */
@@ -45,6 +51,7 @@ const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
 export function VenueRecommendations({
   groupName,
   goldenWindow,
+  planningLocation,
   memberCoords,
   weather,
   userQuery,
@@ -95,12 +102,30 @@ export function VenueRecommendations({
     [weather, intent],
   )
 
-  const midpoint = useMemo(
-    () => computeMidpoint(memberCoords ?? []),
-    [memberCoords],
-  )
+  // Midpoint priority:
+  //   1. planningLocation — group's real saved location (from map picker / Supabase)
+  //   2. memberCoords     — individual member coordinates (future feature)
+  //   3. fallback         — no location set; show a "set location" prompt instead
+  //                         of silently searching Eastbourne
+  const midpoint = useMemo(() => {
+    if (planningLocation) {
+      return { lat: planningLocation.lat, lng: planningLocation.lng, fallback: false as const }
+    }
+    return computeMidpoint(memberCoords ?? [])
+  }, [planningLocation, memberCoords])
 
   useEffect(() => {
+    // No location available — don't search Eastbourne; show a prompt instead.
+    if (midpoint.fallback) {
+      setVenues([])
+      setLoading(false)
+      setError(null)
+      setUsingFallback(true)
+      setShowAlternatives(false)
+      setAltVenues([])
+      return
+    }
+
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -108,14 +133,14 @@ export function VenueRecommendations({
     setAltVenues([])
     fetchVenues({
       vibe,
-      lat: midpoint.fallback ? undefined : midpoint.lat,
-      lng: midpoint.fallback ? undefined : midpoint.lng,
+      lat: midpoint.lat,
+      lng: midpoint.lng,
       limit: 8,
     }).then((result) => {
       if (cancelled) return
       if (result.error) setError(result.error)
       setVenues(result.venues)
-      setUsingFallback(midpoint.fallback || Boolean(result.fallback))
+      setUsingFallback(false)
       setLoading(false)
     })
     return () => {
@@ -246,7 +271,7 @@ export function VenueRecommendations({
           ))}
           {midpoint.fallback && (
             <span className="absolute bottom-12 left-3 text-[10px] text-muted-foreground/60 tracking-widest uppercase">
-              Eastbourne
+              No location set
             </span>
           )}
           {mapFailed && (
@@ -297,7 +322,7 @@ export function VenueRecommendations({
       </div>
       {usingFallback && (
         <p className="text-[10px] text-muted-foreground italic -mt-2 mb-1">
-          Searching around Eastbourne — add member locations later to recenter.
+          Set a group location above to find real venues nearby.
         </p>
       )}
 
@@ -324,6 +349,19 @@ export function VenueRecommendations({
             both <strong>Places API (New)</strong> and <strong>Maps Static API</strong> are
             enabled in Google Cloud Console.
           </p>
+        </GlassCard>
+      ) : midpoint.fallback ? (
+        <GlassCard className="p-4">
+          <div className="flex items-start gap-2">
+            <MapPin className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-foreground/80">No location set</p>
+              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                Use the location picker above to set a meeting area — Nexus will search for
+                real venues nearby using Google Places.
+              </p>
+            </div>
+          </div>
         </GlassCard>
       ) : venues.length === 0 ? (
         <GlassCard className="p-4">

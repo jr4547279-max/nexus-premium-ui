@@ -42,7 +42,6 @@ import {
 import { VenueRecommendations } from './venue-recommendations'
 import { WeatherChip } from './weather-chip'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
-import { computeMidpoint } from '@/lib/venue-service'
 import { GoldenWindowSearching } from './golden-window-searching'
 import { ActivityPlanCard } from './activity-plan-card'
 import {
@@ -376,7 +375,6 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
 
   // ── Weather fetch for the active window ───────────────────────────────────
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!realMode || !activeWindow) {
       setWeather(null)
@@ -385,10 +383,12 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
     }
     let cancelled = false
     setWeatherLoading(true)
-    const mp = computeMidpoint([])
     fetchWeather({
-      lat:       mp.fallback ? undefined : mp.lat,
-      lng:       mp.fallback ? undefined : mp.lng,
+      // Use the group's real planning location when available.
+      // When absent, pass undefined — the server will omit weather rather
+      // than silently returning Eastbourne conditions.
+      lat:       planningLocation?.lat,
+      lng:       planningLocation?.lng,
       dayOfWeek: activeWindow.day_of_week,
       startTime: activeWindow.start_time,
     }).then((w) => {
@@ -397,7 +397,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
       setWeatherLoading(false)
     })
     return () => { cancelled = true }
-  }, [realMode, activeWindow?.day_of_week, activeWindow?.start_time])
+  }, [realMode, activeWindow?.day_of_week, activeWindow?.start_time, planningLocation?.lat, planningLocation?.lng])
 
   // ── Derived flags ─────────────────────────────────────────────────────────
 
@@ -717,6 +717,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate }:
                 end_time:    activeWindow!.end_time,
               }}
               weather={weather}
+              planningLocation={
+                planningLocation
+                  ? { lat: planningLocation.lat, lng: planningLocation.lng }
+                  : null
+              }
             />
           </div>
         )}
