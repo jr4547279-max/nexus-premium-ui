@@ -19,6 +19,7 @@
 import type { PlannerResult } from '@/lib/planners/planner-engine'
 import { PubCrawlPlan } from './pub-crawl-plan'
 import { SingleVenuePlan } from './single-venue-plan'
+import { RoutePlanCard } from './route-plan-card'
 
 interface ActivityPlanCardProps {
   plan: PlannerResult
@@ -26,11 +27,9 @@ interface ActivityPlanCardProps {
 }
 
 export function ActivityPlanCard({ plan, onRecalculate }: ActivityPlanCardProps) {
-  // Route plans — RoutePlan UI will be created in the next task.
-  // Returning null is safe: group-detail.tsx still transitions its phase state
-  // correctly; the plan card area is simply empty until RoutePlan exists.
+  // Route plans (jogging, hiking, cycling, walking …)
   if (plan.kind === 'route') {
-    return null
+    return <RoutePlanCard plan={plan} onRecalculate={onRecalculate} />
   }
 
   // Venue plans

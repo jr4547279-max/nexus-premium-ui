@@ -8,12 +8,16 @@
 import type { PlannerDefinition } from './types'
 import { pubCrawlPlanner } from './pub-crawl-planner'
 import { createSingleVenuePlanner } from './single-venue-planner'
+import { joggingPlanner } from './jogging-planner'
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
   // Multi-stop pub crawl — dedicated planner with route optimisation
   'pub-crawl': pubCrawlPlanner,
+
+  // Route planners — OSRM foot routing, real routes, no API key
+  'jogging': joggingPlanner,
 
   // Single-venue planners — uses OSM for real venues, mock as fallback
   'cocktail-bar':  createSingleVenuePlanner({ activityId: 'cocktail-bar',  activityEmoji: '🍹', activityLabel: 'Cocktail Bar' }),
