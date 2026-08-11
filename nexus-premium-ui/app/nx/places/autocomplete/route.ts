@@ -70,14 +70,38 @@ export async function GET(req: Request) {
     return NextResponse.json({ suggestions: [] })
   }
 
+  // Optional device-GPS bias: when the client passes lat/lng, we tell Google
+  // Places to prefer results near that position. This prevents ambiguous names
+  // (e.g. "Willingdon") from silently resolving to a different country.
+  // The bias does not hard-exclude distant places; it only re-ranks them.
+  const biasLat = searchParams.get('lat')
+  const biasLng = searchParams.get('lng')
+  const locationBias =
+    biasLat && biasLng
+      ? {
+          circle: {
+            center: {
+              latitude:  parseFloat(biasLat),
+              longitude: parseFloat(biasLng),
+            },
+            // 150 km radius — broad enough to be helpful, tight enough to
+            // strongly prefer the correct country when GPS is available.
+            radius: 150_000,
+          },
+        }
+      : undefined
+
   try {
+    const body: Record<string, unknown> = { input: q.trim(), languageCode: 'en' }
+    if (locationBias) body.locationBias = locationBias
+
     const res = await fetch(`${PLACES_BASE}/places:autocomplete`, {
       method: 'POST',
       headers: {
         'X-Goog-Api-Key': apiKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ input: q.trim(), languageCode: 'en' }),
+      body: JSON.stringify(body),
     })
     if (!res.ok) {
       const body = await res.text()

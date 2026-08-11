@@ -88,13 +88,14 @@ Takes {goldenWindow, locationName}, uses waypointsToStops() internally.
 The resulting PlannerResult carries full routeGeometry for GPS tracker.
 Applies normalizeRouteCoords() against candidate.waypoints[0].lat/lng to
 detect and correct any [lat,lng] inversion before storing routeGeometry.
+Also populates resolvedLocation: {lat, lng, displayName} from start waypoint named fields.
 
 ## normalizeRouteCoords() — defensive coordinate validator (geo.ts)
-Uses a reference point with named lat/lng fields to detect coordinate order.
+HARMLESS HYGIENE ONLY — the original "6790 km bug" was NOT a coordinate swap.
+It was a real geographic distance (device in Canada, route in UK). See below.
+Still kept: it correctly self-heals if coords ever genuinely arrive inverted.
 Decision rule: if coords[0][0] is closer to refLat than refLng → swap.
-Only reliable when |refLat - refLng| > 0.5° (almost always true outside equatorial zones).
-Logs console.error when a swap is needed — surfaces the upstream bug.
-Is idempotent: calling twice on correct [lng,lat] input is a no-op.
+Only reliable when |refLat - refLng| > 0.5°. Logs console.error if swap occurs.
 Applied at TWO layers: candidateToPlannerResult() + run-tracker.tsx routeCoords useMemo.
 
 ## run-tracker.tsx — routeCoords is now useMemo + ref-backed
@@ -102,6 +103,24 @@ routeCoords is computed via useMemo (calls normalizeRouteCoords with startWp as 
 Mirrored into routeCoordsRef so the GPS watchPosition callback ([] deps) always reads
 the canonical validated array, not a stale closure capture.
 handlePosition reads routeCoordsRef.current for the off-route calculation.
+
+## ⚠️  Root cause of "6790 km off-route" — LOCATION DISAMBIGUATION, NOT COORDINATE ORDER
+Device was physically in Willingdon, ALBERTA, CANADA (~53.83°N, 111°W).
+Route was planned for Willingdon, EAST SUSSEX, UK (~50.83°N, 0.26°E).
+The ~6755 km distance was real and correctly reported by the tracker.
+Root cause: Google Places autocomplete had no locationBias → ambiguous "Willingdon"
+resolved to globally prominent East Sussex instead of nearby Alberta.
+
+## Location disambiguation fix (implemented)
+1. /nx/places/autocomplete now accepts lat/lng params → adds Google Places
+   locationBias.circle (150 km radius) centred on device GPS.
+2. LocationPicker silently calls navigator.geolocation on Search tab open (low accuracy,
+   5s timeout, 60s maxAge) → stores in gpsRef → passes &lat=&lng= on autocomplete calls.
+   GPS tab success also stores to gpsRef.
+3. PlannerResult.resolvedLocation: {lat, lng, displayName} populated from start waypoint
+   named fields (unambiguous lat/lng), not from the locationName string.
+4. RunRoutePlanner results header now shows "Routes near [name] lat°, lng°" so users
+   can confirm the correct country before starting a run.
 
 ## GPS lifecycle (no leaks)
 - `watchPosition` only started when user taps "Start Run"

@@ -654,10 +654,30 @@ export function RunRoutePlanner({
                 prefs.routeTypePreference === 'any' ? 'any type' :
                 prefs.routeTypePreference === 'loop' ? 'loop preferred' :
                 'out & back preferred'
-              } · {locationName ?? 'your location'}
+              }
               {' · '}
               <span className="text-emerald-400/80">REAL ROUTE · OSRM · OpenStreetMap</span>
             </p>
+
+            {/* Resolved location — shows exactly where routes are being generated.
+                Critical for ambiguous place names (e.g. "Willingdon" exists in both
+                East Sussex, UK and Alberta, Canada). Coordinates let the user verify
+                before starting a run. */}
+            {planningLocation && (
+              <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/20">
+                <MapPin className="w-3 h-3 text-muted-foreground/70 flex-shrink-0" />
+                <span className="text-xs text-muted-foreground/80 leading-tight">
+                  Routes near{' '}
+                  <span className="text-foreground/70 font-medium">
+                    {locationName ?? 'your location'}
+                  </span>
+                  <span className="text-muted-foreground/50 font-mono ml-1.5 text-[10px]">
+                    {planningLocation.lat.toFixed(4)}°,{' '}
+                    {planningLocation.lng.toFixed(4)}°
+                  </span>
+                </span>
+              </div>
+            )}
           </GlassCard>
 
           {/* Honest loop-not-found notice */}

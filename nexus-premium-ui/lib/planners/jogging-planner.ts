@@ -288,6 +288,20 @@ export function candidateToPlannerResult(
     warnings.unshift('This time is a best-effort compromise — not everyone is fully available.')
   }
 
+  // resolvedLocation: record the exact coordinates and display name so the UI
+  // can show the user where routes are being generated. Critical for place names
+  // that exist in multiple countries (e.g. "Willingdon" — East Sussex UK and
+  // Alberta Canada). The start waypoint lat/lng are ground truth; locationName
+  // is the human-readable label stored by the group.
+  const startWp = candidate.waypoints[0]
+  const resolvedLocation = startWp
+    ? {
+        lat:         startWp.lat,
+        lng:         startWp.lng,
+        displayName: locationName ?? `${startWp.lat.toFixed(4)}, ${startWp.lng.toFixed(4)}`,
+      }
+    : undefined
+
   return {
     kind:               'route',
     title:              `🏃 ${candidate.name}`,
@@ -311,13 +325,13 @@ export function candidateToPlannerResult(
     routeType:          candidate.routeType,
     isLoop:             candidate.routeType === 'loop',
     elevationGainMetres: undefined,
+    resolvedLocation,
     // Explicitly validate and normalise coordinate order to [lng, lat] GeoJSON.
     // normalizeRouteCoords() uses the start waypoint's named lat/lng as a reference
     // and emits a loud console.error if a swap is detected, identifying the upstream bug.
     routeGeometry: (() => {
       const geom = candidate.geometry
       if (!geom?.length) return geom
-      const startWp = candidate.waypoints[0]
       if (!startWp) return geom
       return normalizeRouteCoords(geom, startWp.lat, startWp.lng)
     })(),

@@ -107,6 +107,11 @@ export function LocationPicker({
   const [searchLoading, setSearchLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Best-known device GPS position — used to bias autocomplete toward the user's
+  // actual physical location so ambiguous place names (e.g. "Willingdon") resolve
+  // to the correct country. Updated whenever the GPS tab succeeds; also attempted
+  // silently when the Search tab is first activated.
+  const gpsRef = useRef<{ lat: number; lng: number } | null>(null)
 
   // Map reverse-geocode
   const [reverseLoading, setReverseLoading] = useState(false)
@@ -139,6 +144,8 @@ export function LocationPicker({
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords
+        // Store for autocomplete bias (persists across tabs in this session)
+        gpsRef.current = { lat, lng }
         try {
           const res  = await fetch(`/nx/places/reverse-geocode?lat=${lat}&lng=${lng}`)
           const data = res.ok ? await res.json() : null
@@ -162,6 +169,20 @@ export function LocationPicker({
   }, [])
 
   // ── Search tab ──────────────────────────────────────────────────────────────
+
+  // Silently request device GPS when search tab is opened so autocomplete can
+  // bias results toward the user's actual location without requiring them to
+  // explicitly use the GPS tab first.
+  const handleSearchTabActivated = useCallback(() => {
+    if (gpsRef.current) return   // already have a position
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { gpsRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude } },
+      () => { /* ignore — bias is optional, we just won't have it */ },
+      { timeout: 5_000, enableHighAccuracy: false, maximumAge: 60_000 },
+    )
+  }, [])
+
   const handleQueryChange = (val: string) => {
     setQuery(val)
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -170,7 +191,11 @@ export function LocationPicker({
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true)
       try {
-        const res  = await fetch(`/nx/places/autocomplete?q=${encodeURIComponent(val)}`)
+        // Include device GPS as a location bias so ambiguous place names
+        // (e.g. "Willingdon") resolve to the user's actual country.
+        const gps  = gpsRef.current
+        const bias = gps ? `&lat=${gps.lat.toFixed(6)}&lng=${gps.lng.toFixed(6)}` : ''
+        const res  = await fetch(`/nx/places/autocomplete?q=${encodeURIComponent(val)}${bias}`)
         const data = res.ok ? await res.json() : { suggestions: [] }
         setSuggestions(data.suggestions ?? [])
       } catch {
@@ -279,7 +304,13 @@ export function LocationPicker({
           {TABS.map(({ id, label, Icon }) => (
             <button
               key={id}
-              onClick={() => { setTab(id); setSelected(null) }}
+              onClick={() => {
+                setTab(id)
+                setSelected(null)
+                // When switching to Search, silently try to get device GPS so
+                // autocomplete can bias results toward the user's actual location.
+                if (id === 'search') handleSearchTabActivated()
+              }}
               className={cn(
                 'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors',
                 tab === id

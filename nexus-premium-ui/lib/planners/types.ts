@@ -377,6 +377,24 @@ export interface PlannerResult {
    * Each candidate carries its geometry, waypoints, qualityLabel, and compositeScore.
    */
   allCandidates?: RouteCandidate[]
+
+  /**
+   * The geographic location that routes were actually generated around.
+   * Populated for kind:'route' plans from real providers.
+   *
+   * This is distinct from the group's human-readable location name: it records
+   * the resolved coordinates and display name so the UI can confirm to the user
+   * exactly where routes are being searched — important when a place name like
+   * "Willingdon" could resolve to multiple countries.
+   */
+  resolvedLocation?: {
+    /** WGS-84 latitude of the route centre point */
+    lat: number
+    /** WGS-84 longitude of the route centre point */
+    lng: number
+    /** Human-readable name used in plan generation (city / neighbourhood) */
+    displayName: string
+  }
 }
 
 // ── Request ───────────────────────────────────────────────────────────────────
