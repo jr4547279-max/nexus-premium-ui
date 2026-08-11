@@ -165,6 +165,11 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
   const [speedKmh,       setSpeedKmh]       = useState(0)
   const [progressPercent,setProgressPercent]= useState(0)
   const [isOffRoute,     setIsOffRoute]     = useState(false)
+  /** Distance in metres off the planned route (0 when on route) */
+  const [offRouteDistM,  setOffRouteDistM]  = useState(0)
+  /** Briefly true after returning to route — shows "Back on route" toast */
+  const [backOnRoute,    setBackOnRoute]    = useState(false)
+  const backOnRouteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isFollowing,    setIsFollowing]    = useState(true)
   const [permError,      setPermError]      = useState<string | null>(null)
   const [summary,        setSummary]        = useState<RunSummary | null>(null)
@@ -184,6 +189,15 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
   // ── Keep runStateRef in sync ──────────────────────────────────────────────────
   useEffect(() => {
     runStateRef.current = runState
+  }, [runState])
+
+  // ── Invalidate Leaflet size after layout transitions ───────────────────────
+  // Called on every runState change so Leaflet recalculates canvas dimensions
+  // after the parent wrapper changes height (idle ↔ active ↔ finished).
+  useEffect(() => {
+    if (!mapRef.current) return
+    const t = setTimeout(() => mapRef.current?.invalidateSize(), 80)
+    return () => clearTimeout(t)
   }, [runState])
 
   // ── Leaflet map initialization ─────────────────────────────────────────────
@@ -341,8 +355,11 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
           }).addTo(mapRef.current)
         }
 
-        // Auto-follow
-        if (isFollowingRef.current) {
+        // Auto-follow only when GPS accuracy is good enough to trust.
+        // Without this guard, a desktop browser with IP-based positioning
+        // (accuracy >> 50 m) would pan the map far from the route, causing
+        // the map tiles to appear blank/black at zoom 16 in the wrong city.
+        if (isFollowingRef.current && accuracy <= MAX_ACCURACY_M) {
           mapRef.current.setView([latitude, longitude], Math.max(mapRef.current.getZoom(), 16), {
             animate: true,
             duration: 0.5,
@@ -401,11 +418,23 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
       setSpeedKmh(Math.round(kmh * 10) / 10)
     }
 
-    // Route progress
+    // Route progress + off-route detection
     if (routeCoords.length >= 2) {
       const nearest = nearestPointOnRoute(latitude, longitude, routeCoords)
       setProgressPercent(Math.round(nearest.progressFraction * 100))
-      setIsOffRoute(nearest.distanceToRouteKm > OFF_ROUTE_THRESHOLD_KM)
+
+      const nowOffRoute = nearest.distanceToRouteKm > OFF_ROUTE_THRESHOLD_KM
+      setOffRouteDistM(Math.round(nearest.distanceToRouteKm * 1000))
+
+      setIsOffRoute(prev => {
+        if (prev && !nowOffRoute) {
+          // Just returned to route — briefly show "Back on route" confirmation
+          if (backOnRouteTimer.current) clearTimeout(backOnRouteTimer.current)
+          setBackOnRoute(true)
+          backOnRouteTimer.current = setTimeout(() => setBackOnRoute(false), 3_000)
+        }
+        return nowOffRoute
+      })
     }
   // routeCoords is stable (derived from plan which doesn't change)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -463,6 +492,7 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
     return () => {
       stopGpsWatch()
       stopTimer()
+      if (backOnRouteTimer.current) clearTimeout(backOnRouteTimer.current)
     }
   }, [stopGpsWatch, stopTimer])
 
@@ -566,12 +596,12 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
   const isPaused      = runState === 'paused'
   const isActive      = isTracking || isPaused
 
-  // ── Map height based on state ─────────────────────────────────────────────
-  // idle: 280px preview; tracking/paused: flex-1 (full screen); finished: 260px
-  const mapHeightClass =
-    runState === 'finished' ? 'h-64' :
-    isActive               ? 'flex-1' :
-                             'h-72'
+  // ── Map wrapper height ────────────────────────────────────────────────────
+  // The Leaflet canvas div is ALWAYS 'absolute inset-0' — changing its CSS class
+  // at runtime tells Leaflet the container changed and causes blank/black tiles.
+  // Only the *parent wrapper* changes height; the canvas fills it via absolute.
+  const mapWrapperStyle: React.CSSProperties =
+    isActive ? {} : { height: runState === 'finished' ? 260 : 280 }
 
   // ── Idle state: check geolocation support ─────────────────────────────────
   const isGeolocationAvailable = typeof navigator !== 'undefined' && 'geolocation' in navigator
@@ -616,14 +646,16 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
       )}
 
       {/* ── Map area ──────────────────────────────────────────────────────── */}
-      <div className={cn('relative flex-shrink-0', isActive && 'flex-1')}>
+      {/* Parent controls the height. Canvas is always absolute inset-0 so
+          Leaflet never sees its container element change CSS class — which
+          was the root cause of the blank/black-map bug on idle→tracking. */}
+      <div
+        className={cn('relative flex-shrink-0', isActive && 'flex-1')}
+        style={mapWrapperStyle}
+      >
         <div
           ref={mapContainerRef}
-          className={cn(
-            'w-full',
-            isActive ? 'absolute inset-0' : mapHeightClass,
-          )}
-          style={!isActive ? { height: runState === 'finished' ? '260px' : '280px' } : undefined}
+          className="absolute inset-0"
         />
 
         {/* Re-centre button */}
@@ -636,11 +668,21 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
           </button>
         )}
 
-        {/* Off-route warning — only during tracking */}
+        {/* Off-route warning — shows distance and clears when back on route */}
         {isOffRoute && isTracking && (
           <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/90 backdrop-blur-sm text-black text-[11px] font-semibold shadow-lg">
             <AlertTriangle className="w-3 h-3" />
-            You&apos;re off route
+            {offRouteDistM >= 1000
+              ? `${(offRouteDistM / 1000).toFixed(1)} km off route`
+              : `${offRouteDistM} m off route`}
+          </div>
+        )}
+
+        {/* "Back on route" confirmation — fades after 3 s */}
+        {backOnRoute && !isOffRoute && isTracking && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/90 backdrop-blur-sm text-white text-[11px] font-semibold shadow-lg">
+            <CheckCircle2 className="w-3 h-3" />
+            Back on route
           </div>
         )}
 

@@ -1,0 +1,614 @@
+NEXUS — JOB 9: UPGRADE THE RUNNING EXPERIENCE + FIX GPS TRACKER
+
+Before changing anything, inspect the complete running route pipeline and understand how everything currently connects.
+
+Read the relevant files first, including:
+
+- osrm-route-provider.ts
+- jogging-planner.ts
+- route-plan-card.tsx
+- run-tracker.tsx
+- lib/planners/types.ts
+- lib/running/geo.ts
+- any Leaflet/map components
+- activity planner wiring
+- route registry/config
+- any OSM/OSRM-related providers
+
+Do not start coding until you understand the current route-generation, waypoint, geometry, GPS and Leaflet lifecycle.
+
+I have three major problems with the current running feature:
+
+1. The checkpoints are basically useless.
+2. The route says "Loop" but doesn't necessarily feel like a genuine running loop.
+3. When I go off-route, the map can turn completely black.
+
+I want this job to make the running feature feel like a real product rather than just a technical demo.
+
+==================================================
+1. FIX THE GENERIC CHECKPOINTS
+==================================================
+
+The current route displays things such as:
+
+- Checkpoint 1
+- Checkpoint 2
+- Checkpoint 3
+- Checkpoint 4
+- Checkpoint 7
+- Checkpoint 8
+- Checkpoint 9
+
+This isn't useful to a runner.
+
+A runner needs to know WHERE they are actually going.
+
+Replace generic checkpoint names with meaningful geographic locations wherever possible.
+
+Use REAL OSM/map data.
+
+For example, if the route passes near them, use names such as:
+
+- Port Meadow
+- Summertown
+- University Parks
+- River Thames
+- a named park
+- a named road
+- a bridge
+- a named trail
+- a landmark
+- a park entrance
+
+Do NOT invent locations.
+
+If there isn't a meaningful named feature available, use a useful geographic description such as:
+
+- North section
+- Riverside path
+- Park entrance
+- North turn
+- West turn
+- South return
+
+But prefer real OSM names whenever available.
+
+IMPORTANT:
+
+Waypoint names must correspond to the actual route geometry.
+
+Do not simply rename Checkpoint 1 to a random nearby landmark.
+
+For every waypoint:
+
+- calculate its actual position along the route
+- associate it with the nearest sensible OSM feature/name
+- preserve its real distance from the start
+- preserve its estimated arrival time
+
+The route should feel more like:
+
+START
+Oxford city centre
+18:00
+
+↓
+
+Port Meadow
+18:07
+
+↓
+
+Summertown
+18:15
+
+↓
+
+North turnaround
+18:22
+
+↓
+
+Oxford city centre
+18:33
+
+rather than:
+
+Checkpoint 1
+Checkpoint 2
+Checkpoint 3
+Checkpoint 4
+
+==================================================
+2. MAKE "LOOP" MEAN AN ACTUAL LOOP
+==================================================
+
+This is important.
+
+The current route can technically start and finish at the same place while effectively travelling out and then back along the same road/path.
+
+That is not a good running loop.
+
+Do NOT simply set:
+
+isLoop = true
+
+because the start and finish coordinates are close.
+
+The geometry itself needs to represent a genuine circuit.
+
+Investigate better ways of generating running loops using the existing real OSM + OSRM data.
+
+Possible approaches include:
+
+- OSRM round-trip functionality where appropriate
+- generating multiple geographically separated candidate points
+- generating multiple candidate routes
+- comparing route geometry
+- rejecting routes with excessive retracing
+- favouring circuits
+- using different directions/orientations
+- favouring parks, paths and quieter roads
+- avoiding unnecessary out-and-back sections
+
+Do NOT blindly choose the first successful OSRM result.
+
+Generate multiple real candidates and score them.
+
+==================================================
+3. ADD ROUTE QUALITY SCORING
+==================================================
+
+Score candidate running routes using real geometry.
+
+Consider:
+
+DISTANCE
+
+How close is the route to the requested distance?
+
+LOOP QUALITY
+
+Does the route genuinely form a circuit?
+
+RETRACING
+
+How much of the route overlaps or retraces itself?
+
+A route that travels north and then returns almost entirely along the same road should score badly.
+
+RUNNING SUITABILITY
+
+Prefer:
+
+- footways
+- paths
+- pedestrian areas
+- parks
+- cycleways where appropriate
+- quieter residential roads
+
+Avoid where possible:
+
+- major roads
+- motorways
+- awkward road sections
+- obviously unsuitable running routes
+
+ROUTE VARIETY
+
+Prefer routes that actually explore the area rather than repeatedly travelling along one corridor.
+
+START/FINISH
+
+The route should start and finish close to the planning location.
+
+If Nexus cannot find a genuinely good loop, DO NOT PRETEND IT HAS.
+
+Instead show something like:
+
+"We couldn't find a good running loop at this distance. Here's the best nearby route."
+
+Then provide the best real route and accurately label it as a route rather than a loop.
+
+==================================================
+4. PRESERVE FULL OSRM ROUTE GEOMETRY
+==================================================
+
+The current architecture already supports:
+
+RouteCandidate.geometry
+
+and:
+
+PlannerResult.routeGeometry
+
+Keep this architecture.
+
+The tracker must receive the FULL OSRM geometry.
+
+Use the full geometry for:
+
+- planned route polyline
+- route progress
+- off-route detection
+- map rendering
+
+Do not reduce the geometry down to the waypoint list before passing it to the tracker.
+
+Waypoints are for human-readable navigation.
+
+Full geometry is the actual route.
+
+==================================================
+5. FIX THE GPS TRACKER MAP GOING BLACK
+==================================================
+
+There is currently a serious bug.
+
+When GPS detects that I am off-route, the UI correctly shows:
+
+"You're off route"
+
+but the actual Leaflet map can turn completely black.
+
+THIS MUST BE FIXED AT THE ROOT CAUSE.
+
+Being off-route must NEVER remove the map.
+
+When off-route I must still see:
+
+- OpenStreetMap base map
+- planned route
+- actual GPS trail
+- current GPS position
+- start/finish marker
+- route waypoints
+- my position relative to the route
+
+The only thing that should change is the route-status indicator.
+
+==================================================
+6. INVESTIGATE THE LEAFLET LIFECYCLE
+==================================================
+
+Trace exactly what happens when:
+
+distanceToRouteKm > 0.05
+
+and the off-route state changes.
+
+Look specifically for:
+
+- conditional rendering
+- map remounts
+- changing React keys
+- Leaflet instance destruction
+- tile layer removal
+- map container height becoming zero
+- CSS changes
+- overlays covering the map
+- invalidateSize() issues
+- map initialisation happening multiple times
+- route layers being removed accidentally
+
+Do NOT simply hide the "You're off route" warning.
+
+Find and fix the underlying reason the map disappears.
+
+The map should remain mounted throughout the run.
+
+If the layout changes, use Leaflet's invalidateSize() appropriately.
+
+Do not recreate the entire Leaflet map simply because the runner went off-route.
+
+==================================================
+7. OFF-ROUTE UX
+==================================================
+
+When I leave the route, show:
+
+⚠ You're off route
+
+Optionally show the actual distance:
+
+"You're 120 m off route"
+
+The exact wording can fit the existing Nexus UI.
+
+IMPORTANT:
+
+Going off-route must NOT:
+
+- stop GPS tracking
+- stop recording the trail
+- reset route progress
+- reset the map
+- remove the planned route
+- remove the GPS marker
+
+Continue recording GPS points when accuracy is acceptable.
+
+When I return to the route, show something like:
+
+✓ Back on route
+
+Keep it subtle and consistent with Nexus.
+
+==================================================
+8. MAKE THE GPS MAP THE HERO EXPERIENCE
+==================================================
+
+The running screen should feel like a real navigation/tracking experience.
+
+The runner should immediately understand:
+
+- Where am I?
+- Where am I supposed to go?
+- How far have I gone?
+- How much of the route is complete?
+- Where is the next meaningful waypoint?
+- Am I on route?
+
+The map should therefore prominently show:
+
+PLANNED ROUTE
+Gold.
+
+ACTUAL GPS TRAIL
+Green.
+
+CURRENT GPS POSITION
+Clear current-location marker.
+
+START/FINISH
+Clearly marked.
+
+MEANINGFUL WAYPOINTS
+Named locations instead of generic checkpoints.
+
+OFF-ROUTE STATUS
+Visible without destroying the map.
+
+==================================================
+9. BUILD WAYPOINTS FROM THE REAL ROUTE
+==================================================
+
+Instead of arbitrarily sampling the route into:
+
+Checkpoint 1
+Checkpoint 2
+Checkpoint 3
+...
+
+create meaningful waypoints from the actual route.
+
+Suggested approach:
+
+1. Take the full OSRM geometry.
+2. Sample sensible candidate positions along the route.
+3. Search nearby OSM features/names.
+4. Prefer meaningful landmarks, roads, parks and trails.
+5. Avoid multiple waypoints representing essentially the same location.
+6. Keep the number of waypoints useful rather than excessive.
+7. Always include:
+   - Start
+   - major landmarks
+   - major turns/sections
+   - turnaround if applicable
+   - Finish
+
+Arrival times must continue to be calculated from cumulative route distance and the configured/default running pace.
+
+==================================================
+10. KEEP EVERYTHING REAL
+==================================================
+
+Continue using:
+
+OpenStreetMap + OSRM
+
+for real route data.
+
+Do NOT introduce fake routes.
+
+Do NOT introduce fake landmarks.
+
+Do NOT fabricate distances.
+
+Do NOT fabricate route geometry.
+
+Do NOT create fake checkpoints just to make the UI look better.
+
+If OSM doesn't provide a meaningful name, use an honest geographic description.
+
+==================================================
+11. DO NOT BREAK PERSONAL GOLDEN WINDOWS
+==================================================
+
+The route must continue to work with a one-person group.
+
+Example:
+
+Personal Golden Window
+↓
+Friday 18:00
+↓
+Jogging Planner
+↓
+Real running route
+
+It must also continue working with multi-person groups:
+
+Group Golden Window
+↓
+Friday 18:00
+↓
+Jogging Planner
+↓
+Real running route
+
+Do NOT reintroduce any minimum-member restriction.
+
+The route must continue respecting:
+
+- Golden Window day
+- Golden Window start time
+- Golden Window duration
+- planning location
+
+==================================================
+12. TEST THE COMPLETE FLOW
+==================================================
+
+Do not only run the build.
+
+Actually test the running experience.
+
+TEST A — PERSONAL RUN
+
+1. Create/use a one-person group.
+2. Set planning location.
+3. Set availability.
+4. Calculate Personal Golden Window.
+5. Plan Jogging.
+6. Generate a real route.
+7. Confirm the route uses real OSRM/OSM data.
+8. Confirm the route is genuinely a loop if labelled as a loop.
+9. Confirm the route isn't simply an out-and-back.
+10. Confirm waypoint names are meaningful.
+11. Start Run.
+12. Allow GPS.
+13. Confirm the map loads.
+14. Confirm the planned route is visible.
+15. Confirm GPS position is visible.
+16. Confirm actual trail is recorded.
+17. Test going off-route.
+18. Confirm "You're off route" appears.
+19. Confirm the map DOES NOT disappear or turn black.
+20. Confirm GPS continues tracking.
+21. Confirm the trail continues recording.
+22. Return toward the route.
+23. Confirm the off-route status clears.
+24. Confirm the map remains visible.
+
+TEST B — ROUTE QUALITY
+
+Inspect the actual route geometry.
+
+Make sure it isn't effectively:
+
+A → B → A
+
+using the same road/path.
+
+If it is, do not label it a loop.
+
+TEST C — LEAFLET MAP LIFECYCLE
+
+Explicitly test:
+
+On route
+↓
+Off route
+↓
+Map remains visible
+↓
+GPS continues
+↓
+Back on route
+↓
+Map remains visible
+
+==================================================
+13. KEEP THE EXISTING NEXUS DESIGN
+==================================================
+
+Do not redesign the entire app.
+
+Keep:
+
+- dark premium UI
+- gold accents
+- glass cards
+- existing typography
+- existing navigation
+- existing Golden Window experience
+
+This job is specifically about:
+
+1. improving real running route quality
+2. making waypoints useful
+3. making loops genuinely good
+4. fixing the GPS tracker map bug
+5. making the running experience feel production-ready
+
+==================================================
+14. FINAL ACCEPTANCE CRITERIA
+==================================================
+
+ROUTE
+
+[ ] Real OSRM route data
+[ ] Full route geometry preserved
+[ ] Multiple route candidates considered
+[ ] Genuine loops only labelled as loops
+[ ] Excessive retracing penalised/rejected
+[ ] Running-suitable paths preferred
+[ ] Start/finish appropriate
+[ ] No fake route data
+
+WAYPOINTS
+
+[ ] No meaningless Checkpoint 1/2/3 where useful real names exist
+[ ] Waypoints correspond to actual route locations
+[ ] OSM names used where available
+[ ] Arrival times remain accurate
+[ ] Start/finish clearly identified
+
+GPS TRACKER
+
+[ ] Planned route visible
+[ ] Actual GPS trail visible
+[ ] Current position visible
+[ ] GPS continues while off-route
+[ ] Off-route warning works
+[ ] Map NEVER turns black because of off-route state
+[ ] Returning to route works
+[ ] Leaflet lifecycle remains stable
+[ ] No map remount bugs
+
+GOLDEN WINDOW
+
+[ ] One-person jogging works
+[ ] Multi-person jogging works
+[ ] Golden Window time respected
+[ ] Planning location respected
+
+BUILD
+
+Run:
+
+pnpm run build
+
+Resolve ALL TypeScript/build errors before finishing.
+
+Then restart the dev server and verify the complete flow end-to-end.
+
+IMPORTANT:
+
+Do not report this job as complete merely because the build passes.
+
+I specifically want the actual route geometry, route quality, meaningful waypoint generation and live GPS/off-route behaviour verified.
+
+At the end, give me a concise report explaining:
+
+- what was changed
+- why the route is now a genuine loop
+- how waypoint names are generated
+- what caused the black map bug
+- how it was fixed
+- what real data sources are being used
+- build status
+- live test status
+- any remaining limitations
