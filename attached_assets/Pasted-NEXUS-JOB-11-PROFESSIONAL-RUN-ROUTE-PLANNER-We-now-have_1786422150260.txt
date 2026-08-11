@@ -1,0 +1,633 @@
+NEXUS — JOB 11: PROFESSIONAL RUN ROUTE PLANNER
+
+We now have:
+- Real OSRM routing
+- OpenStreetMap road/path data
+- Genuine route classification (LOOP / OUT_AND_BACK / LINEAR)
+- Full route geometry
+- Named OSM waypoints
+- Golden Window integration
+- Live GPS tracking
+- Off-route detection
+- Leaflet route maps
+- Real route data with no fake route claims
+
+DO NOT rebuild or replace any of that.
+
+The goal of this job is to turn the existing jogging planner into a genuinely useful running route planner where the user can control what kind of run they want and compare multiple real routes.
+
+==================================================
+1. FIRST: INSPECT BEFORE CHANGING ANYTHING
+==================================================
+
+Read all relevant existing files first, including:
+
+- lib/planners/types.ts
+- lib/planners/providers/osrm-route-provider.ts
+- lib/planners/jogging-planner.ts
+- lib/planners/registry.ts
+- lib/planners/route-provider.ts
+- components/nexus/route-plan-card.tsx
+- components/nexus/activity-plan-card.tsx
+- components/nexus/run-tracker.tsx
+- components/nexus/group-detail.tsx
+- lib/running/geo.ts
+- any existing route configuration/types
+- any existing planning-location components
+- any existing activity preference components
+
+Understand the current architecture before editing.
+
+Preserve the existing Golden Window → planner → route → GPS flow.
+
+==================================================
+2. USER ROUTE PREFERENCES
+==================================================
+
+Add a route preferences section to the jogging planner.
+
+The user should be able to choose:
+
+DISTANCE:
+- 2 km
+- 5 km
+- 10 km
+- Custom
+
+For Custom:
+- allow a target distance between approximately 1 km and 30 km
+- use sensible validation
+
+ROUTE TYPE:
+- Loop
+- Out & Back
+- Either
+
+SURFACE:
+- Paths / trails
+- Roads
+- Mixed
+
+DIFFICULTY:
+- Easy
+- Moderate
+- Challenging
+- Any
+
+Default:
+- 5 km
+- Either
+- Mixed
+- Any
+
+Do not create a separate giant settings page.
+
+Keep this integrated into the existing premium Nexus route-planning UI.
+
+==================================================
+3. MULTIPLE REAL ROUTE OPTIONS
+==================================================
+
+The planner should return multiple genuine route candidates instead of selecting one route immediately.
+
+Target:
+- ideally 3 useful routes
+- minimum 1 if only one legitimate route exists
+
+Candidates must come from REAL routing data.
+
+DO NOT fabricate route geometry.
+
+DO NOT invent distances, road names, checkpoints or route types.
+
+Each candidate should contain enough information for the UI to display:
+
+- route geometry
+- route type
+- distance
+- estimated time
+- route grade if available
+- surface information
+- named roads/paths
+- waypoints
+- start/end
+- turnaround if Out & Back
+- loop quality if Loop
+- data source
+- explanation/reason
+
+==================================================
+4. ROUTE SELECTION LOGIC
+==================================================
+
+Implement proper preference-aware scoring.
+
+The user's selected preferences should influence ranking.
+
+Example:
+
+If user chooses:
+
+5 km + Loop
+
+then genuine loops should rank dramatically higher than Out & Back.
+
+If there is no suitable genuine loop:
+
+DO NOT relabel an Out & Back as a loop.
+
+Instead return:
+
+"No suitable 5 km loop found nearby."
+
+Then optionally show:
+
+"Closest alternative: 4.8 km Out & Back"
+
+If user chooses:
+
+5 km + Either
+
+then rank the best genuine route regardless of type.
+
+If user chooses:
+
+Roads
+
+prefer routes dominated by road/highway segments.
+
+If user chooses:
+
+Paths / trails
+
+prefer footways, paths, parks and suitable trail surfaces.
+
+If user chooses:
+
+Mixed
+
+balance the two.
+
+Difficulty should influence ranking when reliable route information exists.
+
+Do NOT pretend to know elevation if the current routing provider does not provide it.
+
+==================================================
+5. DISTANCE TOLERANCE
+==================================================
+
+Do not require an exact distance.
+
+Use a sensible tolerance around the target.
+
+For example:
+
+Target 5 km:
+ideal approximately 4.5–5.5 km
+
+Target 10 km:
+ideal approximately 9–11 km
+
+But make the scoring progressive rather than binary.
+
+A 4.8 km route should score better than a 7 km route for a 5 km request.
+
+Do not return a wildly different route just because it technically exists.
+
+==================================================
+6. ROUTE QUALITY SCORING
+==================================================
+
+Create a transparent internal scoring model.
+
+Consider:
+
+- distance match
+- requested route type
+- genuine loop quality
+- surface preference
+- route simplicity
+- route confidence
+- route data completeness
+- duplicate-route penalty
+
+Do NOT expose meaningless fake percentages.
+
+If you show a score to the user, make sure it represents something understandable.
+
+Examples:
+
+"Best Match"
+"Best Loop"
+"Flattest"
+"Most Direct"
+"Best Path Mix"
+
+Only use labels that are actually supported by the route data.
+
+==================================================
+7. DEDUPLICATE ROUTES
+==================================================
+
+OSRM can return multiple candidates that are essentially the same route.
+
+Detect and remove near-duplicates.
+
+Do not show:
+
+Route 1 = 4.8 km
+Route 2 = 4.9 km
+Route 3 = 4.8 km
+
+if they follow essentially the same geometry.
+
+Prefer genuinely different route options.
+
+==================================================
+8. ROUTE MAP COMPARISON
+==================================================
+
+Improve the route results UI.
+
+The user should be able to see:
+
+ROUTE 1
+5.1 km · ~31 min
+Loop
+Mixed paths & roads
+"Best Match"
+
+ROUTE 2
+4.8 km · ~29 min
+Out & Back
+Mostly paths
+"Best Path Route"
+
+ROUTE 3
+5.4 km · ~33 min
+Loop
+Mostly roads
+"Best Loop"
+
+Each route card should have a compact map preview using its real geometry.
+
+When the user selects a route:
+
+- highlight that route
+- show its full route geometry
+- show named waypoints
+- show start/end
+- show turnaround if applicable
+- enable Start Run
+
+Do not load three huge interactive Leaflet maps if that creates performance problems.
+
+A lightweight preview or shared map is preferable.
+
+==================================================
+9. ROUTE EXPLANATION
+==================================================
+
+Every selected route should explain WHY Nexus chose it.
+
+Examples:
+
+"Best match for your 5 km target with a genuine loop."
+
+"Closest route to your requested distance."
+
+"Best path-heavy option within 2 km."
+
+"No genuine loop was available nearby, so Nexus selected the closest out-and-back."
+
+Keep explanations factual.
+
+==================================================
+10. IMPORTANT: HONEST FAILURE STATES
+==================================================
+
+This is critical.
+
+If the user requests:
+
+10 km Loop
+
+and no suitable 10 km loop exists:
+
+DO NOT silently give them an Out & Back.
+
+Show:
+
+"No suitable 10 km loop found nearby."
+
+Then provide alternatives:
+
+"Closest loop: 7.8 km"
+"Closest route: 9.6 km Out & Back"
+
+Give the user the choice.
+
+Likewise:
+
+If no route satisfies the surface preference, explain that honestly.
+
+Never fake compatibility.
+
+==================================================
+11. WAYPOINTS
+==================================================
+
+The current waypoint system is much better now that real OSM road/path names are being returned.
+
+Improve it further.
+
+Do not display:
+
+Checkpoint 1
+Checkpoint 2
+Checkpoint 3
+
+unless there is genuinely no useful OSM name.
+
+Prefer:
+
+Banbury Road
+Victoria Road
+Port Meadow
+Jericho
+Ewert Place
+etc.
+
+For unnamed sections, use:
+
+"Path section"
+"Park trail"
+"Turnaround"
+"Return section"
+
+The waypoint timeline should help a runner understand where they are going.
+
+==================================================
+12. LOOP QUALITY
+==================================================
+
+Keep the existing genuine loop detection.
+
+A route may only be labelled LOOP if the geometry actually qualifies.
+
+Do not rely on:
+
+start ≈ finish
+
+alone.
+
+Continue using the existing geometry-based classification/retrace/area logic.
+
+Make sure the route type shown in:
+
+- route card
+- map
+- waypoint timeline
+- route title
+- GPS tracker
+
+all comes from the same RouteType value.
+
+No contradictions.
+
+==================================================
+13. GPS TRACKER INTEGRATION
+==================================================
+
+The selected route must pass directly into the existing GPS tracker.
+
+Do not rewrite the tracker.
+
+The tracker should receive:
+
+- full route geometry
+- selected route type
+- waypoints
+- distance
+- estimated duration
+- start location
+
+The existing features must remain:
+
+- live GPS marker
+- actual trail
+- planned route
+- distance
+- timer
+- speed
+- pace
+- progress
+- off-route detection
+- "Back on route"
+- pause
+- finish
+
+==================================================
+14. GOLDEN WINDOW INTEGRATION
+==================================================
+
+Do not break Golden Window.
+
+The existing flow remains:
+
+Golden Window
+↓
+Planning Location
+↓
+Route Preferences
+↓
+Real route search
+↓
+Route selection
+↓
+Start Run
+
+For a solo user:
+
+"your Golden Window"
+
+For groups:
+
+"your group's Golden Window"
+
+The selected Golden Window should continue to determine when the route is suitable/open where applicable.
+
+==================================================
+15. PERFORMANCE
+==================================================
+
+OSRM requests are currently parallelised.
+
+Do not create an uncontrolled number of requests.
+
+Set a sensible maximum candidate count.
+
+Deduplicate aggressively.
+
+Cache the route search for the current:
+
+- location
+- target distance
+- route type
+- surface
+- difficulty
+
+so changing UI state unnecessarily does not hammer OSRM.
+
+==================================================
+16. DATA SOURCE HONESTY
+==================================================
+
+Every route must clearly indicate whether it is real.
+
+For real OSRM/OSM routes:
+
+"REAL ROUTE · OSRM · OpenStreetMap"
+
+If routing fails:
+
+show a clear error.
+
+DO NOT create fake/mock running routes as a fallback.
+
+For jogging, a fake route would be misleading because GPS navigation depends on the actual geometry.
+
+==================================================
+17. PREMIUM NEXUS UI
+==================================================
+
+Keep the existing visual language:
+
+- deep navy
+- gold
+- glass cards
+- subtle emerald for positive/real states
+- cinematic but restrained
+- premium typography
+- strong hierarchy
+- mobile-first
+
+Do not turn the planner into a generic form.
+
+The experience should feel like:
+
+"Nexus found these routes specifically for you."
+
+==================================================
+18. FUTURE-PROOF THE ARCHITECTURE
+==================================================
+
+This is important.
+
+Do NOT hard-code jogging-specific logic into the entire system.
+
+The route preference architecture should be reusable for:
+
+- jogging
+- running
+- hiking
+- walking
+- cycling
+
+Create reusable types/components where appropriate.
+
+For example:
+
+RoutePreferences
+RouteType
+RouteCandidate
+RouteSearchOptions
+RouteResult
+RoutePreferenceScoring
+
+Jogging can provide its own defaults/configuration.
+
+Do not implement swimming as a route activity just because it is listed here.
+
+Swimming should eventually use a different planner model (venues/pools rather than road geometry).
+
+==================================================
+19. DO NOT IMPLEMENT YET
+==================================================
+
+Do NOT yet implement:
+
+- hiking planner
+- cycling planner
+- swimming planner
+- route history database
+- social sharing of runs
+- leaderboards
+- achievements
+
+Those will come later.
+
+Make the architecture ready for them, but keep this job focused on making jogging/running excellent.
+
+==================================================
+20. TESTING
+==================================================
+
+Before finishing:
+
+Run:
+
+pnpm run build
+
+Fix all TypeScript errors.
+
+Test at least:
+
+1. 5 km + Either
+2. 5 km + Loop
+3. 5 km + Out & Back
+4. 10 km + Loop
+5. Custom distance
+6. Path preference
+7. Road preference
+8. No suitable loop available
+9. Multiple genuinely different routes
+10. Start Run from selected route
+11. GPS tracker still receives full geometry
+12. Off-route behaviour still works
+13. Golden Window still works
+14. Solo Golden Window still works
+15. Existing multi-member Golden Window still works
+
+Also test the Oxford location that has already exposed the Out & Back behaviour.
+
+Do not claim success merely because TypeScript compiles.
+
+Actually inspect the returned route classifications and make sure the UI tells the truth.
+
+==================================================
+FINAL REPORT
+==================================================
+
+When finished, report:
+
+- files changed
+- route preference architecture
+- number of route candidates generated
+- how routes are deduplicated
+- how route scoring works
+- how genuine loops are detected
+- what happens when the requested route cannot be found
+- how the UI presents alternatives
+- how GPS receives the selected route
+- how Golden Window remains integrated
+- whether routes are 100% real
+- build status
+- preview status
+- any remaining limitations
+
+MOST IMPORTANT RULE:
+
+Nexus must NEVER pretend that a route is a loop, trail, road route, distance, or difficulty when the underlying data does not support that claim.
+
+Real data first. Honest fallback second. Never fake the experience.
