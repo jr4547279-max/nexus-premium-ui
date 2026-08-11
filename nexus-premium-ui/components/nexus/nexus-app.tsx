@@ -248,6 +248,13 @@ export function NexusApp() {
           onBack={() => setCurrentScreen(prevGroupScreen)}
           onViewGoldenWindow={() => setCurrentScreen('golden-window')}
           onNavigate={handleNavigate}
+          onGroupDeleted={() => {
+            // Bump version so GroupsScreen / Dashboard remount and re-fetch,
+            // then navigate back — the deleted group will no longer appear
+            // because RLS (groups_select_member) excludes it.
+            setGroupsVersion((v) => v + 1)
+            setCurrentScreen(prevGroupScreen)
+          }}
         />
       )
       break

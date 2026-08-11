@@ -1,3 +1,4 @@
 - [Next build generated files](next-build-generated-files.md) — Next.js 16 may rewrite the tracked route-type import during local builds.
 - [Golden Window v2 architecture](golden-window-v2.md) — persistence + progressive scoring model; key decisions for future changes.
 - [Real Venue Engine architecture](real-venue-engine.md) — provider abstraction + OSM + single-venue planner factory; key decisions for future planner work.
+- [Group delete pattern](group-delete-pattern.md) — delete_group() RPC pattern; cascade deps; groupsVersion remount mechanism.

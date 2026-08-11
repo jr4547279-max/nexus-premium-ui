@@ -224,6 +224,35 @@ export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> 
   return { groupId: data as string, errorMessage: null }
 }
 
+// ── Group deletion ────────────────────────────────────────────────────────────
+
+/**
+ * Permanently deletes a group and all associated data.
+ * Only the group owner (role = 'owner' in group_members) can call this.
+ *
+ * Deletion is handled by the delete_group() SECURITY DEFINER RPC (migration 007).
+ * All dependent rows are removed via ON DELETE CASCADE:
+ *   group_members, availability, live_events, live_locations,
+ *   member_presence, event_notifications.
+ * Golden window data, invite code, and planning location are inline in the
+ * groups row and are deleted with it. User profiles are NOT affected.
+ */
+export async function deleteGroup(
+  groupId: string,
+): Promise<{ ok: boolean; errorMessage: string | null }> {
+  const { error, status } = await supabase.rpc('delete_group', {
+    p_group_id: groupId,
+  })
+
+  if (error) {
+    const msg = formatError(error, status)
+    console.error('[group-service] deleteGroup failed', msg, error)
+    return { ok: false, errorMessage: msg }
+  }
+
+  return { ok: true, errorMessage: null }
+}
+
 export async function leaveGroup(groupId: string): Promise<boolean> {
   const { data: userData } = await supabase.auth.getUser()
   const uid = userData.user?.id
