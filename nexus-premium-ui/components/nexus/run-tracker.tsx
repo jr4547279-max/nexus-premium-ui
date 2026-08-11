@@ -668,11 +668,17 @@ export function RunTracker({ plan, onBack }: RunTrackerProps) {
           </button>
         )}
 
-        {/* Off-route warning — shows distance and clears when back on route */}
+        {/* Off-route warning — shows distance with distance-appropriate framing.
+            Small distance (< 2 km): "120 m off route" or "1.4 km off route"
+            Large distance (≥ 2 km): "You're X km from the planned route"
+            GPS tracking, map, and the planned route all remain fully visible
+            regardless of distance — nothing is reset or destroyed. */}
         {isOffRoute && isTracking && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/90 backdrop-blur-sm text-black text-[11px] font-semibold shadow-lg">
-            <AlertTriangle className="w-3 h-3" />
-            {offRouteDistM >= 1000
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/90 backdrop-blur-sm text-black text-[11px] font-semibold shadow-lg whitespace-nowrap">
+            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+            {offRouteDistM >= 2_000
+              ? `You're ${(offRouteDistM / 1000).toFixed(1)} km from the planned route`
+              : offRouteDistM >= 1_000
               ? `${(offRouteDistM / 1000).toFixed(1)} km off route`
               : `${offRouteDistM} m off route`}
           </div>

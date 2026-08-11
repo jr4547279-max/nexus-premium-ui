@@ -1,59 +1,88 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// OSRM Route Provider — OpenStreetMap pedestrian routing, no API key required
+// OSRM Route Provider — OpenStreetMap pedestrian routing
 // ─────────────────────────────────────────────────────────────────────────────
-// Generates candidate jogging loops around a group planning location by:
-//   1. Placing a via-waypoint at ~(targetKm / 2) distance in each of 8 compass
-//      directions from the start point.
-//   2. Requesting an OSRM foot route: start → via → start for each direction,
-//      with steps=true to obtain real OSM road/path names per segment.
-//   3. Computing a loop-quality score via shoelace polygon area — routes that
-//      double back along the same path score near zero and are deprioritised
-//      or labelled as linear routes rather than loops.
-//   4. Filtering to routes within ±60% of the target distance.
-//   5. Sorting by a composite score: distance match + loop quality.
-//   6. Returning the top N candidates.
+// Generates candidate running routes around a group planning location.
+//
+// CANDIDATE GENERATION STRATEGY
+// ──────────────────────────────
+// For each of 8 compass directions we generate 5 candidate configurations:
+//
+//   1. 2-leg (single via): start → via(bearing, half-dist) → start
+//      Almost always returns OUT_AND_BACK on urban road networks.
+//
+//   2-5. Triangle L/R (two via-points at a 90° turn):
+//      start → via1(bearing, legKm) → via2(bearing±90°, legKm) → start
+//      Two different leg sizes for better coverage.
+//
+// 8 bearings × 5 configs = up to 40 OSRM queries, all fired in parallel.
+//
+// CLASSIFICATION
+// ──────────────
+// Route type is derived PURELY from the returned geometry:
+//
+//   RETRACE RATIO: fraction of 30m grid cells visited more than once.
+//     > 0.20 → route retraces significantly → not a genuine loop.
+//
+//   LOOP QUALITY: shoelace polygon area vs ideal circle for this distance.
+//     < 0.08 → route is too narrow/linear to be a useful loop.
+//
+//   START-FINISH GAP: distance between first and last coord.
+//     > 150m → route is LINEAR (doesn't return to start).
+//
+//   LOOP = startFinish < 150m AND retraceRatio < 0.20 AND loopQuality > 0.08
+//   OUT_AND_BACK = startFinish < 150m AND (retraceRatio ≥ 0.20 OR loopQuality ≤ 0.08)
+//   LINEAR = startFinish ≥ 150m
+//
+// HONESTY RULE
+// ────────────
+// If no genuinely good loop is found, we return the best real route and
+// classify it correctly. We never call an out-and-back route a "loop".
 //
 // Data source: OSRM public instance (router.project-osrm.org), foot profile.
 // Data licence: OpenStreetMap contributors, ODbL.
 // CORS: OSRM public API sends Access-Control-Allow-Origin: * — browser-safe.
-//
-// Limitations documented honestly:
-//   - Elevation not provided by OSRM standard API (marked unavailable).
-//   - Loop quality detection relies on geometry area heuristics; OSRM can
-//     sometimes produce routes that look like loops but share path sections.
-//   - Public OSRM instance has fair-use rate limits; self-host for production.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { RouteCandidate, RouteProvider, PlannerWaypoint } from '../types'
+import type {
+  RouteCandidate,
+  RouteProvider,
+  PlannerWaypoint,
+  RouteType,
+} from '../types'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const OSRM_BASE            = 'https://router.project-osrm.org'
-const TIMEOUT_MS           = 15_000
-const EARTH_KM             = 6371
-const DEG                  = Math.PI / 180
-const RAD                  = 180 / Math.PI
+const OSRM_BASE   = 'https://router.project-osrm.org'
+const TIMEOUT_MS  = 15_000
+const EARTH_KM    = 6371
+const DEG         = Math.PI / 180
+const RAD         = 180 / Math.PI
 
-/** Conservative jogging pace (6 min/km ≈ 10 km/h) used for estimatedMinutes. */
+/** Conservative jogging pace: 6 min/km */
 const RUNNING_PACE_MIN_PER_KM = 6
 
-/** Minimum route length — avoids trivial routes where OSRM can't navigate. */
+/** Minimum route length before we filter it out */
 const MIN_ROUTE_KM = 0.3
 
-/**
- * Target number of human-readable waypoints for the route card.
- * Includes start, a few interior named points, and finish.
- */
-const TARGET_WAYPOINTS = 6
+/** Grid cell size (metres) for the retrace ratio computation */
+const RETRACE_GRID_M = 30
 
-/**
- * Loop quality threshold.
- * Candidates below this score are labelled as routes (not loops).
- * Scale: 0 = perfect out-and-back, 1 = perfect circle.
- */
-const LOOP_QUALITY_THRESHOLD = 0.12
+/** Routes with retraceRatio above this are classified as OUT_AND_BACK, not LOOP */
+const LOOP_MAX_RETRACE = 0.20
 
-// ── Compass directions ────────────────────────────────────────────────────────
+/** Routes with loopQuality below this are not genuine loops */
+const LOOP_MIN_QUALITY = 0.08
+
+/** Start-finish distance must be below this (km) for LOOP or OUT_AND_BACK */
+const STARTFINISH_KM = 0.15
+
+/** Accept routes within this fraction of the target distance (±60%) */
+const DIST_TOLERANCE = 0.60
+
+/** Number of interior waypoints to include between start and finish */
+const INTERIOR_WAYPOINTS = 4
+
+// ── Compass bearings ──────────────────────────────────────────────────────────
 
 const BEARINGS: Array<{ bearing: number; label: string }> = [
   { bearing: 0,   label: 'North'      },
@@ -68,7 +97,6 @@ const BEARINGS: Array<{ bearing: number; label: string }> = [
 
 // ── Geo utilities ─────────────────────────────────────────────────────────────
 
-/** Haversine distance in km between two lat/lng points. */
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const dLat = (lat2 - lat1) * DEG
   const dLng = (lng2 - lng1) * DEG
@@ -78,27 +106,24 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return EARTH_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-/** Returns the point at `distKm` from (lat, lng) in the given compass bearing. */
 function destinationPoint(
   lat: number, lng: number, distKm: number, bearingDeg: number,
 ): { lat: number; lng: number } {
-  const latR = lat * DEG
-  const lngR = lng * DEG
+  const latR  = lat * DEG
+  const lngR  = lng * DEG
   const bearR = bearingDeg * DEG
-  const angDist = distKm / EARTH_KM
-
+  const d     = distKm / EARTH_KM
   const lat2R = Math.asin(
-    Math.sin(latR) * Math.cos(angDist) +
-    Math.cos(latR) * Math.sin(angDist) * Math.cos(bearR),
+    Math.sin(latR) * Math.cos(d) +
+    Math.cos(latR) * Math.sin(d) * Math.cos(bearR),
   )
   const lng2R = lngR + Math.atan2(
-    Math.sin(bearR) * Math.sin(angDist) * Math.cos(latR),
-    Math.cos(angDist) - Math.sin(latR) * Math.sin(lat2R),
+    Math.sin(bearR) * Math.sin(d) * Math.cos(latR),
+    Math.cos(d) - Math.sin(latR) * Math.sin(lat2R),
   )
   return { lat: lat2R * RAD, lng: lng2R * RAD }
 }
 
-/** Cumulative haversine distances along a [lng, lat] coordinate path. */
 function cumulativeDistances(coords: Array<[number, number]>): number[] {
   const cum: number[] = [0]
   for (let i = 1; i < coords.length; i++) {
@@ -109,105 +134,137 @@ function cumulativeDistances(coords: Array<[number, number]>): number[] {
   return cum
 }
 
-// ── Loop quality scoring ──────────────────────────────────────────────────────
+// ── Route quality metrics ─────────────────────────────────────────────────────
 
 /**
- * Computes a loop quality ratio for a route polygon using the shoelace formula.
+ * Computes the retrace ratio — the fraction of 30m grid cells visited more
+ * than once. Values near 0 mean the route explores fresh ground on every
+ * segment. Values near 1 mean the return journey almost entirely overlaps
+ * the outbound journey (classic out-and-back behaviour).
+ */
+function computeRetraceRatio(coords: Array<[number, number]>): number {
+  if (coords.length < 4) return 0
+
+  const [lng0, lat0] = coords[0]!
+  const cosLat = Math.cos(lat0! * DEG)
+  const cells = new Map<string, number>()
+
+  for (const [lng, lat] of coords) {
+    const cx  = Math.round((lng - lng0!) * 111_320 * cosLat / RETRACE_GRID_M)
+    const cy  = Math.round((lat - lat0!) * 110_540 / RETRACE_GRID_M)
+    const key = `${cx},${cy}`
+    cells.set(key, (cells.get(key) ?? 0) + 1)
+  }
+
+  const total = cells.size
+  const dup   = [...cells.values()].filter(v => v > 1).length
+  return total > 0 ? dup / total : 0
+}
+
+/**
+ * Shoelace loop quality: ratio of polygon area to maximum possible area for a
+ * circle with the same perimeter.
  *
- * Returns a value in [0, 1]:
- *   0 = pure out-and-back (the polygon area is ~0 because forward and return
- *       paths cancel each other in the shoelace sum)
- *   1 = perfect circle (maximum area for the given perimeter)
- *
- * A value below LOOP_QUALITY_THRESHOLD means the route should NOT be labelled
- * as a "loop" regardless of whether start and end coordinates are the same.
+ * 0 = perfectly out-and-back (zero enclosed area)
+ * 1 = perfect circle
  */
 function computeLoopQuality(
   coords: Array<[number, number]>,
   totalDistKm: number,
 ): number {
-  if (coords.length < 6 || totalDistKm < 0.3) return 0
+  if (coords.length < 6 || totalDistKm < MIN_ROUTE_KM) return 0
 
-  // Convert coords to local km offsets (flat-earth approximation, good for < 50 km)
   const [lng0, lat0] = coords[0]!
   const cosLat = Math.cos(lat0! * DEG)
+  let area = 0
 
-  let area = 0  // shoelace accumulator (km²)
   for (let i = 0; i < coords.length; i++) {
     const [lngA, latA] = coords[i]!
     const [lngB, latB] = coords[(i + 1) % coords.length]!
-    const xA = (lngA! - lng0!) * 111.32 * cosLat
-    const yA = (latA! - lat0!) * 110.54
-    const xB = (lngB! - lng0!) * 111.32 * cosLat
-    const yB = (latB! - lat0!) * 110.54
+    const xA = (lngA! - lng0!) * 111_320 * cosLat
+    const yA = (latA! - lat0!) * 110_540
+    const xB = (lngB! - lng0!) * 111_320 * cosLat
+    const yB = (latB! - lat0!) * 110_540
     area += xA * yB - xB * yA
   }
-  const polygonAreaKm2 = Math.abs(area) / 2
 
-  // For a perfect circle: area = L² / (4π)
-  const maxCircleArea = (totalDistKm * totalDistKm) / (4 * Math.PI)
-
-  return Math.min(1, polygonAreaKm2 / maxCircleArea)
+  const polyAreaKm2  = Math.abs(area) / 2 / 1e6
+  const maxCircleKm2 = (totalDistKm ** 2) / (4 * Math.PI)
+  return maxCircleKm2 > 0 ? Math.min(1, polyAreaKm2 / maxCircleKm2) : 0
 }
 
-// ── OSRM type definitions ─────────────────────────────────────────────────────
+/**
+ * Classifies the route geometry into loop / out_and_back / linear.
+ * This is the single source of truth — never inferred from provider intent.
+ */
+function classifyRoute(
+  coords:       Array<[number, number]>,
+  totalDistKm:  number,
+  retraceRatio: number,
+  loopQuality:  number,
+): RouteType {
+  const [lng0, lat0] = coords[0]!
+  const [lngN, latN] = coords[coords.length - 1]!
+  const sfKm = haversineKm(lat0!, lng0!, latN!, lngN!)
+
+  // Does not return to start → linear
+  if (sfKm >= STARTFINISH_KM) return 'linear'
+
+  // Returns to start: check for genuine loop geometry
+  if (retraceRatio < LOOP_MAX_RETRACE && loopQuality > LOOP_MIN_QUALITY) {
+    return 'loop'
+  }
+
+  // Returns to start but retraces heavily or is geometrically narrow
+  return 'out_and_back'
+}
+
+// ── Composite scoring (higher = better) ──────────────────────────────────────
+
+/**
+ * Scores a candidate for ranking. Genuine loops are rewarded; heavy
+ * retracing is penalised. Distance match is the primary component.
+ */
+function scoreCandiate(
+  candidate: RouteCandidate,
+  targetKm:  number,
+): number {
+  const distFit     = Math.max(0, 1 - Math.abs(candidate.totalDistanceKm - targetKm) / targetKm)
+  const loopBonus   = candidate.routeType === 'loop' ? candidate.loopQuality * 0.5 : 0
+  const retracePen  = candidate.retraceRatio * 0.5
+  return distFit + loopBonus - retracePen
+}
+
+// ── OSRM types ────────────────────────────────────────────────────────────────
 
 interface OsrmStep {
-  name:     string      // OSM road/path name (empty string if unnamed)
-  distance: number      // metres
-  duration: number      // seconds
-  geometry: {
-    type:        'LineString'
-    coordinates: Array<[number, number]>
-  }
-  maneuver: {
-    location:      [number, number]   // [lng, lat]
-    type:          string
-    bearing_after: number
-  }
-  mode: string          // "walking"
-}
-
-interface OsrmLeg {
-  distance: number
-  duration: number
-  summary:  string
-  steps:    OsrmStep[]
+  name:     string
+  distance: number   // metres
+  duration: number   // seconds
+  geometry: { type: 'LineString'; coordinates: Array<[number, number]> }
+  maneuver: { location: [number, number]; type: string }
 }
 
 interface OsrmRoute {
   distance: number
   duration: number
-  geometry: {
-    type:        'LineString'
-    coordinates: Array<[number, number]>  // [lng, lat] — GeoJSON
-  }
-  legs: OsrmLeg[]
+  geometry: { type: 'LineString'; coordinates: Array<[number, number]> }
+  legs: Array<{ steps: OsrmStep[] }>
 }
 
 interface OsrmResponse {
   code:    string
   routes?: OsrmRoute[]
-  message?: string
 }
 
 // ── Named segment extraction ───────────────────────────────────────────────────
 
 interface NamedSegment {
-  /** OSM name for this road/path segment */
-  name:         string
-  /** Cumulative km at the start of this segment */
-  startDistKm:  number
-  /** Cumulative km at the end of this segment */
-  endDistKm:    number
+  name:        string
+  startDistKm: number
+  endDistKm:   number
 }
 
-/**
- * Reduces a flat list of OSRM steps into a deduplicated list of named segments.
- * Consecutive steps with the same name are merged into one segment.
- * Unnamed steps (name === '') are skipped.
- * Very short named segments (< 50 m) are also skipped to avoid noise.
- */
 function buildNamedSegments(steps: OsrmStep[]): NamedSegment[] {
   const segments: NamedSegment[] = []
   let cumKm = 0
@@ -219,147 +276,226 @@ function buildNamedSegments(steps: OsrmStep[]): NamedSegment[] {
     if (name && distKm >= 0.05) {
       const last = segments[segments.length - 1]
       if (last && last.name === name) {
-        // Extend the current segment — same road continues
         last.endDistKm = cumKm + distKm
       } else {
-        segments.push({
-          name,
-          startDistKm: cumKm,
-          endDistKm:   cumKm + distKm,
-        })
+        segments.push({ name, startDistKm: cumKm, endDistKm: cumKm + distKm })
       }
     }
-
     cumKm += distKm
   }
 
   return segments
 }
 
-/**
- * Returns the best OSM road name for a position at `cumDistKm` along the route.
- *
- * Search order:
- *   1. A named segment that directly covers this position.
- *   2. The nearest named segment within 300 m (route distance).
- *   3. A direction-based fallback.
- */
-function nameAtDistance(
+function bestNameAtDistance(
   cumDistKm:     number,
-  totalDistKm:   number,
   segments:      NamedSegment[],
   directionName: string,
+  routeType:     RouteType,
+  totalKm:       number,
   isTurnaround:  boolean,
 ): string {
-  // 1. Find covering segment
+  // Find covering segment
   for (const seg of segments) {
     if (cumDistKm >= seg.startDistKm - 0.01 && cumDistKm <= seg.endDistKm + 0.01) {
-      return isTurnaround ? `${seg.name} — turnaround` : seg.name
+      if (isTurnaround && routeType === 'out_and_back') return `${seg.name} — turnaround`
+      return seg.name
     }
   }
 
-  // 2. Nearest named segment within 300 m
+  // Nearest named segment within 300 m
   let best: NamedSegment | undefined
-  let bestDist = Infinity
+  let bestD = Infinity
   for (const seg of segments) {
     const mid = (seg.startDistKm + seg.endDistKm) / 2
     const d   = Math.abs(cumDistKm - mid)
-    if (d < bestDist) { bestDist = d; best = seg }
+    if (d < bestD) { bestD = d; best = seg }
   }
-  if (best && bestDist < 0.3) {
-    return isTurnaround ? `${best.name} — turnaround` : best.name
+  if (best && bestD < 0.3) {
+    if (isTurnaround && routeType === 'out_and_back') return `${best.name} — turnaround`
+    return best.name
   }
 
-  // 3. Cardinal/fraction-based fallback
-  const frac = totalDistKm > 0 ? cumDistKm / totalDistKm : 0
-  if (isTurnaround)        return `${directionName} turnaround`
-  if (frac < 0.25)         return `${directionName} outbound`
-  if (frac < 0.5)          return `${directionName} section`
-  if (frac < 0.75)         return 'Return section'
+  // Cardinal fallback
+  const frac = totalKm > 0 ? cumDistKm / totalKm : 0
+  if (isTurnaround) return `${directionName} turnaround`
+  if (frac < 0.25)  return `${directionName} outbound`
+  if (frac < 0.50)  return `${directionName} halfway`
+  if (frac < 0.75)  return 'Return section'
   return 'Final stretch'
 }
 
 // ── Waypoint builder ─────────────────────────────────────────────────────────
 
-/**
- * Builds a human-readable list of PlannerWaypoints from the full OSRM geometry.
- *
- * Strategy:
- *   - Always include Start (idx 0) and Finish (idx N-1).
- *   - Sample (TARGET_WAYPOINTS - 2) evenly-spaced interior positions.
- *   - For each position, look up the OSM road name via buildNamedSegments.
- *   - The position nearest the route midpoint is labelled as the turnaround.
- */
 function buildWaypoints(
   coords:        Array<[number, number]>,
   cumDist:       number[],
   steps:         OsrmStep[],
   directionName: string,
+  routeType:     RouteType,
 ): PlannerWaypoint[] {
-  const n         = coords.length
-  const totalKm   = cumDist[n - 1] ?? 0
-  const segments  = buildNamedSegments(steps)
-  const midIdx    = Math.round(n / 2)
+  const n        = coords.length
+  const totalKm  = cumDist[n - 1] ?? 0
+  const segments = buildNamedSegments(steps)
 
-  // Build evenly-spaced index set: start + interior + end
+  // Index set: start + evenly-spaced interior points + end
   const indices = new Set<number>([0, n - 1])
-  const interiorCount = Math.max(0, Math.min(TARGET_WAYPOINTS - 2, n - 2))
-  if (interiorCount > 0) {
-    for (let i = 0; i < interiorCount; i++) {
-      // Distribute interior indices evenly
-      indices.add(1 + Math.round(((i + 1) / (interiorCount + 1)) * (n - 2)))
-    }
+  const innerCount = Math.min(INTERIOR_WAYPOINTS, n - 2)
+  for (let i = 0; i < innerCount; i++) {
+    indices.add(1 + Math.round(((i + 1) / (innerCount + 1)) * (n - 2)))
   }
 
-  const sortedIndices = [...indices].sort((a, b) => a - b)
+  const sorted = [...indices].sort((a, b) => a - b)
+  const midIdx = Math.round(n / 2)
 
-  return sortedIndices.map((idx, slot): PlannerWaypoint => {
-    const [lng, lat]     = coords[idx]!
-    const isStart        = idx === 0
-    const isEnd          = idx === n - 1
-    const cumDistHere    = cumDist[idx] ?? 0
-    // The turnaround is the interior point closest to the route midpoint
-    const isTurnaround   = !isStart && !isEnd && Math.abs(idx - midIdx) < Math.ceil(n / 8)
+  return sorted.map((idx): PlannerWaypoint => {
+    const [lng, lat]   = coords[idx]!
+    const isStart      = idx === 0
+    const isEnd        = idx === n - 1
+    const cumDistHere  = cumDist[idx] ?? 0
 
-    const name =
-      isStart ? 'Start / Finish'
-      : isEnd  ? 'Return to start'
-      : nameAtDistance(cumDistHere, totalKm, segments, directionName, isTurnaround)
+    // For out-and-back: mark the interior point closest to the midpoint as turnaround
+    const isTurnaround =
+      !isStart && !isEnd && routeType === 'out_and_back' &&
+      Math.abs(idx - midIdx) < Math.ceil(n / 8)
 
-    const waypointType: PlannerWaypoint['waypointType'] =
-      isStart ? 'start'
-      : isEnd  ? 'end'
-      : isTurnaround ? 'poi'
-      : 'checkpoint'
+    let name: string
+    let waypointType: PlannerWaypoint['waypointType']
+
+    if (isStart) {
+      name = routeType === 'loop' ? 'Loop start & finish' : 'Start'
+      waypointType = 'start'
+    } else if (isEnd) {
+      name = routeType === 'linear' ? 'Finish' : 'Return to start'
+      waypointType = 'end'
+    } else if (isTurnaround) {
+      name = bestNameAtDistance(cumDistHere, segments, directionName, routeType, totalKm, true)
+      waypointType = 'poi'
+    } else {
+      name = bestNameAtDistance(cumDistHere, segments, directionName, routeType, totalKm, false)
+      waypointType = 'checkpoint'
+    }
+
+    const distLabel = `${cumDistHere.toFixed(1)} km`
+    const desc =
+      isStart
+        ? `${routeType === 'loop' ? 'Loop' : routeType === 'out_and_back' ? 'Out & Back' : 'Linear'} · ${(Math.round(totalKm * 10) / 10).toFixed(1)} km total`
+        : isTurnaround
+        ? `~${distLabel} from start — turn around here`
+        : undefined
 
     return {
-      id:              `osrm-wp-${idx}`,
+      id:                `osrm-wp-${idx}`,
       name,
-      lat:             lat!,
-      lng:             lng!,
+      lat:               lat!,
+      lng:               lng!,
       waypointType,
       distanceFromStart: Math.round(cumDistHere * 100) / 100,
-      description:
-        isStart
-          ? `Loop start & finish · ${(Math.round(totalKm * 10) / 10).toFixed(1)} km total`
-          : isTurnaround
-          ? `~${cumDistHere.toFixed(1)} km — ${directionName} turnaround`
-          : undefined,
-      isRealData: true,
+      description:       desc,
+      isRealData:        true,
     }
   })
+}
+
+// ── Route name builder ────────────────────────────────────────────────────────
+
+function buildRouteName(
+  distKm:        number,
+  directionName: string,
+  routeType:     RouteType,
+  targetKm:      number,
+): string {
+  const distLabel = (Math.round(distKm * 10) / 10).toFixed(1)
+
+  switch (routeType) {
+    case 'loop':
+      return `${distLabel} km ${directionName} Loop`
+    case 'out_and_back':
+      return `${distLabel} km ${directionName} Out & Back`
+    case 'linear':
+      return `${distLabel} km ${directionName} Route`
+  }
+}
+
+// ── OSRM query ────────────────────────────────────────────────────────────────
+
+/**
+ * Queries OSRM for a route through the given waypoints.
+ * Returns a scored RouteCandidate, or null on failure.
+ */
+async function queryOsrm(
+  waypoints:     Array<{ lat: number; lng: number }>,
+  candidateId:   string,
+  directionName: string,
+  targetKm:      number,
+): Promise<RouteCandidate | null> {
+  const coordStr = waypoints
+    .map(({ lat, lng }) => `${lng.toFixed(6)},${lat.toFixed(6)}`)
+    .join(';')
+
+  const url =
+    `${OSRM_BASE}/route/v1/foot/${coordStr}` +
+    `?overview=full&geometries=geojson&steps=true&continue_straight=false`
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
+  try {
+    const res = await fetch(url, {
+      signal:  controller.signal,
+      headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) return null
+
+    const data = (await res.json()) as OsrmResponse
+    if (data.code !== 'Ok' || !data.routes?.length) return null
+
+    const route  = data.routes[0]!
+    const coords = route.geometry.coordinates
+    if (coords.length < 2) return null
+
+    const distKm = Math.round((route.distance / 1000) * 100) / 100
+    if (distKm < MIN_ROUTE_KM) return null
+
+    const cumDist    = cumulativeDistances(coords)
+    const allSteps   = route.legs.flatMap(leg => leg.steps ?? [])
+    const retrace    = computeRetraceRatio(coords)
+    const loopQ      = computeLoopQuality(coords, distKm)
+    const routeType  = classifyRoute(coords, distKm, retrace, loopQ)
+    const waypoints  = buildWaypoints(coords, cumDist, allSteps, directionName, routeType)
+    const name       = buildRouteName(distKm, directionName, routeType, targetKm)
+
+    const grade: RouteCandidate['grade'] =
+      distKm < 3  ? 'easy' :
+      distKm < 8  ? 'moderate' :
+      distKm < 15 ? 'hard' : 'expert'
+
+    return {
+      id:               candidateId,
+      name,
+      waypoints,
+      totalDistanceKm:  distKm,
+      estimatedMinutes: Math.round(distKm * RUNNING_PACE_MIN_PER_KM),
+      surfaceSummary:   'Paths and roads (OpenStreetMap)',
+      grade,
+      routeType,
+      isLoop:           routeType === 'loop',
+      retraceRatio:     retrace,
+      loopQuality:      loopQ,
+      dataSource:       'real',
+      providerName:     'OSRM · OpenStreetMap',
+      geometry:         coords,
+    }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export class OsrmRouteProvider implements RouteProvider {
-  /**
-   * Fetch candidate jogging routes around `location`.
-   *
-   * @param _activityId  Must be 'jogging' (or a compatible foot-pace activity).
-   * @param location     Group planning lat/lng — used as the loop start/end.
-   * @param options      desiredDistanceKm (default 5), maxRoutes (default 3).
-   */
   async getRoutes(
     _activityId: string,
     location:    { lat: number; lng: number },
@@ -374,132 +510,110 @@ export class OsrmRouteProvider implements RouteProvider {
     const targetKm  = options.desiredDistanceKm ?? 5
     const maxRoutes = options.maxRoutes ?? 3
 
-    // Via-waypoint at half the target distance so the full loop ≈ target.
-    const viaKm = targetKm / 2
+    // ── Build all candidate queries ──────────────────────────────────────────
+    //
+    // For each of 8 compass directions we fire 5 configurations:
+    //
+    //   #1  2-leg (single-via): start → via(half-dist) → start
+    //       This is the simplest query; on constrained urban road networks it
+    //       almost always returns OUT_AND_BACK, which is correctly labelled.
+    //
+    //   #2-3  Triangle small (legKm = targetKm × 0.22):
+    //         Left turn  → start → via1 → via2(bearing+90°) → start
+    //         Right turn → start → via1 → via2(bearing-90°) → start
+    //
+    //   #4-5  Triangle larger (legKm = targetKm × 0.35):
+    //         Left turn  (same pattern, larger legs)
+    //         Right turn (same pattern, larger legs)
+    //
+    // The triangle configs force OSRM to traverse different road segments on
+    // each leg, which can produce genuine loops where the road network allows.
+    // Where it doesn't (e.g., linear corridor towns), OSRM still finds real
+    // routes but our retrace metric will correctly classify them as OUT_AND_BACK.
+    //
+    // Total: up to 8 × 5 = 40 queries, all fired in parallel.
 
-    // Fire all 8 direction queries in parallel.
-    const settled = await Promise.allSettled(
-      BEARINGS.map(({ bearing, label }) =>
-        this.queryLoop(lat, lng, viaKm, bearing, label, targetKm),
-      ),
-    )
+    const queries: Array<Promise<RouteCandidate | null>> = []
 
-    const candidates: RouteCandidate[] = settled
+    const LEG_SIZES = [0.22, 0.35]  // fractions of targetKm per triangle leg
+
+    for (const { bearing, label } of BEARINGS) {
+      // #1: 2-leg
+      const via = destinationPoint(lat, lng, targetKm * 0.50, bearing)
+      queries.push(
+        queryOsrm(
+          [{ lat, lng }, via, { lat, lng }],
+          `osrm-2leg-${bearing}`,
+          label,
+          targetKm,
+        ),
+      )
+
+      // #2-5: triangles at two different leg sizes
+      for (const legFrac of LEG_SIZES) {
+        const legKm = targetKm * legFrac
+        const via1  = destinationPoint(lat, lng, legKm, bearing)
+
+        // Left turn (bearing + 90°)
+        const via2L = destinationPoint(via1.lat, via1.lng, legKm, bearing + 90)
+        queries.push(
+          queryOsrm(
+            [{ lat, lng }, via1, via2L, { lat, lng }],
+            `osrm-tri-${bearing}-L-${legFrac}`,
+            label,
+            targetKm,
+          ),
+        )
+
+        // Right turn (bearing - 90°)
+        const via2R = destinationPoint(via1.lat, via1.lng, legKm, bearing - 90)
+        queries.push(
+          queryOsrm(
+            [{ lat, lng }, via1, via2R, { lat, lng }],
+            `osrm-tri-${bearing}-R-${legFrac}`,
+            label,
+            targetKm,
+          ),
+        )
+      }
+    }
+
+    // ── Collect results ──────────────────────────────────────────────────────
+    const settled = await Promise.allSettled(queries)
+    const all: RouteCandidate[] = settled
       .filter((r): r is PromiseFulfilledResult<RouteCandidate | null> => r.status === 'fulfilled')
       .map(r => r.value)
       .filter((c): c is RouteCandidate => c !== null)
 
-    if (candidates.length === 0) return []
+    if (all.length === 0) return []
 
-    // Accept routes within ±60 % of target distance
-    const toleranceLow  = targetKm * 0.4
-    const toleranceHigh = targetKm * 1.6
+    // ── Filter by distance tolerance (±60%) ──────────────────────────────────
+    const lo = targetKm * (1 - DIST_TOLERANCE)
+    const hi = targetKm * (1 + DIST_TOLERANCE)
+    const filtered = all.filter(c => c.totalDistanceKm >= lo && c.totalDistanceKm <= hi)
+    const pool     = filtered.length > 0 ? filtered : all
 
-    const filtered = candidates.filter(
-      c => c.totalDistanceKm >= toleranceLow && c.totalDistanceKm <= toleranceHigh,
-    )
-    if (filtered.length === 0) return []
-
-    // Composite sort: distance match (primary) + loop quality bonus
-    // loopQuality is 0–1; treat 0.5 bonus as equivalent to being 1 km closer to target.
-    const score = (c: RouteCandidate) =>
-      Math.abs(c.totalDistanceKm - targetKm) - ((c as RouteCandidate & { loopQuality?: number }).loopQuality ?? 0) * 2
-
-    return filtered
-      .sort((a, b) => score(a) - score(b))
-      .slice(0, maxRoutes)
-  }
-
-  // ── Single direction query ─────────────────────────────────────────────────
-
-  private async queryLoop(
-    startLat:      number,
-    startLng:      number,
-    viaKm:         number,
-    bearingDeg:    number,
-    directionName: string,
-    targetKm:      number,
-  ): Promise<RouteCandidate | null> {
-    const via = destinationPoint(startLat, startLng, viaKm, bearingDeg)
-
-    const coordStr = [
-      `${startLng.toFixed(6)},${startLat.toFixed(6)}`,
-      `${via.lng.toFixed(6)},${via.lat.toFixed(6)}`,
-      `${startLng.toFixed(6)},${startLat.toFixed(6)}`,
-    ].join(';')
-
-    // steps=true → OSRM returns road/path names per segment
-    const url =
-      `${OSRM_BASE}/route/v1/foot/${coordStr}` +
-      `?overview=full&geometries=geojson&steps=true&continue_straight=false`
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-
-    try {
-      const res = await fetch(url, {
-        signal:  controller.signal,
-        headers: { Accept: 'application/json' },
-      })
-      if (!res.ok) return null
-
-      const data = (await res.json()) as OsrmResponse
-      if (data.code !== 'Ok' || !data.routes?.length) return null
-
-      const route  = data.routes[0]!
-      const coords = route.geometry.coordinates   // [lng, lat][]
-      if (coords.length < 2) return null
-
-      const distKm = Math.round((route.distance / 1000) * 100) / 100
-      if (distKm < MIN_ROUTE_KM) return null
-
-      // Cumulative distances along the full route geometry
-      const cumDist = cumulativeDistances(coords)
-
-      // Extract all steps from both legs (start→via and via→start)
-      const allSteps = route.legs.flatMap(leg => leg.steps ?? [])
-
-      // Build named waypoints from real OSM step data
-      const waypoints = buildWaypoints(coords, cumDist, allSteps, directionName)
-
-      // Grade based on distance (no elevation data available from OSRM)
-      const grade: RouteCandidate['grade'] =
-        distKm < 3  ? 'easy'
-        : distKm < 8  ? 'moderate'
-        : distKm < 15 ? 'hard'
-        : 'expert'
-
-      // Loop quality score — determines whether we call this a "loop"
-      const loopQuality = computeLoopQuality(coords, distKm)
-      const isGenuineLoop = loopQuality >= LOOP_QUALITY_THRESHOLD
-
-      const distLabel  = (Math.round(distKm * 10) / 10).toFixed(1)
-      // Label honestly based on actual loop geometry
-      const nameSuffix = isGenuineLoop
-        ? (targetKm <= 3 ? 'Short Loop' : targetKm <= 8 ? 'Loop' : 'Long Run')
-        : (targetKm <= 3 ? 'Short Route' : 'Route')
-
-      // RouteCandidate is extended with loopQuality for composite sorting.
-      // The extra field is dropped when consumers spread/assign to RouteCandidate.
-      const candidate: RouteCandidate & { loopQuality: number } = {
-        id:               `osrm-${bearingDeg}`,
-        name:             `${distLabel} km ${directionName} ${nameSuffix}`,
-        waypoints,
-        totalDistanceKm:  distKm,
-        estimatedMinutes: Math.round(distKm * RUNNING_PACE_MIN_PER_KM),
-        surfaceSummary:   'Paths and roads (OpenStreetMap)',
-        grade,
-        isLoop:           isGenuineLoop,
-        dataSource:       'real',
-        providerName:     'OSRM · OpenStreetMap',
-        geometry:         coords,
-        loopQuality,
+    // ── Deduplicate by direction (keep best per direction-type key) ───────────
+    // This prevents returning 5 identical Banbury Road out-and-backs.
+    const bestByKey = new Map<string, RouteCandidate>()
+    for (const c of pool) {
+      // Key on direction label + routeType
+      const dirLabel = BEARINGS.find(b => c.id.includes(String(b.bearing)))?.label ?? 'Unknown'
+      const key      = `${dirLabel}-${c.routeType}`
+      const existing = bestByKey.get(key)
+      if (!existing || scoreCandiate(c, targetKm) > scoreCandiate(existing, targetKm)) {
+        bestByKey.set(key, c)
       }
-      return candidate
-    } catch {
-      return null
-    } finally {
-      clearTimeout(timer)
     }
+
+    // ── Sort: loops first, then by composite score ────────────────────────────
+    const deduped = [...bestByKey.values()].sort((a, b) => {
+      // Loops beat non-loops at the top level
+      if (a.routeType === 'loop' && b.routeType !== 'loop') return -1
+      if (b.routeType === 'loop' && a.routeType !== 'loop') return 1
+      return scoreCandiate(b, targetKm) - scoreCandiate(a, targetKm)
+    })
+
+    return deduped.slice(0, maxRoutes)
   }
 }

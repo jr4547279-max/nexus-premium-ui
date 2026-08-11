@@ -4,19 +4,14 @@
 // Route Plan Card
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders the result of a route planner (jogging, hiking, walking, cycling).
-// Follows the same GlassCard + section pattern as SingleVenuePlan and
-// PubCrawlPlan — layout-compatible so it slots in without visual disruption.
 //
-// Displayed data:
-//   • Route title, subtitle, Golden Window quality badge
-//   • REAL ROUTES · OSRM data-source badge
-//   • Stat row: distance · duration · grade · loop indicator
-//   • Waypoint list with cumulative distance markers and arrival times
-//   • Explanation text
-//   • Warnings (OSRM limitations, compromise schedule)
-//   • Group match % bar
-//   • "View on Map" link for the start waypoint
-//   • Recalculate button
+// Route type consistency rule:
+//   All text across title, Type chip, and waypoint labels must agree with
+//   plan.routeType (or plan.isLoop for backward compat):
+//
+//   loop         → title "… Loop"    · chip "Loop"    · start "Loop start & finish"
+//   out_and_back → title "… Out & Back" · chip "Out & Back" · mid "Turnaround"
+//   linear       → title "… Route"   · chip "Linear"  · end "Finish"
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { cn } from '@/lib/utils'
@@ -25,9 +20,10 @@ import { Button } from '@/components/ui/button'
 import {
   RefreshCw, MapPin, Clock, ExternalLink,
   AlertTriangle, Globe, Database, Navigation,
-  RotateCcw, TrendingUp, Play,
+  RotateCcw, TrendingUp, Play, ArrowLeftRight,
+  Minus,
 } from 'lucide-react'
-import type { PlannerResult, MatchQuality } from '@/lib/planners/planner-engine'
+import type { PlannerResult, MatchQuality, RouteType } from '@/lib/planners/planner-engine'
 
 // ── Quality badge ─────────────────────────────────────────────────────────────
 
@@ -45,6 +41,24 @@ const GRADE_LABELS: Record<string, { label: string; className: string }> = {
   moderate: { label: 'Moderate', className: 'text-amber-400'   },
   hard:     { label: 'Hard',     className: 'text-orange-400'  },
   expert:   { label: 'Expert',   className: 'text-red-400'     },
+}
+
+// ── Route type display ────────────────────────────────────────────────────────
+
+function routeTypeDisplay(routeType: RouteType): {
+  label:     string
+  className: string
+  Icon:      React.ElementType
+} {
+  switch (routeType) {
+    case 'loop':
+      return { label: 'Loop',       className: 'text-emerald-400',      Icon: RotateCcw }
+    case 'out_and_back':
+      return { label: 'Out & Back', className: 'text-amber-400',        Icon: ArrowLeftRight }
+    case 'linear':
+    default:
+      return { label: 'Linear',     className: 'text-muted-foreground', Icon: Minus }
+  }
 }
 
 // ── Data source badge ─────────────────────────────────────────────────────────
@@ -127,8 +141,6 @@ function WaypointIcon({ type }: { type: string }) {
   )
 }
 
-// ── OSM Maps link for a coordinate ───────────────────────────────────────────
-
 function osmUrl(lat: number, lng: number): string {
   return `https://www.openstreetmap.org/?mlat=${lat.toFixed(5)}&mlon=${lng.toFixed(5)}#map=15/${lat.toFixed(5)}/${lng.toFixed(5)}`
 }
@@ -145,17 +157,20 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
   const quality      = (plan.goldenWindowQuality ?? 'partial') as MatchQuality
   const qualityStyle = QUALITY_STYLES[quality]
 
-  const distKm     = plan.totalDistanceKm ?? 0
+  // ── Route type — single source of truth ──────────────────────────────────
+  // Prefer the explicit routeType; fall back to isLoop for older plans.
+  const routeType: RouteType =
+    plan.routeType ?? (plan.isLoop ? 'loop' : 'out_and_back')
+  const rtDisplay = routeTypeDisplay(routeType)
+
+  const distKm      = plan.totalDistanceKm ?? 0
   const durationMin = plan.durationMinutes ?? 0
   const grade       = plan.routeGrade
   const gradeStyle  = grade ? GRADE_LABELS[grade] : undefined
-  const isLoop      = plan.isLoop ?? false
 
-  // Start waypoint — used for the "View on Map" link
-  const startStop    = plan.stops.find(s => s.waypoint?.waypointType === 'start') ?? plan.stops[0]
+  const startStop     = plan.stops.find(s => s.waypoint?.waypointType === 'start') ?? plan.stops[0]
   const startWaypoint = startStop?.waypoint
 
-  // Duration label
   const hours   = Math.floor(durationMin / 60)
   const minutes = durationMin % 60
   const durationLabel =
@@ -208,21 +223,17 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
               className={gradeStyle.className}
             />
           ) : (
-            <StatChip
-              icon={TrendingUp}
-              label="Grade"
-              value="—"
-            />
+            <StatChip icon={TrendingUp} label="Grade" value="—" />
           )}
+          {/* Type chip uses routeType — never contradicts the route title */}
           <StatChip
-            icon={RotateCcw}
+            icon={rtDisplay.Icon}
             label="Type"
-            value={isLoop ? 'Loop' : 'Linear'}
-            className={isLoop ? 'text-emerald-400' : 'text-muted-foreground'}
+            value={rtDisplay.label}
+            className={rtDisplay.className}
           />
         </div>
 
-        {/* Surface summary */}
         {plan.surfaceSummary && (
           <p className="text-[10px] text-muted-foreground mt-2 text-center opacity-70">
             {plan.surfaceSummary}
@@ -243,37 +254,21 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
               const wp = stop.waypoint
               if (!wp) return null
               return (
-                <div
-                  key={stop.order ?? i}
-                  className="flex items-center gap-3 py-1.5"
-                >
-                  {/* Connector line above (except first) */}
+                <div key={stop.order ?? i} className="flex items-center gap-3 py-1.5">
                   <div className="flex flex-col items-center self-stretch">
-                    {i > 0 && (
-                      <div className="w-px flex-1 bg-border/25 mb-1" />
-                    )}
+                    {i > 0 && <div className="w-px flex-1 bg-border/25 mb-1" />}
                     <WaypointIcon type={wp.waypointType} />
-                    {i < plan.stops.length - 1 && (
-                      <div className="w-px flex-1 bg-border/25 mt-1" />
-                    )}
+                    {i < plan.stops.length - 1 && <div className="w-px flex-1 bg-border/25 mt-1" />}
                   </div>
-
-                  {/* Waypoint details */}
                   <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-foreground truncate">
-                        {wp.name}
-                      </p>
+                      <p className="text-xs font-medium text-foreground truncate">{wp.name}</p>
                       {wp.description && (
-                        <p className="text-[10px] text-muted-foreground truncate">
-                          {wp.description}
-                        </p>
+                        <p className="text-[10px] text-muted-foreground truncate">{wp.description}</p>
                       )}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-[10px] text-muted-foreground tabular-nums">
-                        {stop.arrivalTime}
-                      </p>
+                      <p className="text-[10px] text-muted-foreground tabular-nums">{stop.arrivalTime}</p>
                       {wp.distanceFromStart > 0 && (
                         <p className="text-[9px] text-muted-foreground/60 tabular-nums">
                           {wp.distanceFromStart.toFixed(1)} km
@@ -292,15 +287,12 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
 
       {/* ── Details ── */}
       <div className="p-5 pt-4">
-
-        {/* Explanation */}
         {plan.explanation && (
           <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">
             {plan.explanation}
           </p>
         )}
 
-        {/* View start on map */}
         {startWaypoint && (
           <div className="mb-4">
             <a
@@ -315,14 +307,10 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
           </div>
         )}
 
-        {/* Warnings */}
         {plan.warnings.length > 0 && (
           <div className="space-y-2 mb-4">
             {plan.warnings.map((w, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2"
-              >
+              <div key={i} className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
                 <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0 mt-0.5" />
                 <p className="text-[11px] text-amber-400 leading-relaxed">{w}</p>
               </div>
@@ -330,20 +318,15 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
           </div>
         )}
 
-        {/* Group match % */}
         {plan.groupMatchPercent != null && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
             <div className="flex-1 h-1 bg-muted/20 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 rounded-full"
-                style={{ width: `${plan.groupMatchPercent}%` }}
-              />
+              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${plan.groupMatchPercent}%` }} />
             </div>
             <span className="tabular-nums">{plan.groupMatchPercent}% of group available</span>
           </div>
         )}
 
-        {/* Start Run — only shown for real data routes */}
         {onStartRun && plan.dataSource === 'real' && (
           <Button
             onClick={onStartRun}
@@ -354,7 +337,6 @@ export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCard
           </Button>
         )}
 
-        {/* Recalculate */}
         {onRecalculate && (
           <Button
             onClick={onRecalculate}

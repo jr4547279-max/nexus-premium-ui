@@ -50,4 +50,5 @@ export type {
   PlannerScore,
   MatchQuality,
   GoldenWindowLike,
+  RouteType,
 } from './types'

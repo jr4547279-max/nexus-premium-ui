@@ -114,6 +114,17 @@ export interface PlannerWaypoint {
  *
  * Not yet in use — this type defines the contract for the first route planner.
  */
+/**
+ * How the route is geometrically classified, derived from actual geometry.
+ *
+ * 'loop'         — start and finish are close, route has low retracing, forms a real circuit.
+ * 'out_and_back' — start and finish are close but route substantially retraces itself.
+ * 'linear'       — route does not return close to the start.
+ *
+ * Determined purely from geometry — never inferred from provider intent.
+ */
+export type RouteType = 'loop' | 'out_and_back' | 'linear'
+
 export interface RouteCandidate {
   id: string
   /** Human-readable route name, e.g. "South Downs Loop", "River Path (5 km)" */
@@ -129,8 +140,21 @@ export interface RouteCandidate {
   surfaceSummary?: string
   /** Overall difficulty classification */
   grade?: 'easy' | 'moderate' | 'hard' | 'expert'
-  /** true = the route returns to its start point */
+  /**
+   * Geometry-derived route type.
+   * Replaces the ambiguous boolean `isLoop`.
+   * Set by the route provider after measuring retracing and loop quality.
+   */
+  routeType: RouteType
+  /** @deprecated Use routeType === 'loop'. Kept for backward compat. */
   isLoop?: boolean
+  /**
+   * Fraction of grid cells visited more than once (0 = no retracing, 1 = full retrace).
+   * Used for sorting and classification.
+   */
+  retraceRatio: number
+  /** Shoelace loop quality score (0 = out-and-back, 1 = perfect circle). */
+  loopQuality: number
   dataSource: 'real' | 'mock'
   providerName?: string
   /**
@@ -280,7 +304,14 @@ export interface PlannerResult {
   surfaceSummary?: string
   /** Overall route difficulty classification */
   routeGrade?: 'easy' | 'moderate' | 'hard' | 'expert'
-  /** true = the planned route is a loop returning to the start */
+  /**
+   * Geometry-derived route classification.
+   * 'loop'         → genuine circuit (low retracing, loop-like shape)
+   * 'out_and_back' → retraces substantially; route returns but repeats path
+   * 'linear'       → start and finish are not close
+   */
+  routeType?: RouteType
+  /** @deprecated Use routeType === 'loop'. Kept for backward compat. */
   isLoop?: boolean
   /**
    * Full route polyline in GeoJSON [lng, lat] order.

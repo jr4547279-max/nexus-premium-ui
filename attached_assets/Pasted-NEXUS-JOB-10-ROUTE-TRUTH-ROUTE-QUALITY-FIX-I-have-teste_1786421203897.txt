@@ -1,0 +1,479 @@
+NEXUS — JOB 10: ROUTE TRUTH + ROUTE QUALITY FIX
+
+I have tested the latest running implementation with a real GPS device.
+
+The GPS map bug is now much better: when I am off-route, the Leaflet map remains visible. DO NOT REGRESS THIS.
+
+However, the latest screenshots reveal a much bigger route-quality problem.
+
+The generated route is being described as a "5.5 km jogging loop", but the route is actually LINEAR / OUT-AND-BACK.
+
+The UI simultaneously shows:
+
+"5.5 km North Loop"
+
+"Linear"
+
+and waypoints such as:
+
+Start / Finish
+Banbury Road
+Ewert Place — turnaround
+Banbury Road — turnaround
+Banbury Road
+Return to start
+
+This is clearly not a genuine loop.
+
+The route is repeatedly travelling along the same corridor and turning around.
+
+This MUST be fixed.
+
+==================================================
+1. NEVER CALL A LINEAR ROUTE A LOOP
+==================================================
+
+This is the most important rule.
+
+The route's label, route type, description, waypoints and metadata must all agree with the actual geometry.
+
+If:
+
+isLoop === true
+
+then the geometry must actually represent a meaningful loop.
+
+If the geometry is effectively:
+
+A → B → A
+
+or substantially retraces the same route, it MUST NOT be classified as a loop.
+
+Do not solve this by simply changing the label.
+
+Fix the underlying route-generation/scoring logic.
+
+==================================================
+2. DETECT ROUTE RETRACING
+==================================================
+
+Inspect the full OSRM geometry.
+
+Build a route-quality/retrace metric.
+
+A route should receive a poor loop score when it:
+
+- travels out along one road/path
+- turns around
+- returns along the same road/path
+- contains large sections of overlapping geometry
+- contains a very narrow corridor between outbound and return legs
+
+A route can start and finish at the same location without being a good loop.
+
+Start/finish proximity alone is NOT enough to classify something as a loop.
+
+==================================================
+3. GENERATE BETTER CANDIDATE LOOPS
+==================================================
+
+The current route generation appears to be based around:
+
+start → directional point → start
+
+This is producing fake "loops" that are really out-and-back routes.
+
+Change the candidate-generation strategy.
+
+Generate multiple genuine candidate geometries.
+
+Candidates should ideally:
+
+- leave the start area
+- travel in one direction
+- take a different path back
+- form a circuit
+- minimise retracing
+- use real OSM paths/roads
+- remain appropriate for jogging
+- finish near the starting location
+
+Do not simply generate one route and call it a loop.
+
+Generate several candidates and score them.
+
+==================================================
+4. ROUTE QUALITY SCORE
+==================================================
+
+Create a route-quality score based on real geometry.
+
+Consider at least:
+
+DISTANCE FIT
+How close is the route to the requested distance?
+
+LOOP QUALITY
+How genuinely circular/circuit-like is it?
+
+RETRACING
+How much route geometry overlaps itself?
+
+RUNNING SUITABILITY
+Prefer:
+
+- footways
+- paths
+- pedestrian areas
+- parks
+- cycleways where appropriate
+- quieter residential roads
+
+Avoid where possible:
+
+- major roads
+- unsuitable highways
+- excessive road crossings
+- repetitive out-and-back sections
+
+VARIETY
+Prefer routes that explore multiple streets/paths/areas.
+
+==================================================
+5. IF NO GOOD LOOP EXISTS, BE HONEST
+==================================================
+
+This is extremely important.
+
+If Nexus cannot find a genuinely good loop at the requested distance:
+
+DO NOT call it a loop.
+
+Instead return the best real route and classify it accurately.
+
+For example:
+
+"Best nearby route"
+
+or:
+
+"5.5 km route"
+
+with:
+
+Route type: Linear
+
+And explain:
+
+"We couldn't find a good loop at this distance, so we've chosen the best nearby running route."
+
+I would much rather Nexus be honest than make a bad route look impressive.
+
+==================================================
+6. FIX THE WAYPOINTS
+==================================================
+
+The current waypoint system is improved, but the route shown in the screenshot still exposes the underlying problem.
+
+For a genuine loop, waypoints should look something like:
+
+START
+Oxford city centre
+18:00
+
+↓
+
+Port Meadow
+18:07
+
+↓
+
+Riverside path
+18:15
+
+↓
+
+North Oxford
+18:22
+
+↓
+
+University Parks
+18:28
+
+↓
+
+Return to start
+18:33
+
+NOT:
+
+Start
+Banbury Road
+Ewert Place — turnaround
+Banbury Road — turnaround
+Banbury Road
+Return
+
+The current "turnaround" pattern is evidence that the route is fundamentally out-and-back.
+
+Use real OSM names wherever available.
+
+Never invent landmarks.
+
+==================================================
+7. ROUTE TYPE MUST COME FROM GEOMETRY
+==================================================
+
+Do not manually decide that a route is a loop simply because the planner requested a loop.
+
+Determine route type from the actual geometry.
+
+Possible classification:
+
+LOOP
+Start and finish are close AND route has low retracing AND forms a meaningful circuit.
+
+OUT_AND_BACK
+Start and finish are close BUT route substantially retraces itself.
+
+LINEAR
+Route does not return close to the start.
+
+The UI should display the correct classification.
+
+==================================================
+8. FIX ALL INCONSISTENT TEXT
+==================================================
+
+Currently the screenshots show contradictions like:
+
+"5.5 km North Loop"
+
+while the route card says:
+
+"Linear"
+
+and the waypoint says:
+
+"Loop start & finish"
+
+These must never happen.
+
+Everywhere in the UI must use the same route classification.
+
+If routeType === "loop":
+
+- title can say "5.5 km North Loop"
+- type says "Loop"
+- waypoint language can say "Loop start & finish"
+
+If routeType === "out_and_back":
+
+- title should say something like "5.5 km Out & Back"
+- type says "Out & Back"
+- waypoint language says "Turnaround"
+- do NOT call it a loop
+
+If routeType === "linear":
+
+- title should say "5.5 km Route"
+- type says "Linear"
+- do NOT mention a loop
+
+==================================================
+9. OFF-ROUTE GPS BEHAVIOUR
+==================================================
+
+The map staying visible while off-route is GOOD.
+
+Keep that behaviour.
+
+However, my screenshot shows:
+
+"148.6 km off route"
+
+because the route is in Oxford while my actual phone GPS is in Eastbourne.
+
+This is a valid test condition.
+
+Do not hide the real distance.
+
+But improve the UX so that very large distances are treated as a "far from route/start" state rather than making it look like I accidentally drifted 148 km during a run.
+
+For example:
+
+"You're 148.6 km from the route"
+
+or:
+
+"You're far from the planned route"
+
+The map should remain visible.
+
+GPS tracking must continue.
+
+Do not reset the route.
+
+Do not destroy/recreate the Leaflet map.
+
+==================================================
+10. IMPORTANT — KEEP THE MAP FIX
+==================================================
+
+The previous black-map bug appears to be fixed.
+
+DO NOT REGRESS IT.
+
+Test:
+
+ON ROUTE
+↓
+OFF ROUTE
+↓
+MAP REMAINS VISIBLE
+↓
+GPS POSITION REMAINS VISIBLE
+↓
+PLANNED ROUTE REMAINS VISIBLE
+↓
+ACTUAL TRAIL REMAINS VISIBLE
+↓
+BACK ON ROUTE
+↓
+MAP STILL VISIBLE
+
+==================================================
+11. FULL GPS ROUTE EXPERIENCE
+==================================================
+
+The running screen should now clearly communicate:
+
+WHERE AM I?
+Current GPS position.
+
+WHERE AM I GOING?
+Full planned route.
+
+WHERE HAVE I BEEN?
+Actual GPS trail.
+
+WHAT'S NEXT?
+Meaningful named waypoint.
+
+AM I ON ROUTE?
+On-route/off-route status.
+
+WHAT TYPE OF ROUTE IS THIS?
+Loop / Out & Back / Linear.
+
+==================================================
+12. PERSONAL GOLDEN WINDOW MUST REMAIN WORKING
+==================================================
+
+Do not break the existing one-person Golden Window.
+
+This must continue to work:
+
+Personal Golden Window
+↓
+Friday 18:00
+↓
+Jogging Planner
+↓
+Real route
+↓
+GPS tracker
+
+Multi-person groups must continue working too.
+
+Do not reintroduce a minimum-member restriction.
+
+==================================================
+13. DO NOT USE MOCK ROUTES
+==================================================
+
+Continue using:
+
+OpenStreetMap + OSRM
+
+for real route generation.
+
+No fake route geometry.
+
+No fake landmarks.
+
+No fabricated distances.
+
+No fake checkpoint locations.
+
+==================================================
+14. TEST THE ACTUAL ROUTE
+==================================================
+
+This time, do not only run:
+
+pnpm run build
+
+Actually inspect the generated geometry.
+
+For at least one Oxford test route:
+
+- inspect the full geometry
+- calculate retracing
+- verify route type
+- verify start/finish
+- verify route distance
+- verify waypoint positions
+- verify waypoint names
+- verify whether it is genuinely a loop
+
+I specifically want confirmation that the route is NOT simply:
+
+A → B → A
+
+using the same roads.
+
+==================================================
+15. FINAL ACCEPTANCE CRITERIA
+==================================================
+
+[ ] Real OSRM/OSM route
+[ ] Full geometry preserved
+[ ] Multiple route candidates considered
+[ ] Retracing measured
+[ ] Genuine loops only labelled Loop
+[ ] Out-and-back routes labelled Out & Back
+[ ] Linear routes labelled Linear
+[ ] No contradictory route labels
+[ ] No "Loop start & finish" on linear/out-and-back routes
+[ ] Meaningful real waypoints
+[ ] Waypoints correspond to actual geometry
+[ ] Personal Golden Window still works
+[ ] Multi-person Golden Window still works
+[ ] GPS map stays visible off-route
+[ ] GPS continues off-route
+[ ] Planned route remains visible
+[ ] Actual trail remains visible
+[ ] Large off-route distances handled sensibly
+[ ] No fake data
+
+Run:
+
+pnpm run build
+
+Resolve all TypeScript/build errors.
+
+Then restart the dev server.
+
+Most importantly:
+
+DO NOT report this as complete just because the build passes.
+
+I want the actual generated route geometry inspected and verified.
+
+The goal is simple:
+
+If Nexus says "5.5 km Loop", I should genuinely be able to look at the map and see a good 5.5 km running loop.
+
+If it can't find one, Nexus should honestly say so and give me the best real alternative.
