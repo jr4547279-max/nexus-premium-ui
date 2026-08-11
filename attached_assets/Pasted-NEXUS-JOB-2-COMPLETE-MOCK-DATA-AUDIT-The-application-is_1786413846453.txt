@@ -1,0 +1,121 @@
+NEXUS — JOB 2: COMPLETE MOCK-DATA AUDIT
+
+The application is now stable:
+
+- pnpm build passes
+- All 12 routes compile
+- Dev preview loads
+- Leaflet is working
+- Google OAuth is working
+- Supabase authentication is working
+
+DO NOT change the application yet.
+
+Our next objective is to replace mock/demo data with REAL WORLD DATA, but before implementing anything I want a complete audit of the existing data architecture.
+
+IMPORTANT:
+- Do NOT replace mock data yet.
+- Do NOT install new APIs yet.
+- Do NOT redesign anything.
+- Do NOT modify the UI.
+- Do NOT rewrite the Golden Window engine.
+- Do NOT remove existing functionality.
+- Do NOT refactor unrelated code.
+- Do NOT make speculative changes.
+
+AUDIT THE ENTIRE NEXUS APPLICATION.
+
+Find every location where mock, demo, hard-coded, seeded, placeholder, or simulated data is being used.
+
+Pay particular attention to:
+
+1. VENUES / PLACES
+   - Where are venues currently coming from?
+   - What fields does the application expect?
+   - Are coordinates, categories, ratings, prices, opening hours, etc. mocked?
+   - Which components consume this data?
+
+2. LOCATION / MAP
+   - How is the user's location currently determined?
+   - Is geolocation real or mocked?
+   - How does map-picker.tsx currently obtain/display coordinates?
+   - What location format does the rest of Nexus expect?
+
+3. WEATHER
+   - Is weather currently mocked?
+   - Find every weather data source.
+   - Identify the exact data structure expected by WeatherAtmosphere and other components.
+
+4. EVENTS / ACTIVITIES
+   - Identify any mocked events or activities.
+   - Determine what fields the application expects.
+
+5. GROUP MEMBERS
+   - Identify whether group members/availability are real Supabase records or demo data.
+   - Do NOT alter authentication or database structure.
+
+6. AVAILABILITY
+   - Determine how availability is currently represented.
+   - Identify any hard-coded availability.
+   - Identify what the Golden Window engine actually consumes.
+
+7. GOLDEN WINDOW ENGINE
+   - Trace the complete data flow into the scoring engine.
+   - Identify every input.
+   - Clearly distinguish:
+     REAL DATA
+     MOCK DATA
+     USER-PROVIDED DATA
+     DERIVED/CALCULATED DATA
+
+8. DASHBOARD / GROUP / ACTIVITY / PROFILE
+   - Identify any mock data being displayed in these areas.
+
+9. SUPABASE
+   - Identify which data is already coming from Supabase.
+   - Identify what tables/functions currently exist and are actually being used.
+   - Do NOT modify the database.
+
+10. API REQUIREMENTS
+   Based ONLY on the existing implementation, determine which external APIs/services would be required to replace the mock data.
+
+For each proposed external data source, tell me:
+
+- What Nexus needs it for
+- What exact data we need from it
+- Which existing component/service would consume it
+- Whether the existing data structure can accommodate it
+- Whether an adapter/normalisation layer would be useful
+- Whether a free tier is available
+- Whether an API key is required
+
+MOST IMPORTANT:
+
+Create a clear dependency/data-flow map like:
+
+REAL SOURCE
+↓
+API/service
+↓
+Nexus data/normalisation layer
+↓
+Golden Window engine
+↓
+UI
+
+Do NOT implement this architecture yet.
+
+FINAL REPORT:
+
+Give me:
+
+A. Complete list of mock-data sources
+B. Complete list of already-real data sources
+C. Golden Window input map
+D. External APIs/services required
+E. Recommended order for replacing mock data
+F. Any technical risks or bottlenecks you discover
+
+Then STOP.
+
+We will review your audit before making any changes.
