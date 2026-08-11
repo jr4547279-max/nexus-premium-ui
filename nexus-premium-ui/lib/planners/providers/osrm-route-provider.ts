@@ -257,6 +257,50 @@ interface OsrmResponse {
   routes?: OsrmRoute[]
 }
 
+// ── Surface inference ─────────────────────────────────────────────────────────
+
+/**
+ * Infers surface composition from OSM step names using heuristic patterns.
+ *
+ * Road suffixes → tarmac/asphalt surface.
+ * Path/green-space keywords → off-road surface.
+ * Unnamed segments → footpaths / unmapped tracks (counted as path).
+ *
+ * The result is an estimate only — OSRM does not return OSM surface= tags.
+ * The surfaceSummary label in the UI makes this clear.
+ */
+function inferSurfaceProfile(
+  steps: OsrmStep[],
+): { roadFraction: number; pathFraction: number } {
+  const ROAD_RE = /\b(road|street|avenue|boulevard|crescent|drive|rise|close|court|terrace|gardens|grove|lane|circus|square|row|hill|bridge|way)\b/i
+  const PATH_RE = /\b(path|track|trail|footway|footpath|bridleway|steps|passage|alley|meadow|common|green|walk|park|cycle|towpath|riverside|field)\b/i
+
+  let roadKm    = 0
+  let pathKm    = 0
+  let unknownKm = 0
+
+  for (const step of steps) {
+    const km   = step.distance / 1000
+    const name = step.name.trim()
+    if (!name) {
+      pathKm += km   // unnamed segments are typically footpaths / unmapped tracks
+    } else if (ROAD_RE.test(name)) {
+      roadKm += km
+    } else if (PATH_RE.test(name)) {
+      pathKm += km
+    } else {
+      unknownKm += km   // labelled but not matched — split 40/60 road/path
+    }
+  }
+
+  const total = roadKm + pathKm + unknownKm
+  if (total === 0) return { roadFraction: 0.5, pathFraction: 0.5 }
+
+  const effectiveRoad = roadKm + unknownKm * 0.4
+  const roadFraction  = Math.min(1, Math.max(0, effectiveRoad / total))
+  return { roadFraction, pathFraction: 1 - roadFraction }
+}
+
 // ── Named segment extraction ───────────────────────────────────────────────────
 
 interface NamedSegment {
@@ -457,18 +501,26 @@ async function queryOsrm(
     const distKm = Math.round((route.distance / 1000) * 100) / 100
     if (distKm < MIN_ROUTE_KM) return null
 
-    const cumDist    = cumulativeDistances(coords)
-    const allSteps   = route.legs.flatMap(leg => leg.steps ?? [])
-    const retrace    = computeRetraceRatio(coords)
-    const loopQ      = computeLoopQuality(coords, distKm)
-    const routeType  = classifyRoute(coords, distKm, retrace, loopQ)
-    const waypoints  = buildWaypoints(coords, cumDist, allSteps, directionName, routeType)
-    const name       = buildRouteName(distKm, directionName, routeType, targetKm)
+    const cumDist       = cumulativeDistances(coords)
+    const allSteps      = route.legs.flatMap(leg => leg.steps ?? [])
+    const retrace       = computeRetraceRatio(coords)
+    const loopQ         = computeLoopQuality(coords, distKm)
+    const routeType     = classifyRoute(coords, distKm, retrace, loopQ)
+    const waypoints     = buildWaypoints(coords, cumDist, allSteps, directionName, routeType)
+    const name          = buildRouteName(distKm, directionName, routeType, targetKm)
+    const surfaceProfile = inferSurfaceProfile(allSteps)
 
     const grade: RouteCandidate['grade'] =
       distKm < 3  ? 'easy' :
       distKm < 8  ? 'moderate' :
       distKm < 15 ? 'hard' : 'expert'
+
+    const roadPct = Math.round(surfaceProfile.roadFraction * 100)
+    const surfaceSummary =
+      roadPct < 20 ? 'Mostly paths & trails' :
+      roadPct < 45 ? 'Mix of paths and roads' :
+      roadPct < 70 ? 'Mix of roads and paths' :
+      'Mostly roads'
 
     return {
       id:               candidateId,
@@ -476,7 +528,7 @@ async function queryOsrm(
       waypoints,
       totalDistanceKm:  distKm,
       estimatedMinutes: Math.round(distKm * RUNNING_PACE_MIN_PER_KM),
-      surfaceSummary:   'Paths and roads (OpenStreetMap)',
+      surfaceSummary:   `${surfaceSummary} · OpenStreetMap`,
       grade,
       routeType,
       isLoop:           routeType === 'loop',
@@ -485,6 +537,7 @@ async function queryOsrm(
       dataSource:       'real',
       providerName:     'OSRM · OpenStreetMap',
       geometry:         coords,
+      surfaceProfile,
     }
   } catch {
     return null
@@ -607,13 +660,25 @@ export class OsrmRouteProvider implements RouteProvider {
     }
 
     // ── Sort: loops first, then by composite score ────────────────────────────
-    const deduped = [...bestByKey.values()].sort((a, b) => {
-      // Loops beat non-loops at the top level
+    const byScore = [...bestByKey.values()].sort((a, b) => {
       if (a.routeType === 'loop' && b.routeType !== 'loop') return -1
       if (b.routeType === 'loop' && a.routeType !== 'loop') return 1
       return scoreCandiate(b, targetKm) - scoreCandiate(a, targetKm)
     })
 
-    return deduped.slice(0, maxRoutes)
+    // ── Second dedup pass: remove near-identical distances of the same type ──
+    // Prevents "4.8 km Out & Back", "4.9 km Out & Back", "5.0 km Out & Back"
+    // from all appearing as separate routes.
+    const finalDeduped: RouteCandidate[] = []
+    for (const c of byScore) {
+      const isDup = finalDeduped.some(e =>
+        e.routeType === c.routeType &&
+        Math.abs(e.totalDistanceKm - c.totalDistanceKm) /
+          Math.max(e.totalDistanceKm, 0.1) < 0.08,
+      )
+      if (!isDup) finalDeduped.push(c)
+    }
+
+    return finalDeduped.slice(0, maxRoutes)
   }
 }

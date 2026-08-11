@@ -1,104 +1,122 @@
 ---
-name: Live Run Tracker architecture
-description: GPS run tracking screen built on top of the OSRM jogging planner. Key decisions for future changes.
+name: Live Run Tracker + Route Planner architecture
+description: GPS run tracking screen and multi-route planner built on OSRM jogging planner. Key decisions for future changes.
 ---
 
-## What was built
-- `lib/running/geo.ts` — pure geodesic functions (haversine, nearest-point-on-segment projection, pace/time formatting)
-- `components/nexus/run-tracker.tsx` — full-screen GPS tracking component (idle → tracking → paused → finished)
-- `lib/planners/types.ts` — `RouteCandidate.geometry` (full OSRM polyline) + `PlannerResult.routeGeometry`
-- `lib/planners/providers/osrm-route-provider.ts` — OSRM foot-profile provider with geometry-based classification
-- `lib/planners/jogging-planner.ts` — carries routeType + routeGeometry into PlannerResult
-- `components/nexus/route-plan-card.tsx` — displays routeType consistently (Loop/Out & Back/Linear)
-- `components/nexus/route-plan-card.tsx` — "Start Run" button (only for `dataSource === 'real'`)
-- `components/nexus/activity-plan-card.tsx` — threads `onStartRun` prop
-- `components/nexus/group-detail.tsx` — `onStartRun` prop, wires activePlan → callback
-- `components/nexus/nexus-app.tsx` — `'run-tracker'` Screen, `activeRunPlan` state, `RunTracker` import
+## What was built (Jobs 9–11)
+- `lib/running/geo.ts` — pure geodesic functions (haversine, nearest-point-on-segment, pace/time)
+- `components/nexus/run-tracker.tsx` — full-screen GPS tracking (idle → tracking → paused → finished)
+- `components/nexus/run-route-planner.tsx` — multi-route preferences UI (prefs → searching → results → error)
+- `lib/planners/types.ts` — RoutePreferences, RouteCandidate.surfaceProfile/qualityLabel/compositeScore, PlannerResult.allCandidates
+- `lib/planners/providers/osrm-route-provider.ts` — OSRM with surface inference + 2-pass dedup
+- `lib/planners/jogging-planner.ts` — preference scoring, quality labels, candidateToPlannerResult() export
+- `components/nexus/route-plan-card.tsx` — routeType-consistent display (no contradictions)
 
 ## Navigation flow
-GroupDetail → (user taps "Start Run") → onStartRun(activePlan) → nexus-app sets activeRunPlan + navigates to 'run-tracker' → RunTracker receives plan + onBack → 'group-detail'
+GroupDetail → (user is in jogging group) → RunRoutePlanner component (self-managed state)
+→ user sets prefs + taps "Find Routes"
+→ runPlanner({..., routePreferences}) → allCandidates returned
+→ user selects route
+→ "Start Run" → candidateToPlannerResult(candidate, {goldenWindow, locationName}) → onStartRun(plan)
+→ nexus-app sets activeRunPlan + navigates to 'run-tracker' → RunTracker receives plan + onBack
+
+## Route preferences (RoutePreferences type)
+- `distanceKm: number` — 1–30 km, defaults 5
+- `routeTypePreference: 'loop' | 'out_and_back' | 'any'` — default 'any'
+- `surfacePreference: 'paths' | 'roads' | 'mixed'` — default 'mixed'
+- `difficulty: 'easy' | 'moderate' | 'challenging' | 'any'` — default 'any'
+- Stored in PlannerRequest.routePreferences; ignored by venue planners
+
+## Multi-route results (allCandidates)
+- Provider returns up to 5 candidates (maxRoutes:5 now)
+- Planner scores each with preference-aware weights → ranked
+- Quality labels assigned: "Best Match", "Best Loop", "Most Paths", "Alternative", etc.
+- PlannerResult.allCandidates carries all ranked candidates for the UI
+- RunRoutePlanner shows up to 3 compact cards with SVG route previews
+- Selection → candidateToPlannerResult() → no extra OSRM call
+
+## Preference-aware scoring (scoreWithPreferences)
+distFit + typeScore + loopBonus - retracePen + surfaceScore + diffScore
+- Loop preferred: loops get +2.0, non-loops get -0.5
+- Out&back preferred: out-and-back gets +1.0
+- Surface paths: penalty for road-heavy routes (roadFraction > 0.5)
+- Surface roads: bonus for road-heavy routes
+- Difficulty: small ±0.2 based on distance proxy (no elevation from OSRM)
+
+## Surface inference (inferSurfaceProfile in osrm-route-provider)
+Analyzes OSRM step names with regex patterns:
+- ROAD_RE: road, street, avenue, boulevard, crescent, drive, lane, etc.
+- PATH_RE: path, track, trail, footway, meadow, common, green, walk, park, towpath, etc.
+- Unnamed segments → path (footpath/unmapped)
+- Returns { roadFraction, pathFraction } on each RouteCandidate.surfaceProfile
 
 ## RouteType — single source of truth
-`RouteType = 'loop' | 'out_and_back' | 'linear'` added to both RouteCandidate and PlannerResult.
-Determined ONLY from geometry metrics — never from provider intent:
+`RouteType = 'loop' | 'out_and_back' | 'linear'` determined ONLY from geometry:
   LOOP = startFinish < 150m AND retraceRatio < 0.20 AND loopQuality > 0.08
   OUT_AND_BACK = startFinish < 150m AND (retraceRatio ≥ 0.20 OR loopQuality ≤ 0.08)
   LINEAR = startFinish ≥ 150m
 
-**Why:** The original "loop" label was set by provider intent, not measured geometry.
-Real-world OSRM routes frequently retrace in urban areas (40-99% retrace ratio for Oxford city centre).
-Honest classification is more useful than a false "Loop" label.
+**Why:** Original "loop" label was provider intent. Geometry measurement is honest.
+Real-world Oxford routes: ALL classify as OUT_AND_BACK (retrace 48–98%) near Ewert Place.
 
-## Candidate generation strategy (Job 10)
-8 bearings × 5 configs = up to 40 parallel OSRM queries:
-  Config 1: 2-leg (start → via(half dist) → start) — classic out-and-back baseline
-  Config 2-3: Triangle small (legFrac=0.22): left/right 90° turn triangles
-  Config 4-5: Triangle medium (legFrac=0.35): left/right 90° turn triangles
+## Honest failure — loop requested but none found
+RunRoutePlanner shows amber notice:
+"No genuine loop found near this location — showing best available alternatives."
+NEVER relabels an out-and-back as a loop.
 
-Triangles fire: start → via1(bearing, legKm) → via2(bearing±90° from via1, legKm) → start.
-This forces OSRM to traverse different road segments on each leg.
+## Deduplication (2 passes)
+Pass 1: per (direction label × routeType) — keeps best score per direction+type key
+Pass 2: removes near-identical distances — same routeType AND within 8% distance → keep better score
 
-After collection:
-  - Filter by ±60% distance tolerance
-  - Deduplicate by (direction label × routeType) keeping best score per group
-  - Sort: loops first, then by composite score
-  - Return top 3
+## Candidate generation (40 parallel OSRM queries)
+8 bearings × 5 configs:
+  Config 1: 2-leg (start → via(half dist) → start)
+  Configs 2-5: Triangles (start → via1(bearing, legKm) → via2(bearing±90°, legKm) → start), two leg sizes
 
-## Oxford city centre finding (important for future work)
-Live test confirmed: ALL candidates near Ewert Place (Banbury Road, Oxford) classify as OUT_AND_BACK.
-Retrace ratio: 0.31-0.99 across all 40 configs. No genuine loops found.
-Root cause: linear road corridor (Banbury Rd), River Cherwell/Thames barriers forcing same-path returns.
-This is a real-world constraint, not a bug. The planner correctly returns the best out-and-back route
-and labels it honestly. Out-and-back routes are common in constrained urban networks.
+## SVG route preview (RouteSvgPreview in run-route-planner.tsx)
+- Samples geometry to max ~120 points
+- Normalizes [lng,lat] coords to 100×100 SVG viewport
+- Y-flip: lat increases upward → flip for screen coords
+- Zero Leaflet overhead — pure SVG polyline
+- Gold color for selected card, muted for others
+- Start dot + end dot (hidden for loops where start ≈ finish)
 
-## Retrace metric (grid-cell approach)
-Discretize [lng, lat] coords to 30m grid cells, count cells visited > once.
-retraceRatio = duplicateCells / totalCells.
-Test result: pure 2-leg out-and-back scores 0.92-0.99; best triangle gets ~0.31.
-Thresholds: < 0.20 → eligible for loop classification.
-
-## Why full geometry is preserved (not just sampled waypoints)
-The tracker needs the full polyline for: (a) accurate route progress projection, (b) smooth planned-route display.
-Solution: `RouteCandidate.geometry?: Array<[number,number]>` carrying raw OSRM coords → `PlannerResult.routeGeometry`.
-
-## Coordinate system convention
-OSRM and GeoJSON use [lng, lat] order. Leaflet uses [lat, lng].
-- `routeGeometry` / `RouteCandidate.geometry` → stored as [lng, lat]
-- Leaflet polylines → always convert: `routeCoords.map(([lng, lat]) => [lat, lng])`
-- `nearestPointOnRoute(gpsLat, gpsLng, routeCoords)` → expects [lng, lat] coords (GeoJSON)
+## candidateToPlannerResult() — exported utility
+Converts RouteCandidate → PlannerResult without a network call.
+Called when user selects a different route from the multi-route UI.
+Takes {goldenWindow, locationName}, uses waypointsToStops() internally.
+The resulting PlannerResult carries full routeGeometry for GPS tracker.
 
 ## GPS lifecycle (no leaks)
-- `watchPosition` only started when user taps "Start Run" (never silently)
-- `clearWatch(watchIdRef.current)` called in: handleFinish + useEffect cleanup (unmount)
-- Timer interval cleaned up in: handlePause + handleFinish + useEffect cleanup
-- `runStateRef` (ref, not state) used inside GPS callback to avoid stale-closure bugs
-
-## Accuracy / glitch filtering + auto-follow guard
-- Skip trail points when accuracy > 50 m (mark GPS as 'weak', still update position marker)
-- Skip trail points when jump > 200 m between consecutive updates (GPS glitch)
-- Auto-follow (map.setView) is ALSO gated on `accuracy <= MAX_ACCURACY_M`
-  Without this, desktop IP-GPS (accuracy ~1-5km) pans map far from route → blank/black tiles.
-
-## Black map bug root causes (both fixed in Job 9)
-1. CSS class change on canvas div: always `absolute inset-0`; parent wrapper controls height.
-   `invalidateSize()` called via `useEffect([runState])` on every state transition.
-2. Auto-follow with no accuracy gate: fixed with `accuracy <= MAX_ACCURACY_M` guard.
-
-## framer-motion is NOT installed
-Importing it causes build failure. Use plain CSS for transitions.
+- `watchPosition` only started when user taps "Start Run"
+- `clearWatch(watchIdRef.current)` called in: handleFinish + useEffect cleanup
+- `runStateRef` (ref not state) inside GPS callback to avoid stale closures
+- Accuracy gate: only add trail points when accuracy ≤ 50m
 
 ## Off-route detection UX
-- `isOffRoute` boolean + `offRouteDistM` number (metres)
 - < 1km: "X m off route"
 - 1-2km: "X.X km off route"
-- ≥ 2km: "You're X km from the planned route" (prevents alarming "148 km off route" text)
-- `backOnRoute` state: when isOffRoute transitions true→false, 3s emerald toast appears.
-- Going off route never stops GPS, resets stats, or affects map tiles.
+- ≥ 2km: "You're X km from the planned route" (avoids alarming "148 km off route")
+- Going off route never stops GPS or resets stats
 
-## OSRM provider — real road names
-- `steps=true` → OSRM returns per-step OSM road/path names
-- `buildNamedSegments()` deduplicates consecutive steps with the same name
-- Waypoint label depends on routeType: LOOP uses "Loop start & finish", OUT_AND_BACK uses "Start"
+## Coordinate conventions
+OSRM/GeoJSON: [lng, lat]. Leaflet: [lat, lng].
+- routeGeometry / RouteCandidate.geometry → [lng, lat]
+- Leaflet polylines → convert: coords.map(([lng, lat]) => [lat, lng])
+- nearestPointOnRoute(gpsLat, gpsLng, routeCoords) → expects [lng, lat]
 
-## No DB writes (session-local)
-GPS trail is kept in `trailRef.current` (React ref) only. No Supabase calls in RunTracker.
+## Black map fix (Job 9)
+1. CSS: always `absolute inset-0` on canvas div; parent controls height
+2. `invalidateSize()` called on every runState transition
+3. Auto-follow gated on `accuracy <= MAX_ACCURACY_M` (IP GPS = 1-5km → no auto-pan)
+
+## framer-motion NOT installed
+Importing it causes build failure. Use plain CSS transitions.
+
+## In-session route cache (RunRoutePlanner)
+useRef(new Map<string, RouteCandidate[]>()). Key: `${lat4},{lng4},{distKm},{typePreference},{surfacePreference}`. Avoids re-querying OSRM when user re-opens the same prefs.
+
+## group-detail.tsx — route vs venue dispatch
+Route planners (kind:'route') now render RunRoutePlanner (self-managed state).
+Venue planners (kind:'venue') still use planPhase/activePlan/handlePlanActivity.
+Detection: `getPlannerFor(rawActivityId)?.kind === 'route'`

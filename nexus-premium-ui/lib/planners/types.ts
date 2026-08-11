@@ -26,6 +26,33 @@ export type PriceLevel = 1 | 2 | 3 | 4 // £ | ££ | £££ | ££££
 export type VenueCapacity = 'small' | 'medium' | 'large'
 export type MatchQuality = 'perfect' | 'strong' | 'partial' | 'compromise'
 
+// ── Route Preferences ─────────────────────────────────────────────────────────
+// User-configurable preferences for route planning.
+// Reusable across jogging, hiking, cycling, walking — each activity provides
+// its own defaults via ActivityRouteConfig.defaultPreferLoop etc.
+
+export type RouteTypePreference = 'loop' | 'out_and_back' | 'any'
+export type SurfacePreference   = 'paths' | 'roads' | 'mixed'
+export type DifficultyPreference = 'easy' | 'moderate' | 'challenging' | 'any'
+
+export interface RoutePreferences {
+  /** Target route distance in km (1–30) */
+  distanceKm: number
+  /** Preferred route geometry */
+  routeTypePreference: RouteTypePreference
+  /** Preferred surface type — inferred from OSM step names */
+  surfacePreference: SurfacePreference
+  /** Preferred difficulty level */
+  difficulty: DifficultyPreference
+}
+
+export const DEFAULT_ROUTE_PREFERENCES: RoutePreferences = {
+  distanceKm:          5,
+  routeTypePreference: 'any',
+  surfacePreference:   'mixed',
+  difficulty:          'any',
+}
+
 /**
  * Discriminant for the planner architecture.
  *
@@ -164,6 +191,28 @@ export interface RouteCandidate {
    * May contain thousands of coordinate pairs for long routes.
    */
   geometry?: Array<[number, number]>
+
+  // ── Preference-aware scoring fields (populated by the planner, not the provider) ──
+
+  /**
+   * Inferred surface composition based on OSM step name heuristics.
+   * roadFraction: fraction of distance on road-like surfaces.
+   * pathFraction: fraction on path/trail surfaces.
+   */
+  surfaceProfile?: { roadFraction: number; pathFraction: number }
+
+  /**
+   * Human-readable quality label assigned by the planner.
+   * Examples: "Best Match", "Best Loop", "Most Paths", "Alternative"
+   * Only labels that are actually supported by the data are used.
+   */
+  qualityLabel?: string
+
+  /**
+   * Composite preference-aware score (higher is better).
+   * Computed by the planner from distanceFit + typeBonus + surfaceBonus - retracePenalty.
+   */
+  compositeScore?: number
 }
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
@@ -320,6 +369,14 @@ export interface PlannerResult {
    * without re-requesting a route. Undefined for mock/venue plans.
    */
   routeGeometry?: Array<[number, number]>
+
+  /**
+   * All route candidates considered by the planner, ordered best-first.
+   * Populated only for kind:'route' plans.
+   * Used by the multi-route UI (RunRoutePlanner) to show alternatives.
+   * Each candidate carries its geometry, waypoints, qualityLabel, and compositeScore.
+   */
+  allCandidates?: RouteCandidate[]
 }
 
 // ── Request ───────────────────────────────────────────────────────────────────
@@ -380,6 +437,13 @@ export interface PlannerRequest {
    * Route planners pass this to the RouteProvider.
    */
   preferLoop?: boolean
+
+  /**
+   * Full route preferences — overrides desiredDistanceKm / preferLoop when present.
+   * Used by route planners (jogging, hiking, cycling) only.
+   * Ignored by venue planners.
+   */
+  routePreferences?: RoutePreferences
 }
 
 // ── Requirements check ────────────────────────────────────────────────────────

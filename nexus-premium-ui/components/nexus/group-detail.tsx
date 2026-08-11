@@ -57,6 +57,7 @@ import { WeatherChip } from './weather-chip'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
 import { GoldenWindowSearching } from './golden-window-searching'
 import { ActivityPlanCard } from './activity-plan-card'
+import { RunRoutePlanner } from './run-route-planner'
 import {
   runPlanner,
   hasPlannerFor,
@@ -807,6 +808,30 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
           <>
             {hasPlannerFor(rawActivityId) ? (
               <>
+                {getPlannerFor(rawActivityId)?.kind === 'route' ? (
+                  /* ── Route planner — RunRoutePlanner manages its own state ── */
+                  <RunRoutePlanner
+                    groupId={groupId}
+                    activityId={rawActivityId}
+                    goldenWindow={activeWindow ?? null}
+                    planningLocation={
+                      planningLocation
+                        ? {
+                            lat:          planningLocation.lat,
+                            lng:          planningLocation.lng,
+                            radiusMetres: planningLocation.planningRadiusMetres ?? undefined,
+                          }
+                        : null
+                    }
+                    locationName={
+                      planningLocation?.planningCity || planningLocation?.name || undefined
+                    }
+                    onStartRun={onStartRun}
+                    isSolo={realMembers.length === 1}
+                  />
+                ) : (
+                  /* ── Venue planner — unchanged state machine ── */
+                  <>
                 {/* ── Plan CTA — shown until plan is generated ── */}
                 {planPhase === 'idle' && (
                   <GlassCard className="mb-6 p-5">
@@ -816,22 +841,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                         {resolvedActivity?.label ?? 'Activity'} Planner
                       </span>
                     </div>
-                    {/* CTA description — adapts to venue vs route planners */}
-                    {(() => {
-                      const isRoutePlanner = getPlannerFor(rawActivityId)?.kind === 'route'
-                      const isSolo = realMembers.length === 1
-                      return (
-                        <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                          {isRoutePlanner
-                            ? (isSolo
-                                ? 'Nexus will plan a route for you — timed to your Golden Window.'
-                                : 'Nexus will plan a route for your group — timed to your Golden Window.')
-                            : (isSolo
-                                ? 'Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.'
-                                : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.')}
-                        </p>
-                      )
-                    })()}
+                    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                      {realMembers.length === 1
+                        ? 'Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.'
+                        : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.'}
+                    </p>
                     {!activeWindow && (
                       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
                         {realMembers.length === 1
@@ -839,7 +853,6 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                           : 'Find a Golden Window first so Nexus can plan around your group\u2019s available time.'}
                       </p>
                     )}
-                    {/* Location hint — shown for all planned activities */}
                     {!planningLocation && (
                       <p className="text-xs text-muted-foreground bg-muted/20 border border-border/30 rounded-xl px-3 py-2 mb-3 leading-relaxed">
                         <MapPin className="w-3 h-3 inline mr-1 opacity-60" />
@@ -874,9 +887,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                           Planning your {resolvedActivity?.label?.toLowerCase() ?? 'activity'}…
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {getPlannerFor(rawActivityId)?.kind === 'route'
-                            ? 'Planning your route…'
-                            : 'Discovering venues and scoring the best match'}
+                          Discovering venues and scoring the best match
                         </p>
                       </div>
                     </div>
@@ -916,6 +927,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     }}
                     onStartRun={onStartRun ? () => onStartRun(activePlan) : undefined}
                   />
+                )}
+                  </>
                 )}
               </>
             ) : (

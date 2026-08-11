@@ -51,4 +51,10 @@ export type {
   MatchQuality,
   GoldenWindowLike,
   RouteType,
+  RoutePreferences,
+  RouteTypePreference,
+  SurfacePreference,
+  DifficultyPreference,
+  RouteCandidate,
 } from './types'
+export { DEFAULT_ROUTE_PREFERENCES } from './types'
