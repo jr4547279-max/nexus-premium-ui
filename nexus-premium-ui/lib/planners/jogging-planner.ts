@@ -194,6 +194,8 @@ export const joggingPlanner: PlannerDefinition = {
       isLoop:             best.isLoop ?? true,
       // Elevation not available from OSRM standard API
       elevationGainMetres: undefined,
+      // Full GeoJSON [lng, lat] polyline — passed to the live run tracker
+      routeGeometry:      best.geometry,
     }
   },
 }

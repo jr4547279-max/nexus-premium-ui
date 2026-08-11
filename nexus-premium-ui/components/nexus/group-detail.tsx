@@ -72,6 +72,9 @@ interface GroupDetailProps {
   /** Called after the group is successfully deleted. Use to bump groupsVersion
    *  in the parent so the groups list refreshes, then navigate back. */
   onGroupDeleted?: () => void
+  /** Called when the user taps "Start Run" on a generated jogging route.
+   *  The parent receives the active plan so it can launch RunTracker. */
+  onStartRun?: (plan: PlannerResult) => void
 }
 
 /**
@@ -117,7 +120,7 @@ const QUALITY_HEADER: Record<MatchQuality, string> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, onGroupDeleted }: GroupDetailProps) {
+export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, onGroupDeleted, onStartRun }: GroupDetailProps) {
   const realMode = isUuid(groupId)
   const mockGroup = mockGroups.find((g) => g.id === groupId) || mockGroups[0]
 
@@ -911,6 +914,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                       setActivePlan(null)
                       setPlanError(null)
                     }}
+                    onStartRun={onStartRun ? () => onStartRun(activePlan) : undefined}
                   />
                 )}
               </>

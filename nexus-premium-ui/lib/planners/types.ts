@@ -133,6 +133,13 @@ export interface RouteCandidate {
   isLoop?: boolean
   dataSource: 'real' | 'mock'
   providerName?: string
+  /**
+   * Full route polyline in GeoJSON [lng, lat] order.
+   * Only populated by real route providers (OSRM etc.); undefined for mock routes.
+   * Used by the live run tracker to display the planned route on the map.
+   * May contain thousands of coordinate pairs for long routes.
+   */
+  geometry?: Array<[number, number]>
 }
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
@@ -275,6 +282,13 @@ export interface PlannerResult {
   routeGrade?: 'easy' | 'moderate' | 'hard' | 'expert'
   /** true = the planned route is a loop returning to the start */
   isLoop?: boolean
+  /**
+   * Full route polyline in GeoJSON [lng, lat] order.
+   * Populated only for kind:'route' plans from real providers (OSRM etc.).
+   * Passed to the live run tracker so it can render the planned route on the map
+   * without re-requesting a route. Undefined for mock/venue plans.
+   */
+  routeGeometry?: Array<[number, number]>
 }
 
 // ── Request ───────────────────────────────────────────────────────────────────

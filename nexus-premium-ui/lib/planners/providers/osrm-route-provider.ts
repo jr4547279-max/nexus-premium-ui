@@ -247,6 +247,9 @@ export class OsrmRouteProvider implements RouteProvider {
         isLoop:          true,
         dataSource:      'real',
         providerName:    'OSRM · OpenStreetMap',
+        // Full GeoJSON [lng, lat] polyline — preserved for the live run tracker.
+        // Not sampled; carries every coordinate OSRM returned.
+        geometry:        coords,
       }
     } catch {
       return null

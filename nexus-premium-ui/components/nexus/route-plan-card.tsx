@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button'
 import {
   RefreshCw, MapPin, Clock, ExternalLink,
   AlertTriangle, Globe, Database, Navigation,
-  RotateCcw, TrendingUp,
+  RotateCcw, TrendingUp, Play,
 } from 'lucide-react'
 import type { PlannerResult, MatchQuality } from '@/lib/planners/planner-engine'
 
@@ -136,11 +136,12 @@ function osmUrl(lat: number, lng: number): string {
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface RoutePlanCardProps {
-  plan: PlannerResult
+  plan:           PlannerResult
   onRecalculate?: () => void
+  onStartRun?:    () => void
 }
 
-export function RoutePlanCard({ plan, onRecalculate }: RoutePlanCardProps) {
+export function RoutePlanCard({ plan, onRecalculate, onStartRun }: RoutePlanCardProps) {
   const quality      = (plan.goldenWindowQuality ?? 'partial') as MatchQuality
   const qualityStyle = QUALITY_STYLES[quality]
 
@@ -340,6 +341,17 @@ export function RoutePlanCard({ plan, onRecalculate }: RoutePlanCardProps) {
             </div>
             <span className="tabular-nums">{plan.groupMatchPercent}% of group available</span>
           </div>
+        )}
+
+        {/* Start Run — only shown for real data routes */}
+        {onStartRun && plan.dataSource === 'real' && (
+          <Button
+            onClick={onStartRun}
+            className="w-full h-11 rounded-xl text-sm font-semibold bg-primary hover:bg-primary/90 text-primary-foreground mb-2 shadow-md"
+          >
+            <Play className="w-4 h-4 mr-2 fill-current" />
+            Start Run
+          </Button>
         )}
 
         {/* Recalculate */}

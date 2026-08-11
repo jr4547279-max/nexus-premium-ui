@@ -22,14 +22,15 @@ import { SingleVenuePlan } from './single-venue-plan'
 import { RoutePlanCard } from './route-plan-card'
 
 interface ActivityPlanCardProps {
-  plan: PlannerResult
+  plan:           PlannerResult
   onRecalculate?: () => void
+  onStartRun?:    () => void
 }
 
-export function ActivityPlanCard({ plan, onRecalculate }: ActivityPlanCardProps) {
+export function ActivityPlanCard({ plan, onRecalculate, onStartRun }: ActivityPlanCardProps) {
   // Route plans (jogging, hiking, cycling, walking …)
   if (plan.kind === 'route') {
-    return <RoutePlanCard plan={plan} onRecalculate={onRecalculate} />
+    return <RoutePlanCard plan={plan} onRecalculate={onRecalculate} onStartRun={onStartRun} />
   }
 
   // Venue plans

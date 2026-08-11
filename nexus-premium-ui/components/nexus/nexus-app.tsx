@@ -10,6 +10,8 @@ import { Dashboard } from './dashboard'
 import { GroupsScreen } from './groups-screen'
 import { GroupDetail } from './group-detail'
 import { GoldenWindowReveal } from './golden-window-reveal'
+import { RunTracker } from './run-tracker'
+import type { PlannerResult } from '@/lib/planners/planner-engine'
 import { ActivityScreen } from './activity-screen'
 import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
@@ -32,6 +34,7 @@ type Screen =
   | 'golden-window'
   | 'activity'
   | 'profile'
+  | 'run-tracker'
   // DEV-ONLY — remove before production
   | 'dev-test'
 
@@ -43,6 +46,7 @@ export function NexusApp() {
   const [onboardingReturnTo, setOnboardingReturnTo] = useState<Screen>('home')
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [groupsVersion, setGroupsVersion] = useState(0)
+  const [activeRunPlan, setActiveRunPlan] = useState<PlannerResult | null>(null)
 
   const initializedRef = useRef(false)
 
@@ -255,8 +259,21 @@ export function NexusApp() {
             setGroupsVersion((v) => v + 1)
             setCurrentScreen(prevGroupScreen)
           }}
+          onStartRun={(plan) => {
+            setActiveRunPlan(plan)
+            setCurrentScreen('run-tracker')
+          }}
         />
       )
+      break
+
+    case 'run-tracker':
+      screenContent = activeRunPlan ? (
+        <RunTracker
+          plan={activeRunPlan}
+          onBack={() => setCurrentScreen('group-detail')}
+        />
+      ) : null
       break
 
     case 'golden-window':
