@@ -616,51 +616,33 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             {gwRequirements?.canCompute ? (
               <>
                 <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                  Nexus will find the best time for your group — even if there&apos;s no perfect
-                  overlap, it&apos;ll find the closest option and explain the match.
+                  {realMembers.length === 1
+                    ? "Nexus will find your best available time — timed to fit your schedule."
+                    : "Nexus will find the best time for your group — even if there\u2019s no perfect overlap, it\u2019ll find the closest option and explain the match."}
                 </p>
                 <Button
                   onClick={handleStartSearch}
                   className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
-                  Find Golden Window
-                </Button>
-              </>
-            ) : realMembers.length < 2 ? (
-              // ── Solo member: invite is the only unblocking action ──────────
-              <>
-                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                  Golden Windows need at least 2 members. Invite someone so Nexus
-                  can find the best time for your group.
-                </p>
-                <Button
-                  onClick={() => setInviteOpen(true)}
-                  className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Invite Someone
-                </Button>
-                <Button
-                  onClick={() => setActiveSection('availability')}
-                  className="mt-2 w-full h-9 rounded-xl bg-muted/30 hover:bg-muted/50 text-muted-foreground text-xs border-0"
-                >
-                  Set your availability first
+                  {realMembers.length === 1 ? 'Find My Golden Window' : 'Find Golden Window'}
                 </Button>
               </>
             ) : (
-              // ── Enough members, but availability data is missing ───────────
+              // ── Missing data — explain exactly what's needed ───────────────
               <>
                 <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                   {gwRequirements?.missingExplanation ??
-                    'Add your availability so Nexus can find the best time for your group.'}
+                    (realMembers.length === 1
+                      ? 'Add your availability to find your Golden Window.'
+                      : 'Add your availability so Nexus can find the best time for your group.')}
                 </p>
                 <Button
                   disabled
                   className="w-full h-11 rounded-xl opacity-40 cursor-not-allowed"
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
-                  Find Golden Window
+                  {realMembers.length === 1 ? 'Find My Golden Window' : 'Find Golden Window'}
                 </Button>
                 <Button
                   onClick={() => setActiveSection('availability')}
@@ -696,7 +678,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
                 <span className="text-sm text-primary font-medium">
-                  {QUALITY_HEADER[activeWindow.match_quality]}
+                  {activeWindow.total_member_count === 1
+                    ? 'Your Golden Window ✨'
+                    : QUALITY_HEADER[activeWindow.match_quality]}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -745,7 +729,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               <div className="flex items-center gap-1 text-emerald-500 text-sm">
                 <Check className="w-4 h-4" />
                 <span>
-                  {activeWindow.available_member_count} of {activeWindow.total_member_count} free
+                  {activeWindow.total_member_count === 1
+                    ? "You're free"
+                    : `${activeWindow.available_member_count} of ${activeWindow.total_member_count} free`}
                 </span>
               </div>
             </div>
@@ -830,18 +816,24 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     {/* CTA description — adapts to venue vs route planners */}
                     {(() => {
                       const isRoutePlanner = getPlannerFor(rawActivityId)?.kind === 'route'
+                      const isSolo = realMembers.length === 1
                       return (
                         <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                           {isRoutePlanner
-                            ? 'Nexus will plan a route for your group — timed to your Golden Window.'
-                            : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.'}
+                            ? (isSolo
+                                ? 'Nexus will plan a route for you — timed to your Golden Window.'
+                                : 'Nexus will plan a route for your group — timed to your Golden Window.')
+                            : (isSolo
+                                ? 'Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.'
+                                : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.')}
                         </p>
                       )
                     })()}
                     {!activeWindow && (
                       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-                        Find a Golden Window first so Nexus can plan around your
-                        group&apos;s available time.
+                        {realMembers.length === 1
+                          ? 'Find your Golden Window first so Nexus can plan around your available time.'
+                          : 'Find a Golden Window first so Nexus can plan around your group\u2019s available time.'}
                       </p>
                     )}
                     {/* Location hint — shown for all planned activities */}

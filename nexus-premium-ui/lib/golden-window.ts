@@ -264,7 +264,9 @@ export function computeGoldenWindows(
   const now         = options.now ?? new Date()
   const todayDow    = now.getDay()
   const minDuration = options.minDurationMinutes ?? 1  // any genuine overlap
-  const minMembers  = Math.max(2, options.minMembers ?? 2)
+  // For a single-member group the only requirement is that the member is available.
+  // For 2+ members we require at least 2 to overlap (the classic group behaviour).
+  const minMembers  = options.minMembers ?? (total === 1 ? 1 : 2)
 
   const memberIdSet = new Set(members.map((m) => m.id))
 
@@ -395,11 +397,10 @@ export function checkGoldenWindowRequirements(
   members: GoldenWindowMember[],
   rows: GoldenWindowAvailabilityRow[],
 ): GoldenWindowRequirements {
-  if (members.length < 2) {
+  if (members.length === 0) {
     return {
       canCompute: false,
-      missingExplanation:
-        'You need at least 2 members to find a Golden Window. Invite someone to join the group.',
+      missingExplanation: 'No members found in this group.',
     }
   }
 
@@ -408,6 +409,20 @@ export function checkGoldenWindowRequirements(
     rows.filter((r) => memberIdSet.has(r.user_id)).map((r) => r.user_id),
   )
 
+  // ── Single-member group ──────────────────────────────────────────────────
+  // A Personal Golden Window requires only this member to have availability.
+  if (members.length === 1) {
+    if (membersWithSlots.size === 0) {
+      return {
+        canCompute: false,
+        missingExplanation:
+          'Add your availability to find your Golden Window.',
+      }
+    }
+    return { canCompute: true, missingExplanation: null }
+  }
+
+  // ── Multi-member group ───────────────────────────────────────────────────
   if (membersWithSlots.size === 0) {
     return {
       canCompute: false,
