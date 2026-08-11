@@ -1,0 +1,385 @@
+JOB 13 — BUILD WALKING USING THE SHARED ACTIVITY-PLANNING ARCHITECTURE
+
+We now have the Jogging flow working correctly. Do NOT modify or regress the working Jogging implementation.
+
+The next task is to implement Walking using the same underlying architecture, while keeping the experience activity-specific.
+
+IMPORTANT: Read all relevant existing files and architecture before writing anything. Do not blindly copy the Jogging implementation.
+
+1. INSPECT THE EXISTING ARCHITECTURE
+
+Before making changes, inspect:
+
+- activity/planner registry
+- planner-engine
+- planner types
+- computeGoldenWindows()
+- checkGoldenWindowRequirements()
+- jogging-planner.ts
+- run-route-planner.tsx
+- group-detail.tsx
+- existing Walking activity/planner code
+- OSRM provider
+- RunTracker
+- candidateToPlannerResult()
+
+Reuse existing infrastructure wherever possible.
+
+The goal is to make Walking another consumer of the shared activity-planning architecture, NOT create a completely separate system.
+
+2. SHARED AVAILABILITY
+
+Walking must use the same availability intelligence established for Jogging.
+
+SOLO WALK:
+
+Member availability
+→ best available window
+→ Walking route planner
+
+Do NOT require the Golden Window UI.
+
+GROUP WALK:
+
+All member availability
+→ computeGoldenWindows()
+→ genuine shared window
+→ Walking route planner
+
+Do NOT use allAvailability[0].
+
+Do NOT simply use the first member's availability.
+
+Do NOT invent a fallback such as today at 09:00.
+
+Do NOT require the Golden Window UI to be visible.
+
+The existing Golden Window engine should provide the underlying shared-time intelligence.
+
+If there is no genuine shared window:
+
+"No shared time found — there's no slot when everyone in this group is free."
+
+Do not silently choose one person's time.
+
+If only a compromise window exists, do not present it as a genuine everyone-available window.
+
+3. WALKING ROUTE PLANNER
+
+Implement Walking using the real OSRM/OpenStreetMap routing pipeline.
+
+No mock routes.
+No hard-coded routes.
+No fake route data.
+
+Generate multiple viable route candidates and allow the user to choose between them.
+
+Reuse the existing RouteCandidate architecture, scoring, ranking and deduplication where appropriate.
+
+4. WALKING PREFERENCES
+
+Walking should support:
+
+Distance:
+- 1 km
+- 2 km
+- 5 km
+- 10 km
+- Custom
+
+Route type:
+- Loop
+- Out & Back
+- Any
+
+Surface:
+- Any
+- Paths
+- Roads
+
+Difficulty:
+- Any
+- Easy
+- Moderate
+- Challenging
+
+Reuse the existing preference/type system rather than creating a second incompatible one.
+
+5. ROUTE GENERATION
+
+Use the correct OSRM walking profile/configuration.
+
+Candidates should retain:
+
+- full route geometry
+- distance
+- duration
+- route type
+- surface information
+- difficulty information
+- quality/composite score
+- waypoints
+- tracker metadata
+
+Keep the existing route deduplication and ranking behaviour where appropriate.
+
+6. ROUTE SELECTION UI
+
+Reuse/refactor the existing route-selection UI rather than duplicating the entire Jogging component.
+
+Show multiple route choices.
+
+Each candidate should communicate things such as:
+
+2.4 km · 32 min
+Loop · Mostly paths
+Easy
+
+Include the existing lightweight SVG route preview.
+
+Selecting a route should reveal its details.
+
+When Start Walk is pressed, pass the selected route directly into the tracker.
+
+DO NOT make another OSRM request when the user presses Start.
+
+7. GOLDEN WINDOW UI
+
+Walking is a route activity.
+
+Therefore, just like Jogging:
+
+DO NOT display the Golden Window card inside the Walking route-planning flow.
+
+Do not show:
+
+- Find Golden Window CTA
+- Recalculate Golden Window
+- Explore nearby fits
+- venue discovery
+
+However, DO NOT remove or break Golden Window globally.
+
+Other activities that need Golden Window must continue working.
+
+Golden Window should remain an internal shared-availability engine for route activities rather than a mandatory UI step.
+
+8. VENUES
+
+Do not automatically search for venues during Walking route generation.
+
+Walking should be:
+
+Location → Time → Route → Walk
+
+NOT:
+
+Location → Time → Venue → Walk
+
+Keep venue infrastructure intact for other activities.
+
+Optional walking stops may be added later, but DO NOT implement them in this job.
+
+9. LOCATION HANDLING
+
+Use the existing resolved planning location.
+
+The user's selected planning location is authoritative.
+
+Do NOT overwrite the selected planning location using device GPS.
+
+Preserve the existing location-search improvements:
+
+- full resolved place name
+- coordinates
+- country/region where available
+- location-biased autocomplete
+- Google Places radius <= 50,000 metres
+- structured API errors
+- no stale "No results" after selecting a location
+
+Do not regress the location picker.
+
+10. TIMING
+
+The planner must receive a real timing window.
+
+Priority:
+
+existing Golden Window
+→ sharedRunWindow
+→ solo availability
+
+Never synthesise an arbitrary time.
+
+If there is no valid timing window:
+
+For solo:
+"Add your availability so Nexus knows when you want to walk."
+
+For a group with no overlap:
+"No shared time found — there's no slot when everyone in this group is free."
+
+11. TRACKER INTEGRATION
+
+Walking must use the existing tracker infrastructure where appropriate.
+
+The selected route must contain:
+
+- full route geometry
+- route waypoints
+- estimated arrival times
+- route metadata
+- selected route type
+- distance/duration
+
+Reuse candidateToPlannerResult() or refactor it into a genuinely shared route-result conversion if that is cleaner.
+
+Do not duplicate coordinate-normalisation logic.
+
+Do not introduce another coordinate-order convention.
+
+Keep one canonical route geometry representation throughout the app.
+
+12. ARCHITECTURE
+
+If Jogging and Walking currently duplicate substantial code, refactor toward reusable infrastructure where sensible.
+
+Prefer:
+
+Shared activity planning
+- availability/shared-window calculation
+- route candidate generation
+- route scoring
+- route deduplication
+- route selection UI
+- tracker handoff
+
+with:
+
+Jogging
+- jogging preferences
+- jogging-specific OSRM configuration
+
+Walking
+- walking preferences
+- walking-specific OSRM configuration
+
+Do NOT perform a huge unnecessary refactor.
+
+Keep the change focused and low-risk.
+
+13. ACCEPTANCE TESTS
+
+Test all of the following.
+
+SOLO:
+
+1 member
+availability exists
+→ Walking routes enabled.
+
+SOLO WITHOUT AVAILABILITY:
+
+1 member
+no availability
+→ Find Routes disabled
+→ honest availability message.
+
+GROUP WITH FULL OVERLAP:
+
+Member A: Saturday 18:00–22:00
+Member B: Saturday 19:00–21:00
+Member C: Saturday 20:00–22:00
+
+Expected shared window:
+Saturday 20:00–21:00
+
+→ Walking routes enabled.
+
+GROUP WITH NO OVERLAP:
+
+Three members with completely separate availability.
+
+Expected:
+"No shared time found — there's no slot when everyone in this group is free."
+
+→ Find Routes disabled.
+
+LOCATION:
+
+Search:
+Willingdon
+
+Select:
+Willingdon, Eastbourne, UK
+
+Expected:
+- selected location remains visible
+- no stale "No results"
+- route generated around the selected coordinates
+
+ROUTE:
+
+Expected:
+- real OSRM route
+- multiple candidates
+- SVG previews
+- preferences affect ranking
+- selected route contains full geometry
+- Start Walk does NOT make a second OSRM request
+
+GOLDEN WINDOW:
+
+Expected:
+- no Golden Window UI in Walking
+- no venue search
+- existing Golden Window functionality for other activities remains intact
+
+14. REGRESSION TESTS
+
+Run:
+
+pnpm tsc --noEmit
+
+pnpm run build
+
+Then verify the existing Jogging flow still works exactly as it currently does.
+
+Do NOT finish if Walking works but Jogging regresses.
+
+15. IMPORTANT CONSTRAINTS
+
+Do not add mock data.
+
+Do not invent availability.
+
+Do not invent times.
+
+Do not silently select a compromise window and call it perfect.
+
+Do not reintroduce Golden Window as a UI prerequisite.
+
+Do not trigger venue discovery.
+
+Do not make another OSRM call when starting the selected route.
+
+Do not modify unrelated features.
+
+Do not move on to Cycling, Hiking, usernames, profile pictures, or other features in this job.
+
+Finish Walking cleanly first.
+
+FINAL REPORT:
+
+Report:
+
+1. Files changed
+2. Shared infrastructure reused/refactored
+3. Walking-specific logic
+4. Availability/shared-window behaviour
+5. OSRM configuration
+6. UI changes
+7. Acceptance-test results
+8. TypeScript/build status
+9. Any remaining limitations

@@ -38,6 +38,16 @@ export const ACTIVITY_REGISTRY: readonly ActivityDefinition[] = Object.freeze([
     plannerCapabilities: ['routes', 'weather'],
   },
   {
+    id: 'walking',
+    label: 'Walking',
+    emoji: '🚶',
+    Icon: PersonStanding,
+    color: COLOR_PALETTES.teal,
+    category: 'outdoor_active',
+    tags: ['walk', 'stroll', 'hike', 'ramble', 'explore', 'outdoor', 'leisurely'],
+    plannerCapabilities: ['routes', 'weather'],
+  },
+  {
     id: 'hiking',
     label: 'Hiking',
     emoji: '🥾',

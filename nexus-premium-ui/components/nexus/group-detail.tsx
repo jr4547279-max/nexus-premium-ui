@@ -557,19 +557,27 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     return windows.find(w => w.match_quality !== 'compromise') ?? null
   }, [isRouteActivity, availabilityLoaded, realMembers, allAvailability])
 
+  // Verb for honest timing-error messages — derived from the activity so
+  // "Add your availability … when you want to walk" is correct for Walking,
+  // "… run" is correct for Jogging, etc.
+  const routeActivityVerb =
+    rawActivityId === 'walking' ? 'walk' :
+    rawActivityId === 'jogging' ? 'run'  :
+    'go'
+
   const runTimingError = useMemo<string | null>(() => {
     if (!isRouteActivity || !availabilityLoaded) return null
     if (sharedRunWindow) return null
     const members = realMembers.map(m => ({ id: m.user_id, name: m.display_name }))
     const req = checkGoldenWindowRequirements(members, allAvailability)
     if (!req.canCompute) {
-      return req.missingExplanation ?? 'Add your availability to find a run time.'
+      return req.missingExplanation ?? `Add your availability to find a ${routeActivityVerb} time.`
     }
     // canCompute is true but no real intersection exists → scheduling conflict
     return realMembers.length === 1
-      ? 'Add your availability so Nexus knows when you want to run.'
+      ? `Add your availability so Nexus knows when you want to ${routeActivityVerb}.`
       : "No shared time found — there's no slot when everyone in this group is free. Ask members to add or extend their availability."
-  }, [isRouteActivity, availabilityLoaded, realMembers, allAvailability, sharedRunWindow])
+  }, [isRouteActivity, availabilityLoaded, realMembers, allAvailability, sharedRunWindow, routeActivityVerb])
 
   // ── Render ────────────────────────────────────────────────────────────────
 

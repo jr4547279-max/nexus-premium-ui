@@ -45,7 +45,49 @@ import {
   type GoldenWindowLike,
   DEFAULT_ROUTE_PREFERENCES,
 } from '@/lib/planners/planner-engine'
-import { candidateToPlannerResult } from '@/lib/planners/jogging-planner'
+import { buildRoutePlannerResult } from '@/lib/planners/route-utils'
+
+// ── Activity configuration ────────────────────────────────────────────────────
+// Keyed by activityId so a single component serves Jogging, Walking, and any
+// future route activity without duplicating UI code.
+
+interface RouteActivityCfg {
+  label:        string    // "Run" | "Walk"
+  gerund:       string    // "running" | "walking" — for explanatory copy
+  verb:         string    // "run" | "walk" — for timing notice
+  startLabel:   string    // "Start Run" | "Start Walk"
+  distances:    number[]  // selectable preset distances in km
+  paceMinPerKm: number    // activity pace for waypoint arrival labels
+  paceLabel:    string    // displayed pace string
+  emoji:        string    // route title emoji
+}
+
+const ROUTE_ACTIVITY_CFG: Record<string, RouteActivityCfg> = {
+  jogging: {
+    label:        'Run',
+    gerund:       'running',
+    verb:         'run',
+    startLabel:   'Start Run',
+    distances:    [2, 5, 10],
+    paceMinPerKm: 6,
+    paceLabel:    '6 min/km',
+    emoji:        '🏃',
+  },
+  walking: {
+    label:        'Walk',
+    gerund:       'walking',
+    verb:         'walk',
+    startLabel:   'Start Walk',
+    distances:    [1, 2, 5, 10],
+    paceMinPerKm: 15,
+    paceLabel:    '~15 min/km',
+    emoji:        '🚶',
+  },
+}
+
+function getActivityCfg(activityId: string): RouteActivityCfg {
+  return ROUTE_ACTIVITY_CFG[activityId] ?? ROUTE_ACTIVITY_CFG['jogging']!
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -341,6 +383,8 @@ export function RunRoutePlanner({
   onStartRun,
   isSolo,
 }: RunRoutePlannerProps) {
+  const cfg = getActivityCfg(activityId)
+
   const [phase, setPhase]   = useState<Phase>('prefs')
   const [prefs, setPrefs]   = useState<RoutePreferences>({ ...DEFAULT_ROUTE_PREFERENCES })
   const [candidates, setCandidates] = useState<RouteCandidate[]>([])
@@ -398,7 +442,7 @@ export function RunRoutePlanner({
 
     if (allCandidates.length === 0) {
       setError(
-        'No running routes could be found near this location. ' +
+        `No ${cfg.gerund} routes could be found near this location. ` +
         'Try a different planning location or a different distance.',
       )
       setPhase('error')
@@ -417,9 +461,14 @@ export function RunRoutePlanner({
   const handleStartRun = useCallback(() => {
     const candidate = candidates[selectedIdx]
     if (!candidate || !effectiveWindow || !onStartRun) return
-    const plan = candidateToPlannerResult(candidate, { goldenWindow: effectiveWindow, locationName }, prefs)
+    const plan = buildRoutePlannerResult(
+      candidate,
+      { goldenWindow: effectiveWindow, locationName },
+      prefs,
+      { activityId, paceMinPerKm: cfg.paceMinPerKm, emoji: cfg.emoji, activityVerb: cfg.gerund },
+    )
     onStartRun(plan)
-  }, [candidates, selectedIdx, effectiveWindow, locationName, prefs, onStartRun])
+  }, [candidates, selectedIdx, effectiveWindow, locationName, prefs, onStartRun, cfg, activityId])
 
   const handleBackToPrefs = useCallback(() => {
     setPhase('prefs')
@@ -470,13 +519,13 @@ export function RunRoutePlanner({
               <Sparkles className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">Find a Run</p>
+              <p className="text-sm font-semibold text-foreground">Find a {cfg.label}</p>
               <p className="text-xs text-muted-foreground">
                 {goldenWindow
                   ? (isSolo
-                      ? 'Nexus will find real routes timed to your Golden Window.'
-                      : 'Nexus will find real routes timed to your group\'s Golden Window.')
-                  : 'Nexus will find real running routes near your planning location.'}
+                      ? `Nexus will find real routes timed to your Golden Window.`
+                      : `Nexus will find real routes timed to your group's Golden Window.`)
+                  : `Nexus will find real ${cfg.gerund} routes near your planning location.`}
               </p>
             </div>
           </div>
@@ -487,7 +536,7 @@ export function RunRoutePlanner({
               Distance
             </p>
             <div className="flex flex-wrap gap-2">
-              {([2, 5, 10] as const).map(km => (
+              {cfg.distances.map(km => (
                 <button
                   key={km}
                   type="button"
@@ -578,7 +627,7 @@ export function RunRoutePlanner({
           {/* Requirement notices */}
           {missingTiming && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-              {timingError ?? 'Add your availability so Nexus knows when you want to run.'}
+              {timingError ?? `Add your availability so Nexus knows when you want to ${cfg.verb}.`}
             </p>
           )}
           {missingLocation && (
@@ -765,7 +814,7 @@ export function RunRoutePlanner({
                 </div>
                 <div className="text-right text-xs text-muted-foreground flex-shrink-0">
                   <Timer className="w-3 h-3 inline mr-1" />
-                  6 min/km
+                  {cfg.paceLabel}
                 </div>
               </div>
 
@@ -801,14 +850,14 @@ export function RunRoutePlanner({
                 </p>
               )}
 
-              {/* Start Run */}
+              {/* Start activity */}
               {onStartRun && (
                 <Button
                   onClick={handleStartRun}
                   className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground glow-gold font-semibold"
                 >
                   <Play className="w-4 h-4 mr-2" />
-                  Start Run
+                  {cfg.startLabel}
                 </Button>
               )}
 
