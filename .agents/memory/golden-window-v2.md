@@ -1,6 +1,6 @@
 ---
 name: Golden Window v2 architecture
-description: Persistence + progressive scoring model; key decisions for future changes. Includes single-member (Personal Golden Window) support added later.
+description: Persistence + progressive scoring model; key decisions for future changes. Includes single-member (Personal Golden Window) support and the availability RPC fix.
 ---
 
 ## Core algorithm (`lib/golden-window.ts`)
@@ -25,6 +25,19 @@ description: Persistence + progressive scoring model; key decisions for future c
 - CTA description / button label: solo variants ("Find My Golden Window", "your best available time").
 - Planner descriptions: "for you" / "near you" vs "for your group" / "near your group".
 - **Do NOT** create a separate GW UI — the single component handles both cases via conditionals.
+
+## Critical: getGroupAvailability must use direct table query, NOT the RPC
+
+**The `list_group_availability` SECURITY DEFINER RPC fails for authenticated clients** in some Supabase configurations: `auth.uid()` inside SECURITY DEFINER returns null → `is_group_member` returns false → `not_a_member` exception → silently returns `[]`.
+
+**Fix (in `availability-service.ts`):**
+- Primary: query `availability` table directly with `.from('availability').select(...).eq('group_id', groupId)`
+- Enrich display names via `profiles` table (best-effort; each user can only read their own profile row)
+- Fallback: RPC if direct query fails
+
+**Why this works:** The `availability_select_group_member` RLS policy (`using (is_group_member(group_id))`) evaluates `is_group_member` correctly for authenticated client sessions. Same mechanism used by `getMyAvailability` and `saveAvailability`.
+
+**Impact of profiles RLS:** Only the current user's display_name resolves. Other members show as null → "Member" in the editor summary. The GW engine never uses display_name, so this doesn't affect calculations.
 
 ## Persistence
 - `loadSavedGoldenWindow(groupId)` / `saveGoldenWindow(groupId, window)` — Supabase `groups.golden_window_data` column.
