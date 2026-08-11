@@ -365,20 +365,16 @@ export const joggingPlanner: PlannerDefinition = {
         DEFAULT_ROUTE_PREFERENCES.routeTypePreference,
     }
 
-    // ── 1. Resolve timing window ──────────────────────────────────────────────
-    // Golden Window is optional for jogging — solo users can plan a route without
-    // one. When absent, synthesise a minimal window with a sensible start time.
-    // The window is only used for waypoint arrival-time labels and route subtitle;
-    // it does not affect OSRM route generation.
-    const window: GoldenWindowLike = goldenWindow ?? {
-      day_of_week:            new Date().getDay(),
-      start_time:             '09:00',
-      end_time:               '22:00',
-      duration_minutes:       780,
-      match_quality:          'perfect',
-      available_member_count: 1,
-      total_member_count:     1,
+    // ── 1. Require a timing window ────────────────────────────────────────────
+    // Either a Golden Window (group/social run) or a raw availability slot
+    // synthesised by the UI (solo jogging) must be supplied. The planner does
+    // not invent a start time — that is the UI's responsibility.
+    if (!goldenWindow) {
+      throw new Error(
+        'No availability window found. Add your availability so Nexus knows when you want to run.',
+      )
     }
+    const window: GoldenWindowLike = goldenWindow
 
     // ── 2. Require planning location ──────────────────────────────────────────
     if (!groupLocation) {
