@@ -73,6 +73,7 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
         activeTab="groups"
         onTabChange={(tab) => {
           if (tab === 'home') onNavigate('home')
+          if (tab === 'world') onNavigate('world')
           if (tab === 'activity') onNavigate('activity')
           if (tab === 'profile') onNavigate('profile')
         }}

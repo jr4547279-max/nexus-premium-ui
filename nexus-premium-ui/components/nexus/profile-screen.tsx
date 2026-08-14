@@ -300,6 +300,7 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
         onTabChange={(tab) => {
           if (tab === 'home') onNavigate('home')
           if (tab === 'groups') onNavigate('groups')
+          if (tab === 'world') onNavigate('world')
           if (tab === 'activity') onNavigate('activity')
         }}
       />

@@ -253,6 +253,7 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
           setActiveTab(tab)
           if (tab === 'home')     onNavigate('home')
           if (tab === 'groups')   onNavigate('groups')
+          if (tab === 'world')    onNavigate('world')
           if (tab === 'activity') onNavigate('activity')
           if (tab === 'profile')  onNavigate('profile')
         }}
