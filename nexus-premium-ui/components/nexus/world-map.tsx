@@ -484,42 +484,51 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         document.head.appendChild(link)
       }
 
-      // Deterministic WebGL2 capability check before construction.
-      // Release the probe context immediately — mobile WebGL context budget is tiny.
+      // WebGL2 capability check — do NOT call loseContext() since that can
+      // exhaust the shared context pool on mobile before MapLibre creates its own.
       const probeCanvas = document.createElement('canvas')
       const probe = probeCanvas.getContext('webgl2')
       if (!probe) {
         setWebglError(true)
         return
       }
-      probe.getExtension('WEBGL_lose_context')?.loseContext()
 
+      // MapLibre's GPUInitializationError is thrown asynchronously during
+      // internal painter setup, so a try/catch around the constructor is not
+      // sufficient. We install an 'error' listener first, then construct.
       let map: MLMap
       try {
-        map = createMap()
-      } catch (err) {
-        // WebGL2 unavailable (very old browser / headless env) — graceful exit
-        console.error('[world] WebGL2 unavailable:', (err as Error).message)
-        setWebglError(true)
-        return
-      }
-
-      function createMap() {
-        return new maplibregl.Map({
+        map = new maplibregl.Map({
           container: containerRef.current!,
           style: buildWorldStyle() as never,
           center: EASTBOURNE,
           zoom: 12.4,
           pitch: 52,
           bearing: -14,
-          maxBounds: WORLD_BOUNDS,   // the world IS Eastbourne + South Downs
+          maxBounds: WORLD_BOUNDS,
           minZoom: 9,
           maxZoom: 18.5,
           attributionControl: false,
           maxPitch: 70,
-          fadeDuration: 450,         // gentle tile cross-fades — feels like reveal
+          fadeDuration: 450,
         })
+      } catch (err) {
+        console.error('[world] Map constructor failed:', (err as Error).message)
+        setWebglError(true)
+        return
       }
+
+      // Catch async GPU errors (e.g. GPUInitializationError fired after construction).
+      // Use unknown + cast because MapLibre v6's Event type doesn't expose `.error`.
+      map.once('error', ((e: unknown) => {
+        const msg = (e as { error?: Error })?.error?.message ?? ''
+        if (msg.toLowerCase().includes('webgl') || msg.toLowerCase().includes('gpu')) {
+          setWebglError(true)
+          try { map.remove() } catch { /* already dead */ }
+          mapRef.current = null
+        }
+      }) as Parameters<typeof map.once>[1])
+
       mapRef.current = map
 
       map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')

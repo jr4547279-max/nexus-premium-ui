@@ -11,7 +11,7 @@
 // It does not appear in any navigation, link, or auth redirect.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { OnboardingFlow } from '@/components/nexus/onboarding-flow'
 import { Dashboard } from '@/components/nexus/dashboard'
 import { GroupsScreen } from '@/components/nexus/groups-screen'
@@ -23,16 +23,16 @@ import { WorldScreen } from '@/components/nexus/world-screen'
 type DevScreen = 'onboarding' | 'home' | 'groups' | 'group-detail' | 'activity' | 'profile' | 'world'
 
 export default function DevLoginPage() {
-  // Allow ?screen=world (etc.) for direct navigation during dev/testing.
-  const [screen, setScreen] = useState<DevScreen>(() => {
-    if (typeof window !== 'undefined') {
-      const q = new URLSearchParams(window.location.search).get('screen')
-      if (q && ['home', 'groups', 'activity', 'profile', 'world'].includes(q)) {
-        return q as DevScreen
-      }
+  // Start with a stable server value ('onboarding') to avoid SSR/client mismatch,
+  // then read the ?screen= query param client-side in a useEffect.
+  const [screen, setScreen] = useState<DevScreen>('onboarding')
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('screen')
+    if (q && ['home', 'groups', 'activity', 'profile', 'world'].includes(q)) {
+      setScreen(q as DevScreen)
     }
-    return 'onboarding'
-  })
+  }, [])
   const [selectedGroupId, setSelectedGroupId] = useState('1')
   const [prevScreen, setPrevScreen] = useState<DevScreen>('home')
 
