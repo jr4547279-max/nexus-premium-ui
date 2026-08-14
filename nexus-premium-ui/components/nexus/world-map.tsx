@@ -469,6 +469,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
   // ── Map bootstrap ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
+    console.log('[WORLD] Map component mounted')
     let cancelled = false
     disposedRef.current = false // reset after Strict Mode remount
 
@@ -480,7 +481,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         const link = document.createElement('link')
         link.id = 'maplibre-css'
         link.rel = 'stylesheet'
-        link.href = 'https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css'
+        link.href = 'https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.css'
         document.head.appendChild(link)
       }
 
@@ -517,17 +518,20 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         setWebglError(true)
         return
       }
+      console.log('[WORLD] Map constructor created')
 
-      // Catch async GPU errors (e.g. GPUInitializationError fired after construction).
-      // Use unknown + cast because MapLibre v6's Event type doesn't expose `.error`.
-      map.once('error', ((e: unknown) => {
-        const msg = (e as { error?: Error })?.error?.message ?? ''
+      // Catch ALL MapLibre errors — use on() not once() so every error is
+      // captured, not just the first. Log each one; treat WebGL/GPU as fatal.
+      map.on('error', ((e: unknown) => {
+        const err = (e as { error?: Error })?.error
+        const msg = err?.message ?? ''
+        console.error('[WORLD MAP]', err ?? e)
         if (msg.toLowerCase().includes('webgl') || msg.toLowerCase().includes('gpu')) {
           setWebglError(true)
           try { map.remove() } catch { /* already dead */ }
           mapRef.current = null
         }
-      }) as Parameters<typeof map.once>[1])
+      }) as Parameters<typeof map.on>[1])
 
       mapRef.current = map
 
@@ -535,6 +539,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
 
       map.on('load', () => {
         if (cancelled) return
+        console.log('[WORLD] Load event fired')
 
         // ── Real 3D terrain: the South Downs rise from the landscape ────────
         try {
@@ -554,63 +559,71 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
           } as never)
         } catch { /* older maplibre — fine without sky */ }
 
-        // ── Venue constellation: glowing lights, not pins ────────────────────
-        map.addSource('venues', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-        // Outer glow halo
-        map.addLayer({
-          id: 'venue-glow', type: 'circle', source: 'venues', minzoom: 13,
-          paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 7, 16, 16, 18, 26],
-            'circle-color': ['case', ['==', ['get', 'open'], 1], '#c9a030', '#5a6f8f'],
-            'circle-opacity': 0.16,
-            'circle-blur': 1,
-          },
-        })
-        // Light core
-        map.addLayer({
-          id: 'venue-core', type: 'circle', source: 'venues', minzoom: 13,
-          paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2.4, 16, 4.5, 18, 7],
-            'circle-color': ['case', ['==', ['get', 'open'], 1], '#e8c04a', '#8fa3bd'],
-            'circle-opacity': 0.95,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': 'rgba(255,235,180,0.35)',
-          },
-        })
-        // Venue names surface only at L4+ — discovery, not clutter
-        map.addLayer({
-          id: 'venue-name', type: 'symbol', source: 'venues', minzoom: 15.2,
-          layout: {
-            'text-field': ['get', 'name'],
-            'text-font': ['Noto Sans Regular'],
-            'text-size': 10.5,
-            'text-offset': [0, 1.4],
-            'text-anchor': 'top',
-            'text-max-width': 9,
-            'text-optional': true,
-          },
-          paint: {
-            'text-color': '#d8c78e',
-            'text-halo-color': '#060e1c',
-            'text-halo-width': 1.3,
-          },
-        })
+        // ── Venue constellation + Golden Path: sources and layers ────────────
+        try {
+          map.addSource('venues', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+          // Outer glow halo
+          map.addLayer({
+            id: 'venue-glow', type: 'circle', source: 'venues', minzoom: 13,
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 7, 16, 16, 18, 26],
+              'circle-color': ['case', ['==', ['get', 'open'], 1], '#c9a030', '#5a6f8f'],
+              'circle-opacity': 0.16,
+              'circle-blur': 1,
+            },
+          })
+          // Light core
+          map.addLayer({
+            id: 'venue-core', type: 'circle', source: 'venues', minzoom: 13,
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2.4, 16, 4.5, 18, 7],
+              'circle-color': ['case', ['==', ['get', 'open'], 1], '#e8c04a', '#8fa3bd'],
+              'circle-opacity': 0.95,
+              'circle-stroke-width': 1,
+              'circle-stroke-color': 'rgba(255,235,180,0.35)',
+            },
+          })
+          // Venue names surface only at L4+ — discovery, not clutter
+          map.addLayer({
+            id: 'venue-name', type: 'symbol', source: 'venues', minzoom: 15.2,
+            layout: {
+              'text-field': ['get', 'name'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10.5,
+              'text-offset': [0, 1.4],
+              'text-anchor': 'top',
+              'text-max-width': 9,
+              'text-optional': true,
+            },
+            paint: {
+              'text-color': '#d8c78e',
+              'text-halo-color': '#060e1c',
+              'text-halo-width': 1.3,
+            },
+          })
+          console.log('[WORLD] Sources added')
 
-        // ── Golden Path source + layers ──────────────────────────────────────
-        map.addSource('golden-path', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-        map.addLayer({
-          id: 'golden-path-halo', type: 'line', source: 'golden-path',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#c9a030', 'line-width': 10, 'line-opacity': 0.18, 'line-blur': 6 },
-        })
-        map.addLayer({
-          id: 'golden-path-core', type: 'line', source: 'golden-path',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': '#f0cf6a', 'line-width': 2.6, 'line-opacity': 0.95,
-            'line-dasharray': [0, 4, 3],
-          },
-        })
+          // ── Golden Path source + layers ──────────────────────────────────
+          map.addSource('golden-path', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+          map.addLayer({
+            id: 'golden-path-halo', type: 'line', source: 'golden-path',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': '#c9a030', 'line-width': 10, 'line-opacity': 0.18, 'line-blur': 6 },
+          })
+          map.addLayer({
+            id: 'golden-path-core', type: 'line', source: 'golden-path',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': '#f0cf6a', 'line-width': 2.6, 'line-opacity': 0.95,
+              'line-dasharray': [0, 4, 3],
+            },
+          })
+          console.log('[WORLD] Layers added')
+        } catch (layerErr) {
+          console.error('[WORLD] addSource/addLayer failed:', (layerErr as Error).message)
+          setWebglError(true)
+          return
+        }
 
         // ── Interactions ─────────────────────────────────────────────────────
         map.on('click', 'venue-core', (e: MapLayerMouseEvent) => {
@@ -669,6 +682,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         })
         fetchVenuesForView(map)
 
+        console.log('[WORLD] Ready state set')
         setReady(true)
 
         // Cinematic entrance: drift down toward the town like arriving from altitude
