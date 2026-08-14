@@ -327,6 +327,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
   const [loadEventFired, setLoadEventFired] = useState(false)
   const [sourcesAdded, setSourcesAdded] = useState(false)
   const [layersAdded, setLayersAdded] = useState(false)
+  const [lastMapError, setLastMapError] = useState('')
   const [lod, setLod] = useState<LodLevel>(2)
   const [phase, setPhase] = useState<DayPhase>(() => phaseForHour(new Date().getHours()))
   const [selection, setSelection] = useState<Selection>(null)
@@ -529,8 +530,8 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
       // captured, not just the first. Log each one; treat WebGL/GPU as fatal.
       map.on('error', ((e: unknown) => {
         const err = (e as { error?: Error })?.error
-        const msg = err?.message ?? ''
-        console.error('[WORLD MAP]', err ?? e)
+        const msg = err?.message ?? String(e)
+        setLastMapError(msg)
         if (msg.toLowerCase().includes('webgl') || msg.toLowerCase().includes('gpu')) {
           setWebglError(true)
           try { map.remove() } catch { /* already dead */ }
@@ -976,6 +977,10 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
                 <span className={value ? 'text-emerald-400 font-bold' : 'text-red-400'}>{String(value)}</span>
               </div>
             ))}
+            <div className="pt-1 border-t border-white/10">
+              <span className="text-slate-400">lastMapError</span>
+              <p className="text-yellow-400 break-all mt-1">{lastMapError || '—'}</p>
+            </div>
           </div>
         </div>
       )}
