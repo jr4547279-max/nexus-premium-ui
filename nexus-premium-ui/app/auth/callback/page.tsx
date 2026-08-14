@@ -67,6 +67,7 @@ export default function AuthCallbackPage() {
     hasExchanged.current = true
 
     const handleCallback = async () => {
+      console.log('[AUTH] OAuth callback:', window.location.href)
       const url = new URL(window.location.href)
 
       // ── 1. OAuth provider returned an explicit error ──────────────────────
@@ -100,7 +101,7 @@ export default function AuthCallbackPage() {
           setTimeout(() => router.replace('/'), 4000)
           return
         }
-        console.log('[auth/callback] Code exchange successful')
+        console.log('[AUTH] Session established: PKCE code exchange successful')
         setPhase('done')
         router.replace('/')
         return
