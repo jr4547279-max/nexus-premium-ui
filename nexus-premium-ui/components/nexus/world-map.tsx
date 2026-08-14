@@ -322,6 +322,11 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
 
   const [ready, setReady] = useState(false)
   const [webglError, setWebglError] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const [constructorCreated, setConstructorCreated] = useState(false)
+  const [loadEventFired, setLoadEventFired] = useState(false)
+  const [sourcesAdded, setSourcesAdded] = useState(false)
+  const [layersAdded, setLayersAdded] = useState(false)
   const [lod, setLod] = useState<LodLevel>(2)
   const [phase, setPhase] = useState<DayPhase>(() => phaseForHour(new Date().getHours()))
   const [selection, setSelection] = useState<Selection>(null)
@@ -469,7 +474,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
   // ── Map bootstrap ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    console.log('[WORLD] Map component mounted')
+    setMounted(true)
     let cancelled = false
     disposedRef.current = false // reset after Strict Mode remount
 
@@ -518,7 +523,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         setWebglError(true)
         return
       }
-      console.log('[WORLD] Map constructor created')
+      setConstructorCreated(true)
 
       // Catch ALL MapLibre errors — use on() not once() so every error is
       // captured, not just the first. Log each one; treat WebGL/GPU as fatal.
@@ -539,7 +544,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
 
       map.on('load', () => {
         if (cancelled) return
-        console.log('[WORLD] Load event fired')
+        setLoadEventFired(true)
 
         // ── Real 3D terrain: the South Downs rise from the landscape ────────
         try {
@@ -601,7 +606,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
               'text-halo-width': 1.3,
             },
           })
-          console.log('[WORLD] Sources added')
+          setSourcesAdded(true)
 
           // ── Golden Path source + layers ──────────────────────────────────
           map.addSource('golden-path', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
@@ -618,7 +623,7 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
               'line-dasharray': [0, 4, 3],
             },
           })
-          console.log('[WORLD] Layers added')
+          setLayersAdded(true)
         } catch (layerErr) {
           console.error('[WORLD] addSource/addLayer failed:', (layerErr as Error).message)
           setWebglError(true)
@@ -682,7 +687,6 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         })
         fetchVenuesForView(map)
 
-        console.log('[WORLD] Ready state set')
         setReady(true)
 
         // Cinematic entrance: drift down toward the town like arriving from altitude
@@ -953,11 +957,26 @@ export function WorldMap({ onNavigate }: WorldMapProps) {
         </div>
       )}
 
-      {/* ── Loading veil ── */}
-      {!ready && !webglError && (
-        <div className="absolute inset-0 z-40 bg-[#07101f] flex flex-col items-center justify-center gap-4">
-          <div className="w-14 h-14 rounded-full border-2 border-primary/25 border-t-primary animate-spin" />
+      {/* ── Debug panel (replaces loading veil) ── */}
+      {!ready && (
+        <div className="absolute inset-0 z-40 bg-[#07101f] flex flex-col items-center justify-center gap-6 px-8">
           <p className="text-[11px] tracking-[0.35em] text-muted-foreground">ENTERING NEXUS WORLD</p>
+          <div className="font-mono text-xs bg-black/50 rounded-xl px-6 py-4 border border-white/10 min-w-[260px] space-y-2">
+            {([
+              ['mounted',            mounted],
+              ['constructorCreated', constructorCreated],
+              ['loadEventFired',     loadEventFired],
+              ['sourcesAdded',       sourcesAdded],
+              ['layersAdded',        layersAdded],
+              ['ready',              ready],
+              ['webglError',         webglError],
+            ] as [string, boolean][]).map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-8">
+                <span className="text-slate-400">{label}</span>
+                <span className={value ? 'text-emerald-400 font-bold' : 'text-red-400'}>{String(value)}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
