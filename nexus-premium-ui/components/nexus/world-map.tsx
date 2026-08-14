@@ -97,6 +97,10 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const [containerWidth,      setContainerWidth]      = useState(0)
   const [containerHeight,     setContainerHeight]     = useState(0)
   const [mapError,            setMapError]            = useState('')
+  // New: event-listener state
+  const [styleLoadFired,      setStyleLoadFired]      = useState(false)
+  const [sourcesCount,        setSourcesCount]        = useState(0)
+  const [errors,              setErrors]              = useState<string[]>([])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -137,6 +141,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
         const msg = (err as Error).message ?? String(err)
         console.log(`[MAP] Error: ${msg}`)
         setMapError(msg)
+        setErrors(prev => [...prev, msg])
         return
       }
       console.log('[MAP] Map constructor executed')
@@ -146,25 +151,39 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       // Zoom / pitch controls
       map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-      // Error handler
+      // ── map.on('error') ───────────────────────────────────────────────────
       map.on('error', ((e: unknown) => {
         const msg = (e as { error?: Error })?.error?.message ?? String(e)
         console.log(`[MAP] Error: ${msg}`)
         setMapError(msg)
+        setErrors(prev => [...prev, msg])
       }) as Parameters<typeof map.on>[1])
 
-      // Source-loaded — fires once the TileJSON for 'world' resolves
+      // ── map.on('style.load') ──────────────────────────────────────────────
+      map.on('style.load', () => {
+        console.log('[MAP] style.load fired')
+        setStyleLoadFired(true)
+      })
+
+      // ── map.on('sourcedata') ──────────────────────────────────────────────
+      // Tracks every unique source that reaches isSourceLoaded:true.
+      const loadedSourceIds = new Set<string>()
       let sourceLogged = false
       map.on('sourcedata', ((e: unknown) => {
-        if (sourceLogged) return
-        const ev = e as { dataType?: string; isSourceLoaded?: boolean }
-        if (ev.dataType === 'source' && ev.isSourceLoaded) {
-          sourceLogged = true
-          console.log('[MAP] Source loaded')
+        const ev = e as { dataType?: string; isSourceLoaded?: boolean; sourceId?: string }
+        if (ev.dataType === 'source' && ev.isSourceLoaded && ev.sourceId) {
+          if (!loadedSourceIds.has(ev.sourceId)) {
+            loadedSourceIds.add(ev.sourceId)
+            setSourcesCount(loadedSourceIds.size)
+          }
+          if (!sourceLogged) {
+            sourceLogged = true
+            console.log('[MAP] Source loaded')
+          }
         }
       }) as Parameters<typeof map.on>[1])
 
-      // Load event — all sources and layers ready
+      // ── map.on('load') ────────────────────────────────────────────────────
       map.on('load', () => {
         if (cancelled) return
         console.log('[MAP] Map loaded successfully')
@@ -199,22 +218,48 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           padding: '10px 14px',
           borderRadius: 8,
           border: '1px solid rgba(255,255,255,0.1)',
-          maxWidth: 320,
+          maxWidth: 340,
           pointerEvents: 'none',
         }}
       >
-        <div style={{ marginBottom: 4, letterSpacing: '0.1em', color: '#94a3b8', fontSize: 10 }}>
+        <div style={{ marginBottom: 6, letterSpacing: '0.1em', color: '#94a3b8', fontSize: 10 }}>
           MAP DEBUG
         </div>
-        <Row label="Map component mounted"    value={mounted}             />
-        <Row label="Map constructor executed" value={constructorExecuted} />
-        <Row label="Map loaded"              value={mapLoaded}           />
-        <Row label="WebGL supported"         value={webglSupported}      />
-        <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-          <span style={{ color: '#94a3b8' }}>Container: </span>
-          <span>{containerWidth} × {containerHeight}</span>
-        </div>
-        {mapError && (
+
+        {/* Boolean flags */}
+        <BoolRow label="Map component mounted"    value={mounted}             />
+        <BoolRow label="Map constructor executed" value={constructorExecuted} />
+        <BoolRow label="Map loaded"               value={mapLoaded}           />
+        <BoolRow label="WebGL supported"          value={webglSupported}      />
+        <BoolRow label="style.load fired"         value={styleLoadFired}      />
+
+        {/* Divider */}
+        <div style={{ margin: '6px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }} />
+
+        {/* Dimensions */}
+        <TextRow label="Container"   value={`${containerWidth} × ${containerHeight}`} />
+
+        {/* Style URL */}
+        <TextRow label="Style URL" value="(inline object)" />
+
+        {/* Sources */}
+        <TextRow label="Sources loaded" value={String(sourcesCount)} />
+
+        {/* Errors */}
+        {errors.length > 0 && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ color: '#94a3b8', marginBottom: 2 }}>
+              Errors ({errors.length})
+            </div>
+            {errors.map((msg, i) => (
+              <div key={i} style={{ color: '#fbbf24', wordBreak: 'break-word', marginBottom: 2 }}>
+                {msg}
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Legacy single-error field kept for compatibility */}
+        {mapError && errors.length === 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)', color: '#fbbf24', wordBreak: 'break-word' }}>
             <span style={{ color: '#94a3b8' }}>Error: </span>{mapError}
           </div>
@@ -224,14 +269,23 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   )
 }
 
-// ── Debug row helper ──────────────────────────────────────────────────────────
-function Row({ label, value }: { label: string; value: boolean }) {
+// ── Debug row helpers ─────────────────────────────────────────────────────────
+function BoolRow({ label, value }: { label: string; value: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
       <span style={{ color: '#94a3b8' }}>{label}</span>
       <span style={{ color: value ? '#34d399' : '#f87171', fontWeight: 'bold' }}>
         {String(value)}
       </span>
+    </div>
+  )
+}
+
+function TextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+      <span style={{ color: '#94a3b8' }}>{label}</span>
+      <span>{value}</span>
     </div>
   )
 }
