@@ -1,0 +1,276 @@
+You are acting as a Senior React, TypeScript, MapLibre GL, OpenFreeMap, WebGL, and mobile debugging engineer.
+
+The map is not rendering.
+
+Do NOT rewrite the app.
+
+Do NOT redesign the UI.
+
+Do NOT remove any existing features.
+
+Do NOT remove ANY existing console.log statements.
+
+Do NOT remove the debug panel.
+
+Perform a surgical investigation and preserve the entire codebase.
+
+Current diagnostics:
+
+MAP DEBUG
+
+Map component mounted: true
+Map constructor executed: true
+Map loaded: false
+WebGL supported: true
+style.load fired: true
+
+Container: 360 × 731
+
+style.version: 8
+
+style.sources keys:
+world
+
+style.layers.length:
+6
+
+style.sources:
+
+{
+  "world": {
+    "type": "vector",
+    "url": "https://tiles.openfreemap.org/planet"
+  }
+}
+
+Sources loaded (runtime):
+0
+
+Important observations:
+
+- React mounted successfully.
+- The component rendered successfully.
+- The MapLibre constructor executed successfully.
+- WebGL is available.
+- The style loaded event fired.
+- The style contains a vector source.
+- The map still never reaches the loaded state.
+- Runtime sources remain at zero.
+
+I need a COMPLETE investigation.
+
+Investigate ALL of the following.
+
+==================================================================
+PHASE 1: ADD COMPLETE INSTRUMENTATION
+==================================================================
+
+Add logging for ALL of these events.
+
+map.on("load")
+
+map.on("style.load")
+
+map.on("styledata")
+
+map.on("sourcedata")
+
+map.on("render")
+
+map.on("idle")
+
+map.on("error")
+
+Log:
+
+- event name
+- source ID
+- source loaded status
+- tile information
+- whether dataType is source or style
+- any errors returned by MapLibre
+
+Do NOT remove existing logs.
+
+Only add new logs.
+
+==================================================================
+PHASE 2: VERIFY TILE SOURCE
+==================================================================
+
+Programmatically verify:
+
+map.getStyle()
+
+map.getSource("world")
+
+map.isSourceLoaded("world")
+
+map.style.sourceCaches
+
+map.areTilesLoaded()
+
+map.loaded()
+
+Log every result.
+
+==================================================================
+PHASE 3: CHECK NETWORK FAILURES
+==================================================================
+
+Instrument every network request.
+
+Log:
+
+- requested tile URL
+- HTTP status
+- failed requests
+- blocked requests
+- CORS failures
+- rejected promises
+- fetch errors
+
+Detect whether vector tiles are being requested at all.
+
+If no tile requests are occurring, determine why.
+
+==================================================================
+PHASE 4: VERIFY THE STYLE JSON
+==================================================================
+
+Inspect every layer.
+
+For every layer, log:
+
+- layer ID
+- layer type
+- source
+- source-layer
+- visibility
+- minzoom
+- maxzoom
+
+Determine whether any layer is referencing a source-layer that does not actually exist.
+
+If source-layer names are wrong, automatically correct them.
+
+==================================================================
+PHASE 5: VERIFY VECTOR TILES
+==================================================================
+
+Inspect the OpenFreeMap source.
+
+Determine:
+
+- Are tiles being downloaded?
+- Are tiles empty?
+- Are tiles malformed?
+- Is the source URL correct?
+- Is the source endpoint reachable?
+- Is a TileJSON document being returned?
+- Are vector tiles valid?
+
+==================================================================
+PHASE 6: VERIFY MAP CONTAINER
+==================================================================
+
+Log:
+
+container.clientWidth
+
+container.clientHeight
+
+container.offsetWidth
+
+container.offsetHeight
+
+map.getContainer().getBoundingClientRect()
+
+Determine whether the map canvas is:
+
+- hidden
+- transparent
+- clipped
+- behind another element
+- covered by z-index
+- scaled to zero
+
+==================================================================
+PHASE 7: VERIFY THE CANVAS
+==================================================================
+
+Inspect:
+
+document.querySelector("canvas")
+
+Log:
+
+canvas.width
+
+canvas.height
+
+canvas.style.width
+
+canvas.style.height
+
+Determine whether pixels are actually being drawn.
+
+==================================================================
+PHASE 8: MOBILE INVESTIGATION
+==================================================================
+
+This bug is occurring on Android.
+
+Determine whether there is:
+
+- a GPU issue
+- a WebGL context issue
+- a mobile browser issue
+- a device-specific rendering issue
+
+==================================================================
+PHASE 9: IMPLEMENT A FALLBACK TEST
+==================================================================
+
+Create a SECOND test map using an absolutely minimal configuration.
+
+Do NOT delete the existing map.
+
+Create a temporary test map containing ONLY:
+
+- one source
+- one layer
+
+Render it in a separate panel below the existing map.
+
+If the minimal map works, compare both implementations and identify the difference.
+
+==================================================================
+PHASE 10: FINAL REPORT
+==================================================================
+
+After the investigation, provide a report containing ONLY:
+
+ROOT CAUSE:
+
+FILES MODIFIED:
+
+CHANGES MADE:
+
+WHY THE MAP FAILED:
+
+WHY THE FIX WORKED:
+
+Do NOT stop after finding the first issue.
+
+Continue until the map visibly renders.
+
+Rules:
+
+- Preserve all UI.
+- Preserve all styling.
+- Preserve all features.
+- Preserve all existing console.log statements.
+- Preserve the debug panel.
+- TypeScript must compile with zero errors.
+- The final output must be a visible, working world map.
