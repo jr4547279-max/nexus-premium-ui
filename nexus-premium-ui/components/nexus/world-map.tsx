@@ -23,8 +23,22 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     let map: import('maplibre-gl').Map | null = null
     let cancelled = false
 
+    window.addEventListener('error', (event) => {
+      console.log('[WINDOW ERROR]', event.message)
+    })
+
+    window.addEventListener('unhandledrejection', (event) => {
+      console.log('[PROMISE ERROR]', event.reason)
+    })
+
     import('maplibre-gl').then((maplibregl) => {
       if (cancelled || !containerRef.current) return
+
+      const mgl = maplibregl as unknown as Record<string, unknown>
+      console.log('[MAP] version', mgl['version'] ?? 'undefined')
+      console.log('[MAP] worker URL', mgl['workerUrl'] ?? 'undefined')
+      console.log('[MAP] worker class', mgl['workerClass'] ?? 'undefined')
+      console.log('[MAP] user agent', navigator.userAgent)
 
       map = new maplibregl.Map({
         container: containerRef.current,
