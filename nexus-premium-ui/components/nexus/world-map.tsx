@@ -14,7 +14,7 @@
  * venues, paths, animations, markers, or overlays.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface WorldMapProps {
@@ -89,14 +89,30 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef       = useRef<unknown>(null)
 
+  // ── Debug state ─────────────────────────────────────────────────────────────
+  const [mounted,             setMounted]             = useState(false)
+  const [constructorExecuted, setConstructorExecuted] = useState(false)
+  const [mapLoaded,           setMapLoaded]           = useState(false)
+  const [webglSupported,      setWebglSupported]      = useState(false)
+  const [containerWidth,      setContainerWidth]      = useState(0)
+  const [containerHeight,     setContainerHeight]     = useState(0)
+  const [mapError,            setMapError]            = useState('')
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
     console.log('[MAP] Component mounted')
+    setMounted(true)
+    setContainerWidth(containerRef.current.offsetWidth)
+    setContainerHeight(containerRef.current.offsetHeight)
 
     let cancelled = false
 
     import('maplibre-gl').then((maplibregl) => {
       if (cancelled || !containerRef.current) return
+
+      // Check WebGL2 support
+      const canvas = document.createElement('canvas')
+      setWebglSupported(!!canvas.getContext('webgl2'))
 
       // Inject MapLibre CSS once per page
       if (!document.getElementById('maplibre-css')) {
@@ -118,10 +134,13 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           attributionControl: false,
         })
       } catch (err) {
-        console.log(`[MAP] Error: ${(err as Error).message ?? String(err)}`)
+        const msg = (err as Error).message ?? String(err)
+        console.log(`[MAP] Error: ${msg}`)
+        setMapError(msg)
         return
       }
       console.log('[MAP] Map constructor executed')
+      setConstructorExecuted(true)
       mapRef.current = map
 
       // Zoom / pitch controls
@@ -131,6 +150,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       map.on('error', ((e: unknown) => {
         const msg = (e as { error?: Error })?.error?.message ?? String(e)
         console.log(`[MAP] Error: ${msg}`)
+        setMapError(msg)
       }) as Parameters<typeof map.on>[1])
 
       // Source-loaded — fires once the TileJSON for 'world' resolves
@@ -148,6 +168,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       map.on('load', () => {
         if (cancelled) return
         console.log('[MAP] Map loaded successfully')
+        setMapLoaded(true)
       })
     })
 
@@ -162,6 +183,55 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   return (
     <div className="relative w-full h-full">
       <div ref={containerRef} className="absolute inset-0" />
+
+      {/* ── On-screen debug panel ── */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 12,
+          left: 12,
+          zIndex: 9999,
+          background: 'rgba(0,0,0,0.82)',
+          color: '#e2e8f0',
+          fontFamily: 'monospace',
+          fontSize: 12,
+          lineHeight: 1.7,
+          padding: '10px 14px',
+          borderRadius: 8,
+          border: '1px solid rgba(255,255,255,0.1)',
+          maxWidth: 320,
+          pointerEvents: 'none',
+        }}
+      >
+        <div style={{ marginBottom: 4, letterSpacing: '0.1em', color: '#94a3b8', fontSize: 10 }}>
+          MAP DEBUG
+        </div>
+        <Row label="Map component mounted"    value={mounted}             />
+        <Row label="Map constructor executed" value={constructorExecuted} />
+        <Row label="Map loaded"              value={mapLoaded}           />
+        <Row label="WebGL supported"         value={webglSupported}      />
+        <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <span style={{ color: '#94a3b8' }}>Container: </span>
+          <span>{containerWidth} × {containerHeight}</span>
+        </div>
+        {mapError && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)', color: '#fbbf24', wordBreak: 'break-word' }}>
+            <span style={{ color: '#94a3b8' }}>Error: </span>{mapError}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Debug row helper ──────────────────────────────────────────────────────────
+function Row({ label, value }: { label: string; value: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+      <span style={{ color: '#94a3b8' }}>{label}</span>
+      <span style={{ color: value ? '#34d399' : '#f87171', fontWeight: 'bold' }}>
+        {String(value)}
+      </span>
     </div>
   )
 }
