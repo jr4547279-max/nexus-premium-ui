@@ -64,29 +64,7 @@ const STYLE = {
       'source-layer': 'park',
       paint: { 'fill-color': '#0f2318', 'fill-opacity': 0.9 },
     },
-    {
-      id: 'road-major',
-      type: 'line' as const,
-      source: 'world',
-      'source-layer': 'transportation',
-      filter: ['in', 'class', 'primary', 'secondary', 'tertiary', 'trunk', 'motorway'],
-      paint: {
-        'line-color': '#243d5c',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 14, 2.5, 17, 5],
-      },
-    },
-    {
-      id: 'road-minor',
-      type: 'line' as const,
-      source: 'world',
-      'source-layer': 'transportation',
-      filter: ['in', 'class', 'minor', 'service', 'track'],
-      minzoom: 13,
-      paint: {
-        'line-color': '#1a2d45',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 17, 2],
-      },
-    },
+    // road-major and road-minor temporarily removed for diagnostics
   ],
 }
 
