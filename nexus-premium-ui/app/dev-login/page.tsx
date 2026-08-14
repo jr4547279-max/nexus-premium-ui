@@ -18,11 +18,21 @@ import { GroupsScreen } from '@/components/nexus/groups-screen'
 import { GroupDetail } from '@/components/nexus/group-detail'
 import { ActivityScreen } from '@/components/nexus/activity-screen'
 import { ProfileScreen } from '@/components/nexus/profile-screen'
+import { WorldScreen } from '@/components/nexus/world-screen'
 
-type DevScreen = 'onboarding' | 'home' | 'groups' | 'group-detail' | 'activity' | 'profile'
+type DevScreen = 'onboarding' | 'home' | 'groups' | 'group-detail' | 'activity' | 'profile' | 'world'
 
 export default function DevLoginPage() {
-  const [screen, setScreen] = useState<DevScreen>('onboarding')
+  // Allow ?screen=world (etc.) for direct navigation during dev/testing.
+  const [screen, setScreen] = useState<DevScreen>(() => {
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('screen')
+      if (q && ['home', 'groups', 'activity', 'profile', 'world'].includes(q)) {
+        return q as DevScreen
+      }
+    }
+    return 'onboarding'
+  })
   const [selectedGroupId, setSelectedGroupId] = useState('1')
   const [prevScreen, setPrevScreen] = useState<DevScreen>('home')
 
@@ -82,6 +92,8 @@ export default function DevLoginPage() {
             onNavigate={navigate}
           />
         )}
+
+        {screen === 'world' && <WorldScreen onNavigate={navigate} />}
 
         {screen === 'profile' && (
           <ProfileScreen

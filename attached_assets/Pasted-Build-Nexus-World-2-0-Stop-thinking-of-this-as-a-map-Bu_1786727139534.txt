@@ -1,0 +1,198 @@
+Build Nexus World 2.0
+
+Stop thinking of this as a map.
+
+Build a living, explorable world that uses real-world geography as its foundation.
+
+The user should feel as though they're stepping into a miniature version of their city.
+
+Core Design Principle
+
+Do not load the entire world.
+
+Reveal the world as the user explores it.
+
+Every interaction should feel like discovery.
+
+Inspiration
+
+The emotional experience should feel like:
+
+- Exploring
+- Wandering
+- Discovering
+- Relaxing
+- Planning naturally
+
+Do not use Google Maps or Apple Maps as design references.
+
+Create a unique visual language.
+
+Zoom-Based Progressive Loading
+
+Level 1: World View
+
+Display only:
+
+- Terrain
+- Mountains
+- Coastlines
+- Large parks
+- Major roads
+
+Do not render buildings.
+
+Do not render venues.
+
+Level 2: City View
+
+Reveal:
+
+- Major buildings
+- Districts
+- Parks
+- Landmarks
+
+Level 3: Neighborhood View
+
+Reveal:
+
+- Restaurants
+- Cafés
+- Venues
+- Nightclubs
+- Running routes
+- Walking paths
+
+Level 4: Street View
+
+Reveal:
+
+- Building details
+- Trees
+- Pathways
+- Elevation
+- Venue information
+
+Level 5: Destination View
+
+Reveal:
+
+- Booking options
+- Group recommendations
+- Golden Window suggestions
+- Interactive actions
+
+Terrain
+
+Render real-world geography, including:
+
+- Mountains
+- Hills
+- Valleys
+- Coastlines
+- Parks
+- Water
+
+The South Downs should rise naturally from the landscape.
+
+Buildings
+
+Render buildings in 3D.
+
+Implement level-of-detail rendering so that building complexity increases as the user zooms in.
+
+Environment
+
+Implement:
+
+- Real-time day/night transitions
+- Golden-hour lighting
+- Moving clouds
+- Dynamic shadows
+- Street lighting
+- Atmospheric fog
+- Stars at night
+
+The world should feel alive.
+
+Venues
+
+Add:
+
+- Restaurants
+- Cafés
+- Nightclubs
+- Running locations
+- Meeting locations
+
+Use subtle visual indicators rather than traditional map pins.
+
+Interactive Experiences
+
+When a user taps a venue:
+
+Instead of opening a standard information card, create contextual actions.
+
+Examples:
+
+Restaurant:
+
+"Book this for Saturday?"
+
+Running route:
+
+"Distance: 5.2 km"
+
+"Elevation gain: 143 m"
+
+Venue:
+
+"This matches your group's Golden Window."
+
+Golden Path System
+
+Replace standard navigation lines.
+
+Create animated, illuminated pathways that follow real streets and real running routes.
+
+Paths should:
+
+- Pulse gently
+- Animate naturally
+- Feel elegant
+
+Performance
+
+This must run smoothly on mobile devices.
+
+Implement:
+
+- Asset streaming
+- Lazy loading
+- Frustum culling
+- Level-of-detail rendering
+- Progressive texture loading
+- On-demand data loading
+
+Only load assets that are visible on the user's screen.
+
+Technical Stack
+
+Use:
+
+- MapLibre
+- OpenStreetMap data
+- OpenFreeMap vector tiles
+- Three.js
+- React Three Fiber
+
+Build Strategy
+
+Phase 1:
+
+Build Eastbourne only.
+
+Make it beautiful.
+
+Do not expand to additional locations until the architecture is proven.

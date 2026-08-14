@@ -283,6 +283,51 @@ svg {
   to   { opacity: 1; }
 }
 
+/* ── Nexus World ─────────────────────────────────────────────────────────── */
+
+/* The global `canvas { pointer-events: none !important }` hit-test rule above
+   would kill all MapLibre interaction — the world renders to a canvas that
+   MUST receive taps/drags. Scope an override to the world container. */
+.nexus-world canvas {
+  pointer-events: auto !important;
+}
+/* Star canvas stays decorative */
+.nexus-world canvas.world-stars {
+  pointer-events: none !important;
+}
+
+/* Drifting clouds — GPU-composited transform animation */
+@keyframes world-cloud-drift {
+  from { transform: translateX(-30vw); }
+  to   { transform: translateX(130vw); }
+}
+.world-cloud {
+  left: 0;
+  animation-name: world-cloud-drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  filter: blur(14px);
+  will-change: transform;
+}
+
+/* Soft breathing glow for discovery markers rendered via DOM (if any) */
+@keyframes world-beacon {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.25); }
+}
+.world-beacon { animation: world-beacon 2.6s ease-in-out infinite; }
+
+/* MapLibre chrome — restyle attribution to whisper, not shout */
+.nexus-world .maplibregl-ctrl-attrib {
+  background: rgba(7, 16, 31, 0.55) !important;
+  backdrop-filter: blur(6px);
+  border-radius: 10px;
+  font-size: 9px;
+}
+.nexus-world .maplibregl-ctrl-attrib a {
+  color: rgba(160, 175, 195, 0.75) !important;
+}
+
 /* Stagger delays for lists */
 .stagger-1 { animation-delay: 0.1s; }
 .stagger-2 { animation-delay: 0.2s; }

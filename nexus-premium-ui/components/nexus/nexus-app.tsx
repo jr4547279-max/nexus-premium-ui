@@ -13,6 +13,7 @@ import { GoldenWindowReveal } from './golden-window-reveal'
 import { RunTracker } from './run-tracker'
 import type { PlannerResult } from '@/lib/planners/planner-engine'
 import { ActivityScreen } from './activity-screen'
+import { WorldScreen } from './world-screen'
 import { ProfileScreen } from './profile-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
@@ -33,6 +34,7 @@ type Screen =
   | 'group-detail'
   | 'golden-window'
   | 'activity'
+  | 'world'
   | 'profile'
   | 'run-tracker'
   // DEV-ONLY — remove before production
@@ -293,6 +295,10 @@ export function NexusApp() {
           onNavigate={handleNavigate}
         />
       )
+      break
+
+    case 'world':
+      screenContent = <WorldScreen onNavigate={handleNavigate} />
       break
 
     case 'profile':

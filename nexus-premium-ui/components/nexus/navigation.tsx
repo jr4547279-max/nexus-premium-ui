@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, Users, Clock, User } from 'lucide-react'
+import { Home, Users, Clock, User, Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BottomNavProps {
@@ -12,6 +12,7 @@ interface BottomNavProps {
 const navItems = [
   { id: 'home', icon: Home, label: 'Home' },
   { id: 'groups', icon: Users, label: 'Groups' },
+  { id: 'world', icon: Globe, label: 'World' },
   { id: 'activity', icon: Clock, label: 'Activity' },
   { id: 'profile', icon: User, label: 'Profile' },
 ]

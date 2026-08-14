@@ -2,4 +2,5 @@
 - [Golden Window v2 architecture](golden-window-v2.md) — persistence + progressive scoring model; key decisions for future changes.
 - [Real Venue Engine architecture](real-venue-engine.md) — provider abstraction + OSM + single-venue planner factory; key decisions for future planner work.
 - [Group delete pattern](group-delete-pattern.md) — delete_group() RPC pattern; cascade deps; groupsVersion remount mechanism.
+- [Nexus World map experience](nexus-world.md) — MapLibre v6 world (Eastbourne/South Downs); free tile/DEM sources, LOD via minzoom, async lifecycle guard pattern, no-WebGL2 screenshot limits.
 - [Live run tracker](run-tracker.md) — GPS tracking screen built on OSRM jogging planner; geometry preservation, coordinate conventions, GPS lifecycle, no framer-motion.
