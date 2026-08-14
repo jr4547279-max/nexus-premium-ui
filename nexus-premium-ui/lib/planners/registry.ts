@@ -10,6 +10,8 @@ import { pubCrawlPlanner } from './pub-crawl-planner'
 import { createSingleVenuePlanner } from './single-venue-planner'
 import { joggingPlanner } from './jogging-planner'
 import { walkingPlanner } from './walking-planner'
+import { hikingPlanner } from './hiking-planner'
+import { cyclingPlanner } from './cycling-planner'
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 
@@ -17,9 +19,11 @@ const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
   // Multi-stop pub crawl — dedicated planner with route optimisation
   'pub-crawl': pubCrawlPlanner,
 
-  // Route planners — OSRM foot routing, real routes, no API key
+  // Route planners — OSRM routing, real routes, no API key
   'jogging': joggingPlanner,
   'walking': walkingPlanner,
+  'hiking':  hikingPlanner,   // foot profile, 12–15 km default, trail surfaces
+  'cycling': cyclingPlanner,  // bike profile, 20 km default, loop preferred
 
   // Single-venue planners — uses OSM for real venues, mock as fallback
   'cocktail-bar':  createSingleVenuePlanner({ activityId: 'cocktail-bar',  activityEmoji: '🍹', activityLabel: 'Cocktail Bar' }),

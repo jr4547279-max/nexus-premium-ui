@@ -52,7 +52,30 @@ import type {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const OSRM_BASE   = 'https://router.project-osrm.org'
+/**
+ * Returns the correct OSRM base URL for a given routing profile.
+ *
+ * Background: router.project-osrm.org is a single-profile demo instance — it
+ * does not honour the profile segment of the URL path (foot/bike/driving all
+ * produce car-biased routes). For genuine per-profile routing we use the
+ * OpenStreetMap Deutschland multi-profile server which runs separate OSRM
+ * instances per transport mode:
+ *
+ *   foot  → https://routing.openstreetmap.de/routed-foot
+ *   bike  → https://routing.openstreetmap.de/routed-bike
+ *   car   → https://routing.openstreetmap.de/routed-car
+ *
+ * Each instance exposes the standard OSRM v1 route API, so the URL structure
+ * is otherwise identical: {base}/route/v1/{profile}/{coords}?…
+ */
+function osrmBaseForProfile(profile: string): string {
+  switch (profile) {
+    case 'bike': return 'https://routing.openstreetmap.de/routed-bike'
+    case 'car':  return 'https://routing.openstreetmap.de/routed-car'
+    default:     return 'https://routing.openstreetmap.de/routed-foot'
+  }
+}
+
 const TIMEOUT_MS  = 15_000
 const EARTH_KM    = 6371
 const DEG         = Math.PI / 180
@@ -466,19 +489,23 @@ function buildRouteName(
 /**
  * Queries OSRM for a route through the given waypoints.
  * Returns a scored RouteCandidate, or null on failure.
+ *
+ * @param profile  OSRM routing profile: 'foot' (default) | 'bike' | 'car'
  */
 async function queryOsrm(
   waypoints:     Array<{ lat: number; lng: number }>,
   candidateId:   string,
   directionName: string,
   targetKm:      number,
+  profile:       string = 'foot',
 ): Promise<RouteCandidate | null> {
   const coordStr = waypoints
     .map(({ lat, lng }) => `${lng.toFixed(6)},${lat.toFixed(6)}`)
     .join(';')
 
+  const base = osrmBaseForProfile(profile)
   const url =
-    `${OSRM_BASE}/route/v1/foot/${coordStr}` +
+    `${base}/route/v1/${profile}/${coordStr}` +
     `?overview=full&geometries=geojson&steps=true&continue_straight=false`
 
   const controller = new AbortController()
@@ -549,6 +576,13 @@ async function queryOsrm(
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export class OsrmRouteProvider implements RouteProvider {
+  /** OSRM routing profile: 'foot' (default) | 'bike' | 'car' */
+  private readonly profile: string
+
+  constructor(options: { profile?: string } = {}) {
+    this.profile = options.profile ?? 'foot'
+  }
+
   async getRoutes(
     _activityId: string,
     location:    { lat: number; lng: number },
@@ -562,6 +596,7 @@ export class OsrmRouteProvider implements RouteProvider {
     const { lat, lng } = location
     const targetKm  = options.desiredDistanceKm ?? 5
     const maxRoutes = options.maxRoutes ?? 3
+    const profile   = this.profile
 
     // ── Build all candidate queries ──────────────────────────────────────────
     //
@@ -599,6 +634,7 @@ export class OsrmRouteProvider implements RouteProvider {
           `osrm-2leg-${bearing}`,
           label,
           targetKm,
+          profile,
         ),
       )
 
@@ -615,6 +651,7 @@ export class OsrmRouteProvider implements RouteProvider {
             `osrm-tri-${bearing}-L-${legFrac}`,
             label,
             targetKm,
+            profile,
           ),
         )
 
@@ -626,6 +663,7 @@ export class OsrmRouteProvider implements RouteProvider {
             `osrm-tri-${bearing}-R-${legFrac}`,
             label,
             targetKm,
+            profile,
           ),
         )
       }

@@ -29,7 +29,8 @@ import { useState, useRef, useCallback } from 'react'
 import {
   Sparkles, MapPin, RotateCcw, ArrowLeftRight, Minus,
   ChevronRight, Play, Search, AlertTriangle, Footprints,
-  Timer,
+  Timer, Mountain, Bike, TrendingUp, Package, Info,
+  Gauge, Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -46,6 +47,7 @@ import {
   DEFAULT_ROUTE_PREFERENCES,
 } from '@/lib/planners/planner-engine'
 import { buildRoutePlannerResult } from '@/lib/planners/route-utils'
+import { getRouteConfigForActivity } from '@/lib/planners/providers/route-provider'
 
 // ── Activity configuration ────────────────────────────────────────────────────
 // Keyed by activityId so a single component serves Jogging, Walking, and any
@@ -83,10 +85,86 @@ const ROUTE_ACTIVITY_CFG: Record<string, RouteActivityCfg> = {
     paceLabel:    '~15 min/km',
     emoji:        '🚶',
   },
+  hiking: {
+    label:        'Hike',
+    gerund:       'hiking',
+    verb:         'hike',
+    startLabel:   'Start Hike',
+    distances:    [5, 10, 15, 20],
+    paceMinPerKm: 25,
+    paceLabel:    '~25 min/km',
+    emoji:        '🥾',
+  },
+  cycling: {
+    label:        'Ride',
+    gerund:       'cycling',
+    verb:         'ride',
+    startLabel:   'Start Ride',
+    distances:    [10, 20, 30, 50],
+    paceMinPerKm: 4,
+    paceLabel:    '~15 km/h',
+    emoji:        '🚴',
+  },
 }
 
 function getActivityCfg(activityId: string): RouteActivityCfg {
   return ROUTE_ACTIVITY_CFG[activityId] ?? ROUTE_ACTIVITY_CFG['jogging']!
+}
+
+/**
+ * Returns sensible default RoutePreferences for each activity,
+ * derived from the activity's RouteConfig so they match the planner defaults.
+ *
+ * This ensures the UI starts with the right distance (e.g. 12 km for hiking,
+ * 20 km for cycling) rather than the generic 5 km global default.
+ */
+function defaultPrefsForActivity(activityId: string): RoutePreferences {
+  const config = getRouteConfigForActivity(activityId)
+  const surfaceDefault: SurfacePreference =
+    activityId === 'hiking'  ? 'paths' :
+    activityId === 'cycling' ? 'roads' :
+    'mixed'
+  return {
+    distanceKm:          config?.defaultDistanceKm          ?? DEFAULT_ROUTE_PREFERENCES.distanceKm,
+    routeTypePreference: config?.defaultPreferLoop ? 'loop' : 'any',
+    surfacePreference:   surfaceDefault,
+    difficulty:          'any',
+  }
+}
+
+// ── Hiking: recommended equipment based on difficulty ────────────────────────
+
+function hikingEquipment(difficulty: DifficultyPreference, surface: SurfacePreference): string[] {
+  const base = ['Hiking boots', 'Water bottle', 'Snacks', 'Weather layer']
+  if (difficulty === 'moderate' || difficulty === 'challenging') {
+    base.push('Trekking poles', 'First-aid kit')
+  }
+  if (difficulty === 'challenging') {
+    base.push('Navigation app', 'Emergency shelter')
+  }
+  if (surface === 'paths') {
+    base.push('Gaiters')
+  }
+  return base
+}
+
+// ── Cycling: terrain label based on surface ───────────────────────────────────
+
+function cyclingTerrainLabel(surface: SurfacePreference): { label: string; detail: string } {
+  switch (surface) {
+    case 'roads':
+      return { label: 'Road', detail: 'Smooth tarmac, ideal for road bikes' }
+    case 'paths':
+      return { label: 'Off-road', detail: 'Gravel & trails, suited for MTB or gravel bikes' }
+    default:
+      return { label: 'Mixed', detail: 'Combination of roads and paths, versatile terrain' }
+  }
+}
+
+// ── Cycling: average speed from pace ─────────────────────────────────────────
+
+function cyclingSpeedKmh(paceMinPerKm: number): number {
+  return Math.round(60 / paceMinPerKm)
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -385,12 +463,18 @@ export function RunRoutePlanner({
 }: RunRoutePlannerProps) {
   const cfg = getActivityCfg(activityId)
 
+  // Initialise from activity-specific defaults so the first search reflects
+  // the activity's configured distance / surface / route-type preference.
+  // The initialiser function runs once on mount; activityId is captured from
+  // the closure at that point (the component is always mounted for one activity).
   const [phase, setPhase]   = useState<Phase>('prefs')
-  const [prefs, setPrefs]   = useState<RoutePreferences>({ ...DEFAULT_ROUTE_PREFERENCES })
+  const [prefs, setPrefs]   = useState<RoutePreferences>(() => defaultPrefsForActivity(activityId))
   const [candidates, setCandidates] = useState<RouteCandidate[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [error, setError]   = useState<string | null>(null)
-  const [customDist, setCustomDist] = useState('7')
+  const [customDist, setCustomDist] = useState(() =>
+    String(defaultPrefsForActivity(activityId).distanceKm),
+  )
   const [showCustom, setShowCustom] = useState(false)
 
   // Simple in-session cache: key → RouteCandidate[]
@@ -624,6 +708,64 @@ export function RunRoutePlanner({
             onChange={v => setPrefs(p => ({ ...p, difficulty: v }))}
           />
 
+          {/* ── HIKING: Equipment recommendations ──────────────────────────── */}
+          {activityId === 'hiking' && (
+            <div className="mb-5 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Package className="w-3.5 h-3.5 text-emerald-400" />
+                <p className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
+                  Recommended Equipment
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {hikingEquipment(prefs.difficulty, prefs.surfacePreference).map(item => (
+                  <span
+                    key={item}
+                    className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300/80 border border-emerald-500/20"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── CYCLING: Terrain info ──────────────────────────────────────── */}
+          {activityId === 'cycling' && (() => {
+            const terrain = cyclingTerrainLabel(prefs.surfacePreference)
+            return (
+              <div className="mb-5 p-3 rounded-xl bg-lime-500/5 border border-lime-500/15">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Bike className="w-3.5 h-3.5 text-lime-400" />
+                  <p className="text-xs font-semibold text-lime-400 uppercase tracking-widest">
+                    Terrain · {terrain.label}
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {terrain.detail}
+                </p>
+                <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-lime-500/10">
+                  <Gauge className="w-3 h-3 text-lime-400/70" />
+                  <p className="text-xs text-muted-foreground/80">
+                    Average speed: <span className="text-lime-300/80 font-medium">~{cyclingSpeedKmh(cfg.paceMinPerKm)} km/h</span>
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* ── WALKING: Pace & destination info ──────────────────────────── */}
+          {activityId === 'walking' && (
+            <div className="mb-5 p-3 rounded-xl bg-teal-500/5 border border-teal-500/15">
+              <div className="flex items-center gap-2">
+                <Footprints className="w-3.5 h-3.5 text-teal-400" />
+                <p className="text-xs text-teal-300/80">
+                  Estimated at a comfortable <span className="font-medium">~{cfg.paceLabel}</span> walking pace
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Requirement notices */}
           {missingTiming && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
@@ -831,6 +973,141 @@ export function RunRoutePlanner({
                 <p className="text-xs text-muted-foreground bg-muted/15 rounded-xl px-3 py-2 mb-4">
                   🗺 {selectedCandidate.surfaceSummary}
                 </p>
+              )}
+
+              {/* ── HIKING: Grade, group size, equipment, trail info ──────── */}
+              {activityId === 'hiking' && (
+                <div className="mb-4 space-y-3">
+                  {/* Stats row — grade is distance-based; no elevation source available */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-emerald-500/8 border border-emerald-500/15 p-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Mountain className="w-3 h-3 text-emerald-400" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Grade</p>
+                      <p className="text-sm font-semibold text-emerald-300/80 capitalize">
+                        {selectedCandidate.grade ?? 'Easy'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-muted/10 border border-border/20 p-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Users className="w-3 h-3 text-muted-foreground" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Group</p>
+                      <p className="text-sm font-semibold text-foreground/80">
+                        {isSolo ? 'Solo' : 'Group'}
+                      </p>
+                    </div>
+                  </div>
+                  {/* Grade is estimated from route distance — honest disclosure */}
+                  <p className="text-xs text-muted-foreground/60 leading-relaxed px-0.5">
+                    Grade estimated from route length via OSRM · OpenStreetMap.
+                    Actual elevation data is not available from this routing provider.
+                  </p>
+
+                  {/* Equipment */}
+                  <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/15 p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Package className="w-3 h-3 text-emerald-400" />
+                      <p className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
+                        Bring Along
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {hikingEquipment(prefs.difficulty, prefs.surfacePreference).map(item => (
+                        <span
+                          key={item}
+                          className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300/80 border border-emerald-500/20"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Trail info */}
+                  <div className="rounded-xl bg-muted/10 border border-border/20 p-3">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Info className="w-3 h-3 text-muted-foreground" />
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                        Trail Info
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {selectedCandidate.routeType === 'loop'
+                        ? 'Circular trail — returns to start. Check trail conditions and weather before setting off.'
+                        : 'Linear trail — plan your return transport or retrace your steps. Notify someone of your route.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── CYCLING: Speed, terrain, group ────────────────────────── */}
+              {activityId === 'cycling' && (
+                <div className="mb-4 space-y-3">
+                  {/* Stats row */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-xl bg-lime-500/8 border border-lime-500/15 p-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Gauge className="w-3 h-3 text-lime-400" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Avg Speed</p>
+                      <p className="text-sm font-semibold text-lime-300/80">
+                        ~{cyclingSpeedKmh(cfg.paceMinPerKm)} km/h
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-muted/10 border border-border/20 p-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Bike className="w-3 h-3 text-muted-foreground" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Terrain</p>
+                      <p className="text-sm font-semibold text-foreground/80">
+                        {cyclingTerrainLabel(prefs.surfacePreference).label}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-muted/10 border border-border/20 p-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Users className="w-3 h-3 text-muted-foreground" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Ride</p>
+                      <p className="text-sm font-semibold text-foreground/80">
+                        {isSolo ? 'Solo' : 'Group'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Terrain detail */}
+                  <div className="rounded-xl bg-lime-500/5 border border-lime-500/15 p-3">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Info className="w-3 h-3 text-lime-400/70" />
+                      <p className="text-xs font-semibold text-lime-400/80 uppercase tracking-widest">
+                        Route Type
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {cyclingTerrainLabel(prefs.surfacePreference).detail}.{' '}
+                      {selectedCandidate.routeType === 'loop'
+                        ? 'Circular ride — no need for return transport.'
+                        : 'Out-and-back ride — retrace your route or arrange a return.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── WALKING: Start + destination info ─────────────────────── */}
+              {activityId === 'walking' && selectedCandidate.routeType === 'linear' && (
+                <div className="mb-4 rounded-xl bg-teal-500/5 border border-teal-500/15 p-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <MapPin className="w-3 h-3 text-teal-400" />
+                    <p className="text-xs font-semibold text-teal-400 uppercase tracking-widest">
+                      Point-to-Point Walk
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    This linear walk has a distinct start and destination. Arrange return transport
+                    or retrace your steps.
+                  </p>
+                </div>
               )}
 
               {/* Retrace disclosure for out-and-back */}
