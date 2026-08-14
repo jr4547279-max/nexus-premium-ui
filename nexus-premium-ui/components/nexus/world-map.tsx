@@ -105,6 +105,10 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
     console.log('[MAP] Component mounted')
+    console.log('[MAP] style.version:', STYLE.version)
+    console.log('[MAP] style.sources keys:', Object.keys(STYLE.sources))
+    console.log('[MAP] style.sources:', JSON.stringify(STYLE.sources, null, 2))
+    console.log('[MAP] style.layers.length:', STYLE.layers.length)
     setMounted(true)
     setContainerWidth(containerRef.current.offsetWidth)
     setContainerHeight(containerRef.current.offsetHeight)
@@ -239,11 +243,17 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
         {/* Dimensions */}
         <TextRow label="Container"   value={`${containerWidth} × ${containerHeight}`} />
 
-        {/* Style URL */}
-        <TextRow label="Style URL" value="(inline object)" />
+        {/* Style introspection */}
+        <TextRow label="style.version"       value={String(STYLE.version)} />
+        <TextRow label="style.sources keys"  value={Object.keys(STYLE.sources).join(', ')} />
+        <TextRow label="style.layers.length" value={String(STYLE.layers.length)} />
+        <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 11 }}>style.sources:</div>
+        <pre style={{ margin: 0, color: '#e2e8f0', fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {JSON.stringify(STYLE.sources, null, 2)}
+        </pre>
 
-        {/* Sources */}
-        <TextRow label="Sources loaded" value={String(sourcesCount)} />
+        {/* Runtime sources loaded count */}
+        <TextRow label="Sources loaded (runtime)" value={String(sourcesCount)} />
 
         {/* Errors */}
         {errors.length > 0 && (
