@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import 'maplibre-gl/dist/maplibre-gl.css'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface WorldMapProps {
@@ -29,6 +30,7 @@ interface WorldMapProps {
 // ── Minimal style (unchanged) ─────────────────────────────────────────────────
 const STYLE = {
   version: 8 as const,
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
   sources: {
     world: {
       type: 'vector' as const,
@@ -192,15 +194,6 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       const webgl2 = !!probe.getContext('webgl2')
       setWebglSupported(webgl2)
       console.log('[MAP] WebGL2 supported:', webgl2)
-
-      // Inject MapLibre CSS once per page
-      if (!document.getElementById('maplibre-css')) {
-        const link = document.createElement('link')
-        link.id   = 'maplibre-css'
-        link.rel  = 'stylesheet'
-        link.href = 'https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.css'
-        document.head.appendChild(link)
-      }
 
       // ── Construct map (unchanged) ───────────────────────────────────────────
       let map: InstanceType<typeof maplibregl.Map>
