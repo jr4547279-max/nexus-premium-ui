@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { GoldenRing } from '@/components/nexus/golden-ring'
@@ -17,6 +17,21 @@ import { AlertTriangle } from 'lucide-react'
  *   /auth/callback#access_token=...  ← implicit flow (rare fallback)
  *
  * This page handles all three cases.
+ *
+ * ─── Why detectSessionInUrl is disabled ────────────────────────────────────
+ * The Supabase client in lib/supabase.ts sets detectSessionInUrl: false.
+ * When that flag is true (the SDK default), the client calls
+ * exchangeCodeForSession() automatically on module init. This page then calls
+ * it again inside useEffect, consuming the one-time PKCE flow state twice and
+ * producing "flow_state_already_consumed". Disabling the flag gives this page
+ * sole responsibility for the exchange.
+ *
+ * ─── Why useRef guards against double execution ────────────────────────────
+ * React Strict Mode (development only) intentionally runs every useEffect
+ * twice (mount → unmount → remount). A plain async function inside useEffect
+ * would therefore call exchangeCodeForSession twice even without detectSessionInUrl,
+ * producing the same error. The hasExchanged ref ensures the exchange runs
+ * exactly once regardless of how many times the effect fires.
  *
  * ─── Supabase configuration requirements ───────────────────────────────────
  * For the redirect back here to succeed, BOTH of these must be set in the
@@ -41,7 +56,16 @@ export default function AuthCallbackPage() {
   const [phase, setPhase] = useState<Phase>('exchanging')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  // Guard against React Strict Mode double-invocation (and any other scenario
+  // that would cause the effect to run more than once). The PKCE flow state is
+  // one-time-use: a second exchangeCodeForSession() call always fails.
+  const hasExchanged = useRef(false)
+
   useEffect(() => {
+    // Bail out immediately on the second Strict Mode invocation.
+    if (hasExchanged.current) return
+    hasExchanged.current = true
+
     const handleCallback = async () => {
       const url = new URL(window.location.href)
 
@@ -62,34 +86,28 @@ export default function AuthCallbackPage() {
       }
 
       // ── 2. PKCE flow — exchange the one-time code for a session ──────────
+      // detectSessionInUrl is false in lib/supabase.ts so this is the only
+      // call that consumes the PKCE code. The hasExchanged ref above ensures
+      // this block runs exactly once.
       const code = url.searchParams.get('code')
       if (code) {
         console.log('[auth/callback] PKCE code received — exchanging for session')
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
-          // The most common cause is a duplicate exchange (detectSessionInUrl
-          // already exchanged it before useEffect ran). Check the session:
-          // if we have one, the exchange succeeded via detectSessionInUrl.
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session) {
-            console.log('[auth/callback] Session already established via detectSessionInUrl — proceeding')
-          } else {
-            console.error('[auth/callback] Code exchange failed AND no session found:', error.message)
-            setErrorMessage('Sign-in failed — the authorisation code may have expired. Please try again.')
-            setPhase('error')
-            setTimeout(() => router.replace('/'), 4000)
-            return
-          }
-        } else {
-          console.log('[auth/callback] Code exchange successful')
+          console.error('[auth/callback] Code exchange failed:', error.message)
+          setErrorMessage('Sign-in failed — the authorisation code may have expired. Please try again.')
+          setPhase('error')
+          setTimeout(() => router.replace('/'), 4000)
+          return
         }
+        console.log('[auth/callback] Code exchange successful')
         setPhase('done')
         router.replace('/')
         return
       }
 
       // ── 3. Implicit flow — tokens arrive in the URL hash fragment ─────────
-      // This is a fallback for when PKCE wasn't used (rare with Supabase v2).
+      // Fallback for when PKCE wasn't used (rare with Supabase v2).
       const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash
       const hashParams = new URLSearchParams(hash)
       const accessToken = hashParams.get('access_token')
@@ -112,18 +130,8 @@ export default function AuthCallbackPage() {
         return
       }
 
-      // ── 4. No auth params — detectSessionInUrl may have already handled it.
-      // Check for an existing session before giving up.
-      const { data: { session: existingSession } } = await supabase.auth.getSession()
-      if (existingSession) {
-        console.log('[auth/callback] Session found (via detectSessionInUrl) — proceeding')
-        setPhase('done')
-        router.replace('/')
-        return
-      }
-
-      // Nothing to work with — return to the landing page.
-      console.warn('[auth/callback] No code, no hash tokens, no session — redirecting home')
+      // ── 4. No auth params — nothing to do ────────────────────────────────
+      console.warn('[auth/callback] No code, no hash tokens — redirecting home')
       router.replace('/')
     }
 
