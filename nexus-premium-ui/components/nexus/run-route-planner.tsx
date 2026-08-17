@@ -25,7 +25,7 @@
 //   • The PlannerResult carries full routeGeometry for the run tracker.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import {
   Sparkles, MapPin, RotateCcw, ArrowLeftRight, Minus,
   ChevronRight, Play, Search, AlertTriangle, Footprints,
@@ -485,15 +485,37 @@ export function RunRoutePlanner({
     : null
 
   // ── Effective timing window ─────────────────────────────────────────────────
-  // Prefer the explicit Golden Window (social/venue run).
-  // Fall back to the pre-computed shared availability window passed in from the
-  // parent (computed via computeGoldenWindows — real intersection only, no
-  // compromise). When neither is available, effectiveWindow is null and
-  // canSearch is false.
+  // Prefer the explicit Golden Window (group/social run), then the pre-computed
+  // shared availability window (real intersection only, no compromise).
   const effectiveWindow: GoldenWindowLike | null = goldenWindow ?? sharedWindow ?? null
 
+  // ── Solo fallback window ────────────────────────────────────────────────────
+  // Solo users do not need to add availability before finding routes — they can
+  // start immediately. When neither a saved Golden Window nor a shared
+  // availability window exists, synthesize a "starting now" window so the
+  // planner has timing data for result labels (start time, finish time).
+  // This window is never shown in the UI; it is only passed to the planner.
+  const resolvedWindow = useMemo<GoldenWindowLike | null>(() => {
+    if (effectiveWindow) return effectiveWindow   // real window always wins
+    if (!isSolo) return null                      // multi-member must have real timing
+    // Solo user with no real window — synthesize "now + 2 h"
+    const now = new Date()
+    const end = new Date(now.getTime() + 2 * 60 * 60 * 1000)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return {
+      day_of_week:            now.getDay(),
+      start_time:             `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+      end_time:               `${pad(end.getHours())}:${pad(end.getMinutes())}`,
+      duration_minutes:       120,
+      match_quality:          'perfect',
+      confidence_score:       1,
+      available_member_count: 1,
+      total_member_count:     1,
+    }
+  }, [effectiveWindow, isSolo])
+
   const handleFindRoutes = useCallback(async () => {
-    if (!effectiveWindow || !planningLocation) return
+    if (!resolvedWindow || !planningLocation) return
 
     setPhase('searching')
     setError(null)
@@ -509,7 +531,7 @@ export function RunRoutePlanner({
     const engineResult = await runPlanner({
       groupId,
       activityId,
-      goldenWindow: effectiveWindow ?? undefined,
+      goldenWindow: resolvedWindow ?? undefined,
       groupLocation: planningLocation,
       locationName,
       routePreferences: prefs,
@@ -536,7 +558,7 @@ export function RunRoutePlanner({
     if (cacheKey) cacheRef.current.set(cacheKey, allCandidates)
     setCandidates(allCandidates)
     setPhase('results')
-  }, [effectiveWindow, planningLocation, prefs, groupId, activityId, locationName, cacheKey])
+  }, [resolvedWindow, planningLocation, prefs, groupId, activityId, locationName, cacheKey])
 
   const handleSelectRoute = useCallback((idx: number) => {
     setSelectedIdx(idx)
@@ -544,15 +566,15 @@ export function RunRoutePlanner({
 
   const handleStartRun = useCallback(() => {
     const candidate = candidates[selectedIdx]
-    if (!candidate || !effectiveWindow || !onStartRun) return
+    if (!candidate || !resolvedWindow || !onStartRun) return
     const plan = buildRoutePlannerResult(
       candidate,
-      { goldenWindow: effectiveWindow, locationName },
+      { goldenWindow: resolvedWindow, locationName },
       prefs,
       { activityId, paceMinPerKm: cfg.paceMinPerKm, emoji: cfg.emoji, activityVerb: cfg.gerund },
     )
     onStartRun(plan)
-  }, [candidates, selectedIdx, effectiveWindow, locationName, prefs, onStartRun, cfg, activityId])
+  }, [candidates, selectedIdx, resolvedWindow, locationName, prefs, onStartRun, cfg, activityId])
 
   const handleBackToPrefs = useCallback(() => {
     setPhase('prefs')
@@ -578,10 +600,11 @@ export function RunRoutePlanner({
   const selectedCandidate = candidates[selectedIdx] ?? null
 
   // ── Missing requirements messaging ─────────────────────────────────────────
-  // Solo jogging: only planning location is required (Golden Window is optional).
-  // Group runs with an explicit Golden Window also always satisfy timing.
+  // Solo users: only a planning location is required. Timing is optional —
+  // they get a synthesised "now" window via resolvedWindow above.
+  // Multi-member: a real shared timing window is also required.
   const missingLocation = !planningLocation
-  const missingTiming   = !effectiveWindow   // true only when no GW AND no availability
+  const missingTiming   = !isSolo && !resolvedWindow
   const canSearch       = !missingLocation && !missingTiming
 
   // ── Honest failure: loop requested but none found ──────────────────────────

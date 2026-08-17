@@ -561,8 +561,10 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   // "Add your availability … when you want to walk" is correct for Walking,
   // "… run" is correct for Jogging, etc.
   const routeActivityVerb =
-    rawActivityId === 'walking' ? 'walk' :
-    rawActivityId === 'jogging' ? 'run'  :
+    rawActivityId === 'walking' ? 'walk'  :
+    rawActivityId === 'jogging' ? 'run'   :
+    rawActivityId === 'cycling' ? 'ride'  :
+    rawActivityId === 'hiking'  ? 'hike'  :
     'go'
 
   const runTimingError = useMemo<string | null>(() => {
