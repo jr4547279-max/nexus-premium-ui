@@ -14,13 +14,13 @@ A premium mobile-first social planning app built with Next.js 16, Supabase, and 
 
 ## Running the app
 
-The app is configured to run on port 5000:
+The app is configured to run on port 3000:
 
 ```bash
 cd nexus-premium-ui && pnpm run dev
 ```
 
-This starts Next.js with `next dev -H 0.0.0.0 -p 5000`.
+This starts Next.js with `next dev -H 0.0.0.0 -p 3000`.
 
 ## Publishing (production)
 
@@ -64,21 +64,23 @@ https://yourapp.replit.app
 **Redirect URLs** — add ALL of these patterns:
 ```
 https://*.replit.app/**
+https://*.kirk.replit.dev/**
 https://*.janeway.replit.dev/**
-http://localhost:5000/**
+http://localhost:3000/**
 ```
 
-> **Why `*.janeway.replit.dev/**` and not `*.replit.dev/**`?**
+> **Why cluster-level wildcards?**
 >
 > Replit dev preview URLs are **two subdomain levels** below `replit.dev`:
 >
->   `4162f3b0-xxx.janeway.replit.dev`
+>   `4162f3b0-xxx.kirk.replit.dev`
 >
 > Supabase's `*` wildcard is single-level — it matches one segment and does NOT
-> cross dots. So `*.replit.dev/**` matches `janeway.replit.dev` (one level) but
-> does NOT match `anything.janeway.replit.dev` (two levels). You need the
-> cluster-level pattern `*.janeway.replit.dev/**` to cover every repl on this
-> cluster.
+> cross dots. So `*.replit.dev/**` matches `kirk.replit.dev` (one level) but
+> does NOT match `anything.kirk.replit.dev` (two levels). You need the
+> cluster-level pattern `*.kirk.replit.dev/**` to cover every repl on this
+> cluster. The current cluster is **kirk**; `janeway` is kept for safety in case
+> the workspace is migrated.
 >
 > If Supabase does not recognise `redirect_to`, it silently falls back to Site URL
 > and the user lands on the wrong page (Replit placeholder) instead of `/auth/callback`.

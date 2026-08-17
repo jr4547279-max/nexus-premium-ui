@@ -4,26 +4,20 @@ const nextConfig = {
     unoptimized: true,
   },
 
-  // Bake the Replit dev domain into the client bundle so auth-context can
-  // build the correct OAuth callback URL at runtime, even before window is
-  // available. Value is the full hostname, e.g.:
-  //   4162f3b0-...janeway.replit.dev   (dev preview)
-  //   your-app.replit.app              (production deployment)
-  // auth-context uses this to construct: https://<domain>/auth/callback
-  env: {
-    NEXT_PUBLIC_REPLIT_DEV_DOMAIN: process.env.REPLIT_DEV_DOMAIN ?? '',
-  },
-
   // Allow all Replit proxy origins + local connections to access Next.js dev
   // resources (HMR websocket, etc). Without this, Next.js 16 + Turbopack
   // blocks cross-origin requests to /_next/ and the app may not hydrate.
+  //
+  // Note: auth-context.tsx builds the OAuth callback URL from window.location.origin
+  // at runtime — no domain needs to be baked into the bundle.
   allowedDevOrigins: [
     '127.0.0.1',
     'localhost',
     ...(process.env.REPLIT_DEV_DOMAIN ? [process.env.REPLIT_DEV_DOMAIN] : []),
-    // Wildcard for any Replit preview proxy subdomain
+    // Wildcard patterns for Replit preview proxy — covers all clusters
     '*.replit.dev',
-    '*.janeway.replit.dev',
+    '*.kirk.replit.dev',    // current cluster
+    '*.janeway.replit.dev', // previous cluster (kept for safety)
   ],
 }
 
