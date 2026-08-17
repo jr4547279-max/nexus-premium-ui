@@ -48,6 +48,7 @@ import {
 } from '@/lib/planners/planner-engine'
 import { buildRoutePlannerResult } from '@/lib/planners/route-utils'
 import { getRouteConfigForActivity } from '@/lib/planners/providers/route-provider'
+import { RouteSearchingScreen } from './route-searching'
 
 // ── Activity configuration ────────────────────────────────────────────────────
 // Keyed by activityId so a single component serves Jogging, Walking, and any
@@ -477,8 +478,22 @@ export function RunRoutePlanner({
   )
   const [showCustom, setShowCustom] = useState(false)
 
+  /**
+   * Reveal state — set when the planner returns results successfully.
+   * While non-null, the RouteSearchingScreen plays its reveal animation.
+   * The parent advances phase to 'results' only after onExitComplete fires.
+   */
+  const [revealState, setRevealState] = useState<{ noLoopFound: boolean } | null>(null)
+
   // Simple in-session cache: key → RouteCandidate[]
   const cacheRef = useRef(new Map<string, RouteCandidate[]>())
+
+  /**
+   * Pending candidates — stored here while the reveal animation plays so
+   * setCandidates() fires only after the overlay fades out (avoiding a
+   * flash of results beneath the still-visible overlay).
+   */
+  const pendingCandidatesRef = useRef<RouteCandidate[]>([])
 
   /**
    * Monotonically increasing counter — incremented at the start of every
@@ -538,6 +553,7 @@ export function RunRoutePlanner({
     setPhase('searching')
     setError(null)
     setSelectedIdx(0)
+    setRevealState(null)   // clear any stale reveal from a previous search
 
     try {
       // Check cache first
@@ -585,8 +601,13 @@ export function RunRoutePlanner({
 
       console.log(`[NEXUS:UI] search #${myGen} ✓ ${allCandidates.length} candidates (${Math.round(performance.now() - uiStart)}ms)`)
       if (cacheKey) cacheRef.current.set(cacheKey, allCandidates)
-      setCandidates(allCandidates)
-      setPhase('results')
+
+      // Store candidates for after the reveal animation completes.
+      // Phase stays 'searching' — RouteSearchingScreen.onExitComplete advances it.
+      pendingCandidatesRef.current = allCandidates
+      const hasLoop    = allCandidates.some(c => c.isLoop)
+      const noLoopFound = prefs.routeTypePreference === 'loop' && !hasLoop
+      setRevealState({ noLoopFound })
     } catch (err) {
       // Guard against any unexpected rejection leaving the UI in a permanent
       // loading state. planner-engine wraps its own errors, so this branch
@@ -865,22 +886,20 @@ export function RunRoutePlanner({
 
       {/* ── PHASE: SEARCHING ────────────────────────────────────────────── */}
       {phase === 'searching' && (
-        <GlassCard className="p-5">
-          <div className="flex items-center gap-4 py-2">
-            <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-              <Sparkles className="w-5 h-5 text-primary animate-pulse" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Searching real routes…
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Querying OpenStreetMap via OSRM · {prefs.distanceKm} km ·{' '}
-                {prefs.routeTypePreference === 'any' ? 'any type' : prefs.routeTypePreference === 'loop' ? 'loop preferred' : 'out & back preferred'}
-              </p>
-            </div>
-          </div>
-        </GlassCard>
+        // key=searchGenRef.current remounts the overlay on each new search,
+        // resetting all internal timers and stage state cleanly.
+        <RouteSearchingScreen
+          key={searchGenRef.current}
+          activityId={activityId}
+          distanceKm={prefs.distanceKm}
+          revealing={revealState !== null}
+          noLoopFound={revealState?.noLoopFound ?? false}
+          onExitComplete={() => {
+            setCandidates(pendingCandidatesRef.current)
+            setPhase('results')
+            setRevealState(null)
+          }}
+        />
       )}
 
       {/* ── PHASE: ERROR ────────────────────────────────────────────────── */}
