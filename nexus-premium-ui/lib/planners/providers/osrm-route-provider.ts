@@ -322,6 +322,18 @@ interface OsrmResponse {
   routes?: OsrmRoute[]
 }
 
+// ── Diagnostic counters (one object per getRoutes() call) ─────────────────────
+
+interface DiagStats {
+  sent:      number   // total thunks invoked (= queries.length)
+  http200:   number   // 2xx responses (OSRM replied, even if code≠Ok)
+  http429:   number   // rate-limited by server
+  http5xx:   number   // server errors
+  httpOther: number   // other non-2xx (e.g. 403, 503 that isn't 5xx pattern)
+  timeouts:  number   // AbortError — per-request timeout fired
+  generated: number   // queryOsrm returned a non-null RouteCandidate
+}
+
 // ── Surface inference ─────────────────────────────────────────────────────────
 
 /**
@@ -591,7 +603,10 @@ async function queryOsrm(
   directionName: string,
   targetKm:      number,
   profile:       string = 'foot',
+  stats:         DiagStats,
 ): Promise<RouteCandidate | null> {
+  stats.sent++
+
   const coordStr = waypoints
     .map(({ lat, lng }) => `${lng.toFixed(6)},${lat.toFixed(6)}`)
     .join(';')
@@ -615,17 +630,29 @@ async function queryOsrm(
 
     if (!res.ok) {
       if (res.status === 429) {
+        stats.http429++
         // [NEXUS DEBUG]
         console.warn(`[NEXUS:OSRM] 429 rate-limited — ${candidateId} (${elapsedMs}ms) — reduce BATCH_CONCURRENCY or increase BATCH_DELAY_MS`)
+      } else if (res.status >= 500) {
+        stats.http5xx++
+        // [NEXUS DEBUG]
+        console.warn(`[NEXUS:OSRM] HTTP ${res.status} server error — ${candidateId} (${elapsedMs}ms)`)
       } else {
+        stats.httpOther++
         // [NEXUS DEBUG]
         console.warn(`[NEXUS:OSRM] HTTP ${res.status} — ${candidateId} (${elapsedMs}ms)`)
       }
       return null
     }
 
+    stats.http200++
+
     const data = (await res.json()) as OsrmResponse
-    if (data.code !== 'Ok' || !data.routes?.length) return null
+    if (data.code !== 'Ok' || !data.routes?.length) {
+      // [NEXUS DEBUG]
+      console.warn(`[NEXUS:OSRM] OSRM code=${data.code} (no usable route) — ${candidateId}`)
+      return null
+    }
 
     const route  = data.routes[0]!
     const coords = route.geometry.coordinates
@@ -659,6 +686,8 @@ async function queryOsrm(
     const elapsedFull = Math.round(performance.now() - t0)
     console.log(`[NEXUS:OSRM] ✓ ${candidateId} — ${distKm} km ${routeType} retrace=${retrace.toFixed(2)} lq=${loopQ.toFixed(2)} (${elapsedFull}ms)`)
 
+    stats.generated++
+
     return {
       id:               candidateId,
       name,
@@ -677,8 +706,9 @@ async function queryOsrm(
       surfaceProfile,
     }
   } catch (err) {
-    // [NEXUS DEBUG]
     if ((err as Error)?.name === 'AbortError') {
+      stats.timeouts++
+      // [NEXUS DEBUG]
       console.warn(`[NEXUS:OSRM] ⏱ timeout (>${TIMEOUT_MS}ms) — ${candidateId}`)
     }
     return null
@@ -698,8 +728,8 @@ export class OsrmRouteProvider implements RouteProvider {
   }
 
   async getRoutes(
-    _activityId: string,
-    location:    { lat: number; lng: number },
+    activityId: string,
+    location:   { lat: number; lng: number },
     options: {
       radiusMetres?:      number
       maxRoutes?:         number
@@ -711,6 +741,13 @@ export class OsrmRouteProvider implements RouteProvider {
     const targetKm  = options.desiredDistanceKm ?? 5
     const maxRoutes = options.maxRoutes ?? 3
     const profile   = this.profile
+
+    // ── Diagnostic counters — one object shared across all queries ───────────
+    const stats: DiagStats = {
+      sent: 0, http200: 0, http429: 0, http5xx: 0, httpOther: 0,
+      timeouts: 0, generated: 0,
+    }
+    const searchTimestamp = new Date().toISOString()
 
     // ── Build all candidate queries ──────────────────────────────────────────
     //
@@ -759,6 +796,7 @@ export class OsrmRouteProvider implements RouteProvider {
             label,
             targetKm,
             profile,
+            stats,
           ),
         )
 
@@ -771,6 +809,7 @@ export class OsrmRouteProvider implements RouteProvider {
             label,
             targetKm,
             profile,
+            stats,
           ),
         )
       }
@@ -797,7 +836,7 @@ export class OsrmRouteProvider implements RouteProvider {
       () => masterController.abort(),
       MASTER_TIMEOUT_MS,
     )
-    console.log(`[NEXUS:OSRM] starting ${queries.length} queries — ${BATCH_CONCURRENCY} concurrent, ${BATCH_DELAY_MS}ms inter-batch delay, master timeout ${MASTER_TIMEOUT_MS}ms`)
+    console.log(`[NEXUS:OSRM] starting ${queries.length} queries — profile=${profile} ${BATCH_CONCURRENCY} concurrent, ${BATCH_DELAY_MS}ms inter-batch delay, master timeout ${MASTER_TIMEOUT_MS}ms`)
 
     let settled: Array<PromiseSettledResult<RouteCandidate | null>>
     try {
@@ -806,25 +845,18 @@ export class OsrmRouteProvider implements RouteProvider {
       clearTimeout(masterTimer)
     }
 
+    const totalElapsedMs = Math.round(performance.now() - searchStart)
+
     const all: RouteCandidate[] = settled
       .filter((r): r is PromiseFulfilledResult<RouteCandidate | null> => r.status === 'fulfilled')
       .map(r => r.value)
       .filter((c): c is RouteCandidate => c !== null)
 
-    // [NEXUS DEBUG]
-    const n429     = settled.filter(r => r.status === 'rejected').length
-    const nTimeout = 0  // timeouts surface as null (caught inside queryOsrm), not rejections
-    console.log(
-      `[NEXUS:OSRM] done — ${all.length} ok, ${settled.length - all.length - n429} null (429/timeout/error), ${n429} rejected` +
-      ` — total ${Math.round(performance.now() - searchStart)}ms`,
-    )
-
-    if (all.length === 0) return []
-
-    // ── Filter by distance tolerance (±60%) ──────────────────────────────────
+    // ── Distance filter ───────────────────────────────────────────────────────
     const lo = targetKm * (1 - DIST_TOLERANCE)
     const hi = targetKm * (1 + DIST_TOLERANCE)
     const filtered = all.filter(c => c.totalDistanceKm >= lo && c.totalDistanceKm <= hi)
+    const distFilterRejected = all.length - filtered.length
     const pool     = filtered.length > 0 ? filtered : all
 
     // ── Deduplicate by direction (keep best per direction-type key) ───────────
@@ -860,6 +892,44 @@ export class OsrmRouteProvider implements RouteProvider {
       if (!isDup) finalDeduped.push(c)
     }
 
-    return finalDeduped.slice(0, maxRoutes)
+    const finalResult = finalDeduped.slice(0, maxRoutes)
+    const dedupRejected = pool.length - finalDeduped.length
+
+    // ── [NEXUS DIAG] Full diagnostic summary ──────────────────────────────────
+    // Look for this group in DevTools Console to diagnose route failures.
+    // Search: [NEXUS DIAG]
+    const label = activityId.toUpperCase()
+    console.group(
+      `%c[NEXUS DIAG] ${label} — ${searchTimestamp} (${totalElapsedMs}ms)`,
+      'font-weight:bold;color:#f5a623',
+    )
+    console.log(`  Activity:          ${activityId}`)
+    console.log(`  OSRM profile:      ${profile}`)
+    console.log(`  Target distance:   ${targetKm} km (±${DIST_TOLERANCE * 100}% = ${lo.toFixed(1)}–${hi.toFixed(1)} km)`)
+    console.log(`  Location:          ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+    console.log('')
+    console.log(`  ── HTTP ──`)
+    console.log(`  Requests sent:     ${stats.sent}`)
+    console.log(`  HTTP 200:          ${stats.http200}`)
+    console.log(`  HTTP 429:          ${stats.http429}${stats.http429 > 0 ? '  ← rate-limited (IP temporarily throttled)' : ''}`)
+    console.log(`  HTTP 5xx:          ${stats.http5xx}`)
+    console.log(`  HTTP other:        ${stats.httpOther}`)
+    console.log(`  Timeouts:          ${stats.timeouts}`)
+    console.log(`  No-route / error:  ${stats.http200 - stats.generated}  (200 OK but OSRM returned no usable route)`)
+    console.log('')
+    console.log(`  ── Candidates ──`)
+    console.log(`  Generated:         ${stats.generated}  (valid RouteCandidate objects returned by OSRM)`)
+    console.log(`  Dist filter −:     ${distFilterRejected}  (outside ${lo.toFixed(1)}–${hi.toFixed(1)} km; pool fell back to all=${filtered.length === 0})`)
+    console.log(`  Dedup −:           ${dedupRejected}  (direction-type + near-identical-distance passes)`)
+    console.log(`  Final returned:    ${finalResult.length}${finalResult.length === 0 ? '  ← NO ROUTES — see failure point above' : ''}`)
+    if (finalResult.length > 0) {
+      finalResult.forEach((c, i) =>
+        console.log(`    [${i + 1}] ${c.name} — ${c.totalDistanceKm} km ${c.routeType} retrace=${c.retraceRatio.toFixed(2)} lq=${c.loopQuality.toFixed(2)}`),
+      )
+    }
+    console.groupEnd()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    return finalResult
   }
 }
