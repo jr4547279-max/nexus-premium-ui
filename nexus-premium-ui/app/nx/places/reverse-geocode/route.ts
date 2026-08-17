@@ -13,19 +13,45 @@ export const dynamic = 'force-dynamic'
 
 interface NominatimResponse {
   display_name?: string
+  /**
+   * OSM feature type — 'city', 'town', 'village', 'suburb', 'hamlet',
+   * 'isolated_dwelling', 'administrative', etc.
+   */
+  type?:  string
+  /**
+   * OSM feature class — 'place' for settlements, 'boundary' for
+   * administrative boundaries.
+   */
+  class?: string
   address?: {
-    city?:         string
-    town?:         string
-    village?:      string
-    hamlet?:       string
-    municipality?: string
-    suburb?:       string
-    state?:        string
-    county?:       string
-    country?:      string
+    isolated_dwelling?: string
+    hamlet?:            string
+    suburb?:            string
+    village?:           string
+    town?:              string
+    city?:              string
+    municipality?:      string
+    county?:            string
+    state?:             string
+    country?:           string
   }
   error?: string
 }
+
+// OSM class/type values that indicate administrative boundaries rather than
+// actual settlements. When the top-level feature has one of these values, we
+// cannot trust addr.city — it may be a large district like "Wealden" or
+// "Greater London" rather than the user's actual town or village.
+const ADMIN_CLASSES = new Set(['boundary'])
+const ADMIN_TYPES   = new Set([
+  'administrative',
+  'county',
+  'district',
+  'region',
+  'province',
+  'state',
+  'municipality',
+])
 
 // Simple in-memory cache (keyed by rounded lat/lng)
 const cache = new Map<string, { address: string; city: string; country: string; expiresAt: number }>()
@@ -53,9 +79,12 @@ export async function GET(req: Request) {
   }
 
   try {
+    // zoom=14 returns settlement-level detail (village/suburb/town) rather than
+    // the administrative district (zoom=10 gives "Wealden" for rural East Sussex
+    // because it surfaces the district boundary instead of the nearest place).
     const url =
       `https://nominatim.openstreetmap.org/reverse` +
-      `?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`
+      `?lat=${lat}&lon=${lng}&format=json&zoom=14&addressdetails=1`
 
     const res = await fetch(url, {
       headers: {
@@ -69,49 +98,55 @@ export async function GET(req: Request) {
     const data = (await res.json()) as NominatimResponse
     if (data.error) throw new Error(data.error)
 
-    const addr = data.address ?? {}
+    const addr         = data.address ?? {}
+    const featureType  = data.type  ?? ''
+    const featureClass = data.class ?? ''
 
-    // Priority order: specific settlement first, large administrative areas last.
-    // Nominatim sometimes returns addr.city = 'Wealden' (an 835 km² district)
-    // or addr.city = 'Greater London' — these are administrative boundaries, not
-    // towns, and produce misleading labels like "Wealden, United Kingdom".
-    // By trying town → village → suburb → hamlet first we get the nearest
-    // settlement name. We only fall back to addr.city when none of those exist,
-    // and even then we prefer display_name over a bare administrative district.
-    const settlement =
-      addr.town         ??   // e.g. "Uckfield", "Crowborough"
-      addr.village       ??  // e.g. "Hartfield", "Nutley"
-      addr.suburb        ??  // e.g. "Hove" (within a city boundary)
-      addr.hamlet        ??  // e.g. "Poundgate"
-      addr.municipality  ??  // fallback for some non-UK geocoders
-      null
+    // Is the returned top-level feature an administrative boundary rather than
+    // an actual settlement? If so, addr.city cannot be trusted as a label.
+    const isAdminBoundary =
+      ADMIN_CLASSES.has(featureClass) || ADMIN_TYPES.has(featureType)
 
     const country = addr.country ?? ''
 
-    // Use the settlement if found. Only fall back to addr.city when there is
-    // no finer-grained name — and even then, if the display_name leads with
-    // something more specific (e.g. a road or village), prefer that.
+    // Settlement lookup — ordered from most-specific to least-specific.
+    // We deliberately skip addr.isolated_dwelling (a farm/building name) because
+    // the user wants the nearest named place, not the feature they are standing on.
+    //
+    // addr.city is only used when the feature is a genuine city (not an admin
+    // boundary), so "Wealden" (class=boundary, type=administrative) is ignored.
+    const settlement =
+      addr.town         ??  // e.g. "Uckfield", "Crowborough", "Eastbourne"
+      addr.village      ??  // e.g. "Hartfield", "Nutley", "Argos Hill"
+      addr.suburb       ??  // e.g. "Hove" (suburb within a city boundary)
+      addr.hamlet       ??  // e.g. "Poundgate"
+      addr.municipality ??  // fallback for some non-UK geocoders
+      (!isAdminBoundary ? addr.city : null) ?? // real cities only (type=city/place)
+      null
+
+    // Build the display address
     let address: string
     if (settlement) {
       address = [settlement, country].filter(Boolean).join(', ')
-    } else if (addr.city) {
-      // addr.city present but may be a large administrative district.
-      // Use display_name's first token as a sanity-check: if it is more
-      // specific than addr.city (different string), use display_name instead.
-      const displayFirst = data.display_name?.split(',')[0]?.trim() ?? ''
-      const cityStr = addr.city
-      address =
-        displayFirst && displayFirst !== cityStr
-          ? [displayFirst, country].filter(Boolean).join(', ')
-          : [cityStr, country].filter(Boolean).join(', ')
     } else {
-      // No settlement or city at all — use the full display_name or raw coords.
-      address = data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+      // Nothing usable in the address block — scan display_name tokens.
+      // Skip tokens that match the admin district name or look like admin labels.
+      const adminName = addr.city ?? ''
+      const tokens = (data.display_name ?? '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+
+      const usable = tokens.find(
+        t => t !== adminName && !ADMIN_TYPES.has(t.toLowerCase()),
+      )
+      address = usable
+        ? [usable, country].filter(Boolean).join(', ')
+        : data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
     }
 
-    // `city` in the response is the settlement name — callers may use it for
-    // display. We keep the field name for backwards compatibility.
-    const city = settlement ?? addr.city ?? ''
+    // `city` in the response keeps the settlement name for callers that use it.
+    const city = settlement ?? ''
 
     const entry = { address, city, country, expiresAt: Date.now() + CACHE_TTL }
     cache.set(key, entry)

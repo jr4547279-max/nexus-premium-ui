@@ -14,23 +14,26 @@ import { type AreaType, AREA_TYPE_RADII, type LocationIntelligence } from './typ
 // We only declare the fields we actually read.
 
 export interface NominatimAddressBlock {
-  city?:          string
-  town?:          string
-  village?:       string
-  hamlet?:        string
-  municipality?:  string
-  suburb?:        string
-  neighbourhood?: string
-  quarter?:       string
-  county?:        string
-  state?:         string
-  country?:       string
+  isolated_dwelling?: string
+  hamlet?:            string
+  suburb?:            string
+  neighbourhood?:     string
+  quarter?:           string
+  village?:           string
+  town?:              string
+  city?:              string
+  municipality?:      string
+  county?:            string
+  state?:             string
+  country?:           string
 }
 
 export interface NominatimReverseResult {
   display_name?: string
-  /** OSM feature type, e.g. 'city', 'town', 'village', 'suburb' */
-  type?: string
+  /** OSM feature type — 'city', 'town', 'village', 'isolated_dwelling', 'administrative', etc. */
+  type?:  string
+  /** OSM feature class — 'place' for settlements, 'boundary' for admin areas */
+  class?: string
   address?: NominatimAddressBlock
 }
 
@@ -112,21 +115,48 @@ export function classifyArea(data: NominatimReverseResult): AreaType {
 
 // ── Intelligence builder ──────────────────────────────────────────────────────
 
+// OSM class/type values that represent administrative boundaries, not settlements.
+// Mirrored from the reverse-geocode route — keep in sync.
+const ADMIN_CLASSES = new Set(['boundary'])
+const ADMIN_TYPES   = new Set([
+  'administrative',
+  'county',
+  'district',
+  'region',
+  'province',
+  'state',
+  'municipality',
+])
+
 /**
  * Build a complete LocationIntelligence from a Nominatim reverse result.
  * All string fields degrade gracefully to empty strings on missing data.
  */
 export function buildLocationIntelligence(data: NominatimReverseResult): LocationIntelligence {
-  const addr = data.address ?? {}
+  const addr         = data.address ?? {}
+  const featureType  = data.type  ?? ''
+  const featureClass = data.class ?? ''
 
   const areaType             = classifyArea(data)
   const planningRadiusMetres = AREA_TYPE_RADII[areaType]
 
-  // Fine-grained area name (innermost named component)
+  // Is the top-level feature an administrative boundary? If so, addr.city is
+  // a district/region name (e.g. "Wealden"), not the user's actual settlement.
+  const isAdminBoundary =
+    ADMIN_CLASSES.has(featureClass) || ADMIN_TYPES.has(featureType)
+
+  // Fine-grained area name (innermost named component, always a real place)
   const neighborhood = addr.suburb ?? addr.neighbourhood ?? addr.quarter ?? ''
 
-  // Settlement name
-  const city = addr.city ?? addr.town ?? addr.municipality ?? ''
+  // Settlement name — prioritise specific places over large admin areas.
+  // Only use addr.city when the feature is a genuine city (class=place, type=city),
+  // not when it is a district boundary masquerading as a city.
+  const city =
+    addr.town         ??
+    addr.village      ??
+    (!isAdminBoundary ? addr.city : null) ??
+    addr.municipality ??
+    ''
 
   // Administrative area
   const adminArea = addr.state ?? addr.county ?? ''
