@@ -161,21 +161,36 @@ function cumulativeDistances(coords: Array<[number, number]>): number[] {
 
 /**
  * Computes the retrace ratio — the fraction of 30m grid cells visited more
- * than once. Values near 0 mean the route explores fresh ground on every
- * segment. Values near 1 mean the return journey almost entirely overlaps
- * the outbound journey (classic out-and-back behaviour).
+ * than once by non-consecutive coordinate pairs. Values near 0 mean the route
+ * explores fresh ground on every segment. Values near 1 mean the return
+ * journey almost entirely overlaps the outbound journey (classic
+ * out-and-back behaviour).
+ *
+ * IMPORTANT: consecutive identical-cell visits are skipped before counting.
+ * OSRM overview=full geometry contains multiple coordinates per 30m cell on
+ * curved roads (avg 1.4–2.4 per cell). Without this dedup, a single forward
+ * pass through a curve registers as "retracing" and inflates the ratio by
+ * 0.20–0.35 for perfectly valid loop-shaped routes — causing them to be
+ * wrongly classified as out-and-back. True retracing (going out and coming
+ * back on the same road) always produces non-consecutive revisits and is
+ * unaffected by this dedup.
  */
 function computeRetraceRatio(coords: Array<[number, number]>): number {
   if (coords.length < 4) return 0
 
   const [lng0, lat0] = coords[0]!
   const cosLat = Math.cos(lat0! * DEG)
-  const cells = new Map<string, number>()
+  const cells   = new Map<string, number>()
+  let   prevKey = ''
 
   for (const [lng, lat] of coords) {
     const cx  = Math.round((lng - lng0!) * 111_320 * cosLat / RETRACE_GRID_M)
     const cy  = Math.round((lat - lat0!) * 110_540 / RETRACE_GRID_M)
     const key = `${cx},${cy}`
+    // Skip consecutive identical cells: dense OSRM coords on curves produce
+    // many coords per 30m cell in a single forward pass — not actual retracing.
+    if (key === prevKey) continue
+    prevKey = key
     cells.set(key, (cells.get(key) ?? 0) + 1)
   }
 
