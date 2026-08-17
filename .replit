@@ -32,7 +32,7 @@ outputType = "webview"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd nexus-premium-ui && pnpm run dev"
-waitForPort = 5000
+waitForPort = 3000
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
