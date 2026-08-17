@@ -70,9 +70,48 @@ export async function GET(req: Request) {
     if (data.error) throw new Error(data.error)
 
     const addr = data.address ?? {}
-    const city    = addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? addr.suburb ?? addr.hamlet ?? ''
+
+    // Priority order: specific settlement first, large administrative areas last.
+    // Nominatim sometimes returns addr.city = 'Wealden' (an 835 km² district)
+    // or addr.city = 'Greater London' — these are administrative boundaries, not
+    // towns, and produce misleading labels like "Wealden, United Kingdom".
+    // By trying town → village → suburb → hamlet first we get the nearest
+    // settlement name. We only fall back to addr.city when none of those exist,
+    // and even then we prefer display_name over a bare administrative district.
+    const settlement =
+      addr.town         ??   // e.g. "Uckfield", "Crowborough"
+      addr.village       ??  // e.g. "Hartfield", "Nutley"
+      addr.suburb        ??  // e.g. "Hove" (within a city boundary)
+      addr.hamlet        ??  // e.g. "Poundgate"
+      addr.municipality  ??  // fallback for some non-UK geocoders
+      null
+
     const country = addr.country ?? ''
-    const address = [city, country].filter(Boolean).join(', ') || data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+
+    // Use the settlement if found. Only fall back to addr.city when there is
+    // no finer-grained name — and even then, if the display_name leads with
+    // something more specific (e.g. a road or village), prefer that.
+    let address: string
+    if (settlement) {
+      address = [settlement, country].filter(Boolean).join(', ')
+    } else if (addr.city) {
+      // addr.city present but may be a large administrative district.
+      // Use display_name's first token as a sanity-check: if it is more
+      // specific than addr.city (different string), use display_name instead.
+      const displayFirst = data.display_name?.split(',')[0]?.trim() ?? ''
+      const cityStr = addr.city
+      address =
+        displayFirst && displayFirst !== cityStr
+          ? [displayFirst, country].filter(Boolean).join(', ')
+          : [cityStr, country].filter(Boolean).join(', ')
+    } else {
+      // No settlement or city at all — use the full display_name or raw coords.
+      address = data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+    }
+
+    // `city` in the response is the settlement name — callers may use it for
+    // display. We keep the field name for backwards compatibility.
+    const city = settlement ?? addr.city ?? ''
 
     const entry = { address, city, country, expiresAt: Date.now() + CACHE_TTL }
     cache.set(key, entry)
