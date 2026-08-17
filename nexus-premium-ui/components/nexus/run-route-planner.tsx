@@ -480,6 +480,16 @@ export function RunRoutePlanner({
   // Simple in-session cache: key → RouteCandidate[]
   const cacheRef = useRef(new Map<string, RouteCandidate[]>())
 
+  /**
+   * Monotonically increasing counter — incremented at the start of every
+   * search. Each async execution captures its own generation value and
+   * checks it before writing state. If the user triggers a second search
+   * while the first is still in-flight, the first search's completion handler
+   * sees a stale generation and discards its result rather than overwriting
+   * the newer search's state.
+   */
+  const searchGenRef = useRef(0)
+
   const cacheKey = planningLocation
     ? `${planningLocation.lat.toFixed(4)},${planningLocation.lng.toFixed(4)},${prefs.distanceKm},${prefs.routeTypePreference},${prefs.surfacePreference}`
     : null
@@ -517,48 +527,77 @@ export function RunRoutePlanner({
   const handleFindRoutes = useCallback(async () => {
     if (!resolvedWindow || !planningLocation) return
 
+    // Claim this search's generation slot. Any in-flight search with an older
+    // generation will see a mismatch and silently discard its result.
+    const myGen = ++searchGenRef.current
+
+    // [NEXUS DEBUG] Remove once investigation is complete
+    const uiStart = performance.now()
+    console.log(`[NEXUS:UI] search #${myGen} start — activity=${activityId} dist=${prefs.distanceKm}km`)
+
     setPhase('searching')
     setError(null)
     setSelectedIdx(0)
 
-    // Check cache first
-    if (cacheKey && cacheRef.current.has(cacheKey)) {
-      setCandidates(cacheRef.current.get(cacheKey)!)
+    try {
+      // Check cache first
+      if (cacheKey && cacheRef.current.has(cacheKey)) {
+        if (searchGenRef.current !== myGen) return   // superseded
+        setCandidates(cacheRef.current.get(cacheKey)!)
+        setPhase('results')
+        console.log(`[NEXUS:UI] search #${myGen} served from cache (${Math.round(performance.now() - uiStart)}ms)`)
+        return
+      }
+
+      const engineResult = await runPlanner({
+        groupId,
+        activityId,
+        goldenWindow: resolvedWindow ?? undefined,
+        groupLocation: planningLocation,
+        locationName,
+        routePreferences: prefs,
+      })
+
+      // Discard result if a newer search has already started
+      if (searchGenRef.current !== myGen) {
+        console.log(`[NEXUS:UI] search #${myGen} discarded (superseded by #${searchGenRef.current})`)
+        return
+      }
+
+      if (!engineResult.ok) {
+        console.warn(`[NEXUS:UI] search #${myGen} error after ${Math.round(performance.now() - uiStart)}ms:`, engineResult.error)
+        setError(engineResult.error)
+        setPhase('error')
+        return
+      }
+
+      const planResult    = engineResult.result
+      const allCandidates = planResult.allCandidates ?? []
+
+      if (allCandidates.length === 0) {
+        setError(
+          `No ${cfg.gerund} routes could be found near this location. ` +
+          'Try a different planning location or a different distance.',
+        )
+        setPhase('error')
+        return
+      }
+
+      console.log(`[NEXUS:UI] search #${myGen} ✓ ${allCandidates.length} candidates (${Math.round(performance.now() - uiStart)}ms)`)
+      if (cacheKey) cacheRef.current.set(cacheKey, allCandidates)
+      setCandidates(allCandidates)
       setPhase('results')
-      return
-    }
-
-    const engineResult = await runPlanner({
-      groupId,
-      activityId,
-      goldenWindow: resolvedWindow ?? undefined,
-      groupLocation: planningLocation,
-      locationName,
-      routePreferences: prefs,
-    })
-
-    if (!engineResult.ok) {
-      setError(engineResult.error)
+    } catch (err) {
+      // Guard against any unexpected rejection leaving the UI in a permanent
+      // loading state. planner-engine wraps its own errors, so this branch
+      // should only fire if React itself throws during a state update.
+      if (searchGenRef.current !== myGen) return
+      const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+      console.error(`[NEXUS:UI] search #${myGen} unexpected error after ${Math.round(performance.now() - uiStart)}ms:`, err)
+      setError(message)
       setPhase('error')
-      return
     }
-
-    const planResult = engineResult.result
-    const allCandidates = planResult.allCandidates ?? []
-
-    if (allCandidates.length === 0) {
-      setError(
-        `No ${cfg.gerund} routes could be found near this location. ` +
-        'Try a different planning location or a different distance.',
-      )
-      setPhase('error')
-      return
-    }
-
-    if (cacheKey) cacheRef.current.set(cacheKey, allCandidates)
-    setCandidates(allCandidates)
-    setPhase('results')
-  }, [resolvedWindow, planningLocation, prefs, groupId, activityId, locationName, cacheKey])
+  }, [resolvedWindow, planningLocation, prefs, groupId, activityId, locationName, cacheKey, cfg.gerund])
 
   const handleSelectRoute = useCallback((idx: number) => {
     setSelectedIdx(idx)

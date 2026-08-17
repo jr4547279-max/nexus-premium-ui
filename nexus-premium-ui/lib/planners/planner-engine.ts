@@ -20,6 +20,10 @@ export type PlannerEngineResult =
 export async function runPlanner(
   request: PlannerRequest,
 ): Promise<PlannerEngineResult> {
+  // [NEXUS DEBUG] Remove timing instrumentation once investigation is complete
+  const engineStart = performance.now()
+  console.log(`[NEXUS:Engine] runPlanner start — activityId=${request.activityId}`)
+
   try {
     const planner = getPlannerFor(request.activityId)
 
@@ -31,12 +35,14 @@ export async function runPlanner(
     }
 
     const result = await planner.plan(request)
+    console.log(`[NEXUS:Engine] ✓ done — ${Math.round(performance.now() - engineStart)}ms`)
     return { ok: true, result }
   } catch (err) {
     const message =
       err instanceof Error
         ? err.message
         : 'Something went wrong while planning. Please try again.'
+    console.warn(`[NEXUS:Engine] ✗ error after ${Math.round(performance.now() - engineStart)}ms:`, message)
     return { ok: false, error: message }
   }
 }

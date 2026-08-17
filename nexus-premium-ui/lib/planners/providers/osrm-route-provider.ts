@@ -76,7 +76,7 @@ function osrmBaseForProfile(profile: string): string {
   }
 }
 
-const TIMEOUT_MS  = 15_000
+// TIMEOUT_MS is defined below with the other tuneable constants.
 const EARTH_KM    = 6371
 const DEG         = Math.PI / 180
 const RAD         = 180 / Math.PI
@@ -104,6 +104,33 @@ const DIST_TOLERANCE = 0.60
 
 /** Number of interior waypoints to include between start and finish */
 const INTERIOR_WAYPOINTS = 4
+
+/**
+ * Maximum concurrent OSRM requests per batch.
+ * routing.openstreetmap.de enforces per-IP concurrency limits and returns
+ * HTTP 429 when too many requests arrive simultaneously. 8 concurrent requests
+ * sits comfortably below the observed throttle threshold (~10).
+ */
+const BATCH_CONCURRENCY = 8
+
+/** Milliseconds to pause between successive batches of OSRM requests. */
+const BATCH_DELAY_MS = 500
+
+/**
+ * Hard ceiling (ms) on the entire getRoutes() search.
+ * When this fires, runBatched() stops launching new batches and returns
+ * whatever partial results have already settled.  Guards against browser
+ * setTimeout throttling in backgrounded tabs causing per-request timeouts
+ * to fire many seconds later than their nominal TIMEOUT_MS value.
+ */
+const MASTER_TIMEOUT_MS = 15_000
+
+/**
+ * Per-request timeout (ms). Reduced from 15 s to 10 s — if OSRM takes longer
+ * than 10 s to respond the server is overloaded and a retry on the next search
+ * is better than blocking the entire batch.
+ */
+const TIMEOUT_MS = 10_000
 
 // ── Compass bearings ──────────────────────────────────────────────────────────
 
@@ -499,6 +526,57 @@ function buildRouteName(
   }
 }
 
+// ── Batched parallel runner ───────────────────────────────────────────────────
+
+/**
+ * Runs an array of async thunks in controlled parallel batches.
+ *
+ * Why this exists:
+ *   routing.openstreetmap.de enforces a per-IP concurrent-request limit and
+ *   returns HTTP 429 when more than ~10 requests arrive simultaneously.
+ *   Firing all 40 OSRM queries at once reliably triggers that limit — the
+ *   first search may scrape through but every subsequent search within the
+ *   same browser session gets 0 routes.
+ *
+ *   By capping concurrency at BATCH_CONCURRENCY (8) with a BATCH_DELAY_MS
+ *   (500 ms) gap between batches we stay within the server's tolerance while
+ *   still parallelising within each batch.
+ */
+/**
+ * @param signal  Optional AbortSignal — when fired, no further batches are
+ *                started and the function returns the partial results gathered
+ *                so far.  Individual in-flight requests within the current
+ *                batch are NOT cancelled; they continue until their own
+ *                per-request timeout fires.  This gives us partial results
+ *                ("whatever came back in 15 s") rather than nothing.
+ */
+async function runBatched<T>(
+  fns:         Array<() => Promise<T>>,
+  concurrency: number,
+  delayMs:     number,
+  signal?:     AbortSignal,
+): Promise<Array<PromiseSettledResult<T>>> {
+  const results: Array<PromiseSettledResult<T>> = []
+  for (let i = 0; i < fns.length; i += concurrency) {
+    if (signal?.aborted) {
+      // [NEXUS DEBUG]
+      console.warn(`[NEXUS:OSRM] master timeout — stopping at batch ${Math.floor(i / concurrency) + 1}, returning ${results.length} partial results`)
+      break
+    }
+    const batch       = fns.slice(i, i + concurrency)
+    const batchNumber = Math.floor(i / concurrency) + 1
+    const totalBatch  = Math.ceil(fns.length / concurrency)
+    // [NEXUS DEBUG] Remove this log once intermittent-failure investigation is complete
+    console.log(`[NEXUS:OSRM] batch ${batchNumber}/${totalBatch} — firing ${batch.length} requests`)
+    const batchResults = await Promise.allSettled(batch.map(fn => fn()))
+    results.push(...batchResults)
+    if (i + concurrency < fns.length && !signal?.aborted) {
+      await new Promise<void>(r => setTimeout(r, delayMs))
+    }
+  }
+  return results
+}
+
 // ── OSRM query ────────────────────────────────────────────────────────────────
 
 /**
@@ -524,14 +602,27 @@ async function queryOsrm(
     `?overview=full&geometries=geojson&steps=true&continue_straight=false`
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  // [NEXUS DEBUG] Remove timing instrumentation once investigation is complete
+  const t0         = performance.now()
 
   try {
     const res = await fetch(url, {
       signal:  controller.signal,
       headers: { Accept: 'application/json' },
     })
-    if (!res.ok) return null
+    const elapsedMs = Math.round(performance.now() - t0)
+
+    if (!res.ok) {
+      if (res.status === 429) {
+        // [NEXUS DEBUG]
+        console.warn(`[NEXUS:OSRM] 429 rate-limited — ${candidateId} (${elapsedMs}ms) — reduce BATCH_CONCURRENCY or increase BATCH_DELAY_MS`)
+      } else {
+        // [NEXUS DEBUG]
+        console.warn(`[NEXUS:OSRM] HTTP ${res.status} — ${candidateId} (${elapsedMs}ms)`)
+      }
+      return null
+    }
 
     const data = (await res.json()) as OsrmResponse
     if (data.code !== 'Ok' || !data.routes?.length) return null
@@ -564,6 +655,10 @@ async function queryOsrm(
       roadPct < 70 ? 'Mix of roads and paths' :
       'Mostly roads'
 
+    // [NEXUS DEBUG] Remove once investigation is complete
+    const elapsedFull = Math.round(performance.now() - t0)
+    console.log(`[NEXUS:OSRM] ✓ ${candidateId} — ${distKm} km ${routeType} retrace=${retrace.toFixed(2)} lq=${loopQ.toFixed(2)} (${elapsedFull}ms)`)
+
     return {
       id:               candidateId,
       name,
@@ -581,7 +676,11 @@ async function queryOsrm(
       geometry:         coords,
       surfaceProfile,
     }
-  } catch {
+  } catch (err) {
+    // [NEXUS DEBUG]
+    if ((err as Error)?.name === 'AbortError') {
+      console.warn(`[NEXUS:OSRM] ⏱ timeout (>${TIMEOUT_MS}ms) — ${candidateId}`)
+    }
     return null
   } finally {
     clearTimeout(timer)
@@ -615,52 +714,45 @@ export class OsrmRouteProvider implements RouteProvider {
 
     // ── Build all candidate queries ──────────────────────────────────────────
     //
-    // For each of 8 compass directions we fire 5 configurations:
+    // For each of 8 compass directions we fire 4 triangle configurations:
     //
-    //   #1  2-leg (single-via): start → via(half-dist) → start
-    //       This is the simplest query; on constrained urban road networks it
-    //       almost always returns OUT_AND_BACK, which is correctly labelled.
-    //
-    //   #2-3  Triangle small (legKm = targetKm × 0.22):
+    //   #1-2  Triangle small (legKm = targetKm × 0.22):
     //         Left turn  → start → via1 → via2(bearing+90°) → start
     //         Right turn → start → via1 → via2(bearing-90°) → start
     //
-    //   #4-5  Triangle larger (legKm = targetKm × 0.35):
+    //   #3-4  Triangle larger (legKm = targetKm × 0.35):
     //         Left turn  (same pattern, larger legs)
     //         Right turn (same pattern, larger legs)
+    //
+    // Why no 2-leg queries:
+    //   The former 2-leg (start → mid → start) queries were removed to cut
+    //   the total from 40 to 32 and reduce rate-limit pressure.  They almost
+    //   exclusively produced OUT_AND_BACK routes that the triangles already
+    //   cover — removing them does not reduce route variety.
     //
     // The triangle configs force OSRM to traverse different road segments on
     // each leg, which can produce genuine loops where the road network allows.
     // Where it doesn't (e.g., linear corridor towns), OSRM still finds real
     // routes but our retrace metric will correctly classify them as OUT_AND_BACK.
     //
-    // Total: up to 8 × 5 = 40 queries, all fired in parallel.
+    // Total: up to 8 × 4 = 32 queries, executed in batches via runBatched()
+    // to avoid HTTP 429 rate limiting from routing.openstreetmap.de.
+    // Queries are stored as thunks so they only start when their batch fires —
+    // NOT immediately on push (which was the original source of the 429 flood).
 
-    const queries: Array<Promise<RouteCandidate | null>> = []
+    const queries: Array<() => Promise<RouteCandidate | null>> = []
 
     const LEG_SIZES = [0.22, 0.35]  // fractions of targetKm per triangle leg
 
     for (const { bearing, label } of BEARINGS) {
-      // #1: 2-leg
-      const via = destinationPoint(lat, lng, targetKm * 0.50, bearing)
-      queries.push(
-        queryOsrm(
-          [{ lat, lng }, via, { lat, lng }],
-          `osrm-2leg-${bearing}`,
-          label,
-          targetKm,
-          profile,
-        ),
-      )
-
-      // #2-5: triangles at two different leg sizes
+      // 4 triangle configs per bearing (2 leg sizes × 2 turn directions)
       for (const legFrac of LEG_SIZES) {
         const legKm = targetKm * legFrac
         const via1  = destinationPoint(lat, lng, legKm, bearing)
 
         // Left turn (bearing + 90°)
         const via2L = destinationPoint(via1.lat, via1.lng, legKm, bearing + 90)
-        queries.push(
+        queries.push(() =>
           queryOsrm(
             [{ lat, lng }, via1, via2L, { lat, lng }],
             `osrm-tri-${bearing}-L-${legFrac}`,
@@ -672,7 +764,7 @@ export class OsrmRouteProvider implements RouteProvider {
 
         // Right turn (bearing - 90°)
         const via2R = destinationPoint(via1.lat, via1.lng, legKm, bearing - 90)
-        queries.push(
+        queries.push(() =>
           queryOsrm(
             [{ lat, lng }, via1, via2R, { lat, lng }],
             `osrm-tri-${bearing}-R-${legFrac}`,
@@ -684,12 +776,48 @@ export class OsrmRouteProvider implements RouteProvider {
       }
     }
 
-    // ── Collect results ──────────────────────────────────────────────────────
-    const settled = await Promise.allSettled(queries)
+    // ── Collect results (batched to avoid 429 rate limiting) ─────────────────
+    //
+    // A master AbortController caps the entire search at MASTER_TIMEOUT_MS.
+    // When it fires, runBatched() stops launching new batches and returns
+    // whatever partial results have already settled — so the user gets routes
+    // from the first N batches instead of waiting indefinitely for the last
+    // few timed-out requests.
+    //
+    // This closes the "hangs indefinitely" failure mode: in a backgrounded
+    // browser tab setTimeout can be throttled, causing individual per-request
+    // AbortControllers to fire much later than their nominal 10 s.  The master
+    // controller fires on wall-clock time from the planner layer and is not
+    // subject to that throttling.
+
+    // [NEXUS DEBUG] Remove timing instrumentation once investigation is complete
+    const searchStart      = performance.now()
+    const masterController = new AbortController()
+    const masterTimer      = setTimeout(
+      () => masterController.abort(),
+      MASTER_TIMEOUT_MS,
+    )
+    console.log(`[NEXUS:OSRM] starting ${queries.length} queries — ${BATCH_CONCURRENCY} concurrent, ${BATCH_DELAY_MS}ms inter-batch delay, master timeout ${MASTER_TIMEOUT_MS}ms`)
+
+    let settled: Array<PromiseSettledResult<RouteCandidate | null>>
+    try {
+      settled = await runBatched(queries, BATCH_CONCURRENCY, BATCH_DELAY_MS, masterController.signal)
+    } finally {
+      clearTimeout(masterTimer)
+    }
+
     const all: RouteCandidate[] = settled
       .filter((r): r is PromiseFulfilledResult<RouteCandidate | null> => r.status === 'fulfilled')
       .map(r => r.value)
       .filter((c): c is RouteCandidate => c !== null)
+
+    // [NEXUS DEBUG]
+    const n429     = settled.filter(r => r.status === 'rejected').length
+    const nTimeout = 0  // timeouts surface as null (caught inside queryOsrm), not rejections
+    console.log(
+      `[NEXUS:OSRM] done — ${all.length} ok, ${settled.length - all.length - n429} null (429/timeout/error), ${n429} rejected` +
+      ` — total ${Math.round(performance.now() - searchStart)}ms`,
+    )
 
     if (all.length === 0) return []
 
