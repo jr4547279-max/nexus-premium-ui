@@ -37,8 +37,8 @@ import { type Profile, getProfile, ensureProfile } from './profile-service'
 // Replit workspace domain rotated, causing the callback to hit the wrong URL.
 //
 // Supabase → Authentication → URL Configuration → Redirect URLs must contain:
-//   https://*.riker.replit.dev/**     (current dev cluster)
-//   https://*.replit.dev/**           (all dev clusters)
+//   https://*.kirk.replit.dev/**      (current dev cluster — matches preview URLs)
+//   https://*.replit.dev/**           (all dev clusters — add both for safety)
 //   https://*.replit.app/**           (production deployments)
 // ---------------------------------------------------------------------------
 function getCallbackUrl(): string {
@@ -236,9 +236,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Authentication → URL Configuration → Redirect URLs. Add wildcard patterns
   // for Replit so every preview and deployed origin is covered:
   //
-  //   https://*.replit.dev/**      ← Replit preview (dev) URLs
+  //   https://*.kirk.replit.dev/** ← Replit preview (current cluster)
+  //   https://*.replit.dev/**      ← Replit preview (all clusters)
   //   https://*.replit.app/**      ← Replit deployed URLs
-  //   http://localhost:5000/**     ← Local dev
+  //   http://localhost:3000/**     ← Local dev
   //
   // If redirectTo is not in the allowed list, Supabase silently falls back to
   // its Site URL — which will send users to the wrong page.
@@ -262,7 +263,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Use getCallbackUrl() — see its definition above for resolution order.
     // The resolved URL must be whitelisted in Supabase → Authentication →
     // URL Configuration → Redirect URLs. For Replit, add:
-    //   https://<your-repl-dev-domain>/auth/callback   ← dev preview
+    //   https://*.kirk.replit.dev/**                    ← dev preview (current cluster)
+    //   https://*.replit.dev/**                         ← dev preview (all clusters)
     //   https://*.replit.app/**                         ← production
     const redirectTo = getCallbackUrl()
 

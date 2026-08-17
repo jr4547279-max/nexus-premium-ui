@@ -40,9 +40,10 @@ import { AlertTriangle } from 'lucide-react'
  *   Site URL:        The primary app URL (e.g. https://yourapp.replit.app)
  *   Redirect URLs:   Whitelist every origin that can receive the callback.
  *                    Add wildcard patterns for Replit:
- *                      https://*.replit.dev/**
- *                      https://*.replit.app/**
- *                      http://localhost:5000/**
+ *                      https://*.kirk.replit.dev/**   (current Replit cluster)
+ *                      https://*.replit.dev/**         (all Replit clusters)
+ *                      https://*.replit.app/**         (production deployments)
+ *                      http://localhost:3000/**         (local dev)
  *
  * If a redirectTo URL is not in the allowed list, Supabase falls back to the
  * Site URL — which will cause the OAuth redirect to go to the wrong place.
