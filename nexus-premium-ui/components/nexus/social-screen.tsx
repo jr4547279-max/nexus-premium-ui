@@ -11,8 +11,28 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Camera, Check, X, Search, MapPin, AtSign,
-  Pencil, Calendar, Loader2, UserSearch, Trash2,
+  Pencil, Calendar, Loader2, UserSearch, Trash2, Trophy,
 } from 'lucide-react'
+
+// ── Founder badge ──────────────────────────────────────────────────────────────
+
+const FOUNDER_USERNAME = 'jayruss'
+
+function FounderBadge() {
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full',
+      'text-[10px] font-semibold tracking-wide',
+      'bg-gradient-to-r from-amber-500/20 via-yellow-400/20 to-amber-500/20',
+      'border border-amber-400/40',
+      'text-amber-300',
+      'shadow-[0_0_8px_rgba(251,191,36,0.15)]',
+    )}>
+      <Trophy className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+      Founder
+    </span>
+  )
+}
 import { cn } from '@/lib/utils'
 import { ACTIVITY_REGISTRY } from '@/lib/activities/registry'
 import { extractCity } from '@/lib/profile-service'
@@ -324,7 +344,10 @@ function MyProfileView() {
             className="text-center text-sm font-semibold bg-muted/30 border-border/50 h-8 max-w-[200px]"
           />
         ) : (
-          <h2 className="text-lg font-semibold">{displayedName}</h2>
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            <h2 className="text-lg font-semibold">{displayedName}</h2>
+            {(profile as any)?.username === FOUNDER_USERNAME && <FounderBadge />}
+          </div>
         )}
 
         {/* Username */}
@@ -654,6 +677,7 @@ function UserCard({ user }: { user: SocialProfile }) {
               @{user.username}
             </span>
           )}
+          {user.username === FOUNDER_USERNAME && <FounderBadge />}
         </div>
         {user.bio && (
           <p className="text-xs text-muted-foreground truncate mt-0.5">{user.bio}</p>
