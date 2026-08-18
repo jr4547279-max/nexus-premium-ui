@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import type { PlanningLocation } from './types/planning-location'
 import type { PlanningLocationSource } from './types/planning-location'
+import { sendSystemMessage } from './message-service'
 
 export interface Group {
   id: string
@@ -145,6 +146,15 @@ export async function createGroup(
   }
 
   console.log('[createGroup] Complete —', group)
+
+  // Fire-and-forget system message — does not block or affect the return value.
+  supabase.auth.getUser().then(({ data }) => {
+    const uid = data.user?.id
+    if (uid) {
+      sendSystemMessage(group.id, uid, 'created this group', { event: 'group_created' }).catch(() => {})
+    }
+  })
+
   return { group, errorMessage: null }
 }
 
@@ -221,7 +231,17 @@ export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> 
     console.error('[group-service] joinGroupByInvite FAILED', msg, error)
     return { groupId: null, errorMessage: msg }
   }
-  return { groupId: data as string, errorMessage: null }
+  const joinedGroupId = data as string
+
+  // Fire-and-forget system message — does not block or affect the return value.
+  supabase.auth.getUser().then(({ data: authData }) => {
+    const uid = authData.user?.id
+    if (uid && joinedGroupId) {
+      sendSystemMessage(joinedGroupId, uid, 'joined the group', { event: 'member_joined' }).catch(() => {})
+    }
+  })
+
+  return { groupId: joinedGroupId, errorMessage: null }
 }
 
 // ── Group deletion ────────────────────────────────────────────────────────────

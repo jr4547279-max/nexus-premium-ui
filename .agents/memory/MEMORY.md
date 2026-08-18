@@ -6,3 +6,4 @@
 - [Live run tracker](run-tracker.md) — GPS tracking screen built on OSRM jogging planner; geometry preservation, coordinate conventions, GPS lifecycle, no framer-motion.
 - [OSRM intermittent failures](osrm-intermittent-failures.md) — 4 root causes (429 flood, no try-catch, race condition, timeout); batching fix + master timeout; Replit IPs are blocked by the server so never test with curl.
 - [Nexus Social system](social-system.md) — Phase 1 identity (username/avatar/bio/search); migration SQL must be run; OSRM cache key = profile not activityId.
+- [Group messaging system](group-messaging.md) — real-time chat per group; system messages attributed to triggering user; real-time hydration pattern; migration SQL must be run.

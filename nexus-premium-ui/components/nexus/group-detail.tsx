@@ -64,6 +64,7 @@ import {
   getPlannerFor,
   type PlannerResult,
 } from '@/lib/planners/planner-engine'
+import { GroupChat } from './group-chat'
 
 interface GroupDetailProps {
   groupId: string
@@ -126,7 +127,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   const mockGroup = mockGroups.find((g) => g.id === groupId) || mockGroups[0]
 
   const { user } = useAuth()
-  const [activeSection, setActiveSection] = useState<'members' | 'availability' | 'preferences'>('members')
+  const [activeSection, setActiveSection] = useState<'members' | 'availability' | 'preferences' | 'chat'>('members')
   const [inviteOpen, setInviteOpen] = useState(false)
 
   // ── Real-group data ──────────────────────────────────────────────────────
@@ -1077,42 +1078,28 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         </div>
 
         {/* ── Section tabs ── */}
-        <div className="flex gap-2 mb-6">
-          <button
-            onClick={() => setActiveSection('members')}
-            className={cn(
-              'flex-1 py-3 rounded-xl text-sm font-medium transition-all',
-              activeSection === 'members'
-                ? 'bg-primary/10 text-primary border border-primary/30'
-                : 'bg-muted/30 text-muted-foreground'
-            )}
-          >
-            Members
-          </button>
-          {realMode && (
+        <div className="flex gap-1.5 mb-6 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+          {(
+            [
+              { id: 'members',      label: 'Members',      show: true      },
+              { id: 'availability', label: 'Availability',  show: realMode  },
+              { id: 'preferences',  label: 'Preferences',   show: true      },
+              { id: 'chat',         label: '💬 Chat',       show: realMode  },
+            ] as const
+          ).filter(t => t.show).map(tab => (
             <button
-              onClick={() => setActiveSection('availability')}
+              key={tab.id}
+              onClick={() => setActiveSection(tab.id)}
               className={cn(
-                'flex-1 py-3 rounded-xl text-sm font-medium transition-all',
-                activeSection === 'availability'
+                'shrink-0 px-3 py-2.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap',
+                activeSection === tab.id
                   ? 'bg-primary/10 text-primary border border-primary/30'
-                  : 'bg-muted/30 text-muted-foreground'
+                  : 'bg-muted/30 text-muted-foreground hover:text-foreground',
               )}
             >
-              Availability
+              {tab.label}
             </button>
-          )}
-          <button
-            onClick={() => setActiveSection('preferences')}
-            className={cn(
-              'flex-1 py-3 rounded-xl text-sm font-medium transition-all',
-              activeSection === 'preferences'
-                ? 'bg-primary/10 text-primary border border-primary/30'
-                : 'bg-muted/30 text-muted-foreground'
-            )}
-          >
-            Preferences
-          </button>
+          ))}
         </div>
 
         {/* ── Availability editor (real groups only) ── */}
@@ -1300,6 +1287,15 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Group Chat ── */}
+        {realMode && activeSection === 'chat' && (
+          <GroupChat
+            groupId={groupId}
+            groupName={name}
+            members={realMembers}
+          />
         )}
 
         {/* ── Mock-only "Find Golden Window" CTA ── */}
