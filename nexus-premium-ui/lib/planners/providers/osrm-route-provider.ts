@@ -106,31 +106,37 @@ const DIST_TOLERANCE = 0.60
 const INTERIOR_WAYPOINTS = 4
 
 /**
- * Maximum concurrent OSRM requests per batch.
- * routing.openstreetmap.de enforces per-IP concurrency limits and returns
- * HTTP 429 when too many requests arrive simultaneously. 8 concurrent requests
- * sits comfortably below the observed throttle threshold (~10).
+ * Maximum simultaneous OSRM requests.
+ * Diagnostic data (08-2026) shows routing.openstreetmap.de starts returning
+ * HTTP 429 above ~5 concurrent requests per IP. 4 gives a comfortable margin
+ * while still parallelising within each burst, and the early-exit strategy
+ * means we rarely need to exhaust all 32 thunks anyway.
  */
-const BATCH_CONCURRENCY = 8
-
-/** Milliseconds to pause between successive batches of OSRM requests. */
-const BATCH_DELAY_MS = 500
+const CONCURRENCY = 4
 
 /**
- * Hard ceiling (ms) on the entire getRoutes() search.
- * When this fires, runBatched() stops launching new batches and returns
- * whatever partial results have already settled.  Guards against browser
- * setTimeout throttling in backgrounded tabs causing per-request timeouts
- * to fire many seconds later than their nominal TIMEOUT_MS value.
+ * Maximum 429 retries per individual request.
+ * Backoff schedule: 1 s → 2 s → 4 s (exponential, base RETRY_BASE_MS).
+ * Retried requests free their queue slot immediately (the wait happens inside
+ * the thunk), so other thunks can run concurrently during the back-off window.
  */
-const MASTER_TIMEOUT_MS = 15_000
+const MAX_RETRIES = 3
+
+/** Base delay (ms) for exponential backoff on 429 retries. */
+const RETRY_BASE_MS = 1_000
 
 /**
- * Per-request timeout (ms). Reduced from 15 s to 10 s — if OSRM takes longer
- * than 10 s to respond the server is overloaded and a retry on the next search
- * is better than blocking the entire batch.
+ * Hard ceiling (ms) on the entire getRoutes() call.
+ * When fired, any pending thunks are discarded and whatever candidates have
+ * already been collected are returned immediately.
  */
-const TIMEOUT_MS = 10_000
+const MASTER_TIMEOUT_MS = 30_000
+
+/**
+ * Per-request timeout (ms). If OSRM takes longer the server is overloaded;
+ * aborting early frees the queue slot. Timeouts do NOT trigger retries.
+ */
+const TIMEOUT_MS = 8_000
 
 // ── Compass bearings ──────────────────────────────────────────────────────────
 
@@ -325,12 +331,13 @@ interface OsrmResponse {
 // ── Diagnostic counters (one object per getRoutes() call) ─────────────────────
 
 interface DiagStats {
-  sent:      number   // total thunks invoked (= queries.length)
+  sent:      number   // total HTTP requests dispatched (first attempts + retries)
   http200:   number   // 2xx responses (OSRM replied, even if code≠Ok)
-  http429:   number   // rate-limited by server
+  http429:   number   // rate-limited responses
   http5xx:   number   // server errors
-  httpOther: number   // other non-2xx (e.g. 403, 503 that isn't 5xx pattern)
+  httpOther: number   // other non-2xx
   timeouts:  number   // AbortError — per-request timeout fired
+  retries:   number   // retry attempts triggered by 429
   generated: number   // queryOsrm returned a non-null RouteCandidate
 }
 
@@ -538,56 +545,138 @@ function buildRouteName(
   }
 }
 
-// ── Batched parallel runner ───────────────────────────────────────────────────
+// ── Deduplication pipeline (shared by runQueue early-exit and final return) ───
 
 /**
- * Runs an array of async thunks in controlled parallel batches.
+ * Applies distance filter, direction-type deduplication, and near-identical
+ * distance dedup to a set of raw candidates.  Returns them sorted best-first
+ * (loops before out-and-back, higher composite score first).
  *
- * Why this exists:
- *   routing.openstreetmap.de enforces a per-IP concurrent-request limit and
- *   returns HTTP 429 when more than ~10 requests arrive simultaneously.
- *   Firing all 40 OSRM queries at once reliably triggers that limit — the
- *   first search may scrape through but every subsequent search within the
- *   same browser session gets 0 routes.
- *
- *   By capping concurrency at BATCH_CONCURRENCY (8) with a BATCH_DELAY_MS
- *   (500 ms) gap between batches we stay within the server's tolerance while
- *   still parallelising within each batch.
+ * Called after every new result arrives so runQueue can exit as soon as
+ * enough unique routes exist.
  */
-/**
- * @param signal  Optional AbortSignal — when fired, no further batches are
- *                started and the function returns the partial results gathered
- *                so far.  Individual in-flight requests within the current
- *                batch are NOT cancelled; they continue until their own
- *                per-request timeout fires.  This gives us partial results
- *                ("whatever came back in 15 s") rather than nothing.
- */
-async function runBatched<T>(
-  fns:         Array<() => Promise<T>>,
-  concurrency: number,
-  delayMs:     number,
-  signal?:     AbortSignal,
-): Promise<Array<PromiseSettledResult<T>>> {
-  const results: Array<PromiseSettledResult<T>> = []
-  for (let i = 0; i < fns.length; i += concurrency) {
-    if (signal?.aborted) {
-      // [NEXUS DEBUG]
-      console.warn(`[NEXUS:OSRM] master timeout — stopping at batch ${Math.floor(i / concurrency) + 1}, returning ${results.length} partial results`)
-      break
-    }
-    const batch       = fns.slice(i, i + concurrency)
-    const batchNumber = Math.floor(i / concurrency) + 1
-    const totalBatch  = Math.ceil(fns.length / concurrency)
-    // [NEXUS DEBUG] Remove this log once intermittent-failure investigation is complete
-    console.log(`[NEXUS:OSRM] batch ${batchNumber}/${totalBatch} — firing ${batch.length} requests`)
-    const batchResults = await Promise.allSettled(batch.map(fn => fn()))
-    results.push(...batchResults)
-    if (i + concurrency < fns.length && !signal?.aborted) {
-      await new Promise<void>(r => setTimeout(r, delayMs))
+function deduplicateCandidates(
+  all:      RouteCandidate[],
+  targetKm: number,
+): RouteCandidate[] {
+  // ① distance filter
+  const lo       = targetKm * (1 - DIST_TOLERANCE)
+  const hi       = targetKm * (1 + DIST_TOLERANCE)
+  const filtered = all.filter(c => c.totalDistanceKm >= lo && c.totalDistanceKm <= hi)
+  const pool     = filtered.length > 0 ? filtered : all   // fall back to all if none pass
+
+  // ② keep best score per direction-type key
+  //    Fix: use `-${bearing}-` pattern — `includes(String(bearing))` has a
+  //    partial-match bug where bearing 0 wrongly matches ids for 90/180/270/…
+  const bestByKey = new Map<string, RouteCandidate>()
+  for (const c of pool) {
+    const dirLabel = BEARINGS.find(b => c.id.includes(`-${b.bearing}-`))?.label ?? 'Unknown'
+    const key      = `${dirLabel}-${c.routeType}`
+    const existing = bestByKey.get(key)
+    if (!existing || scoreCandiate(c, targetKm) > scoreCandiate(existing, targetKm)) {
+      bestByKey.set(key, c)
     }
   }
-  return results
+
+  // ③ sort: loops first, then descending composite score
+  const byScore = [...bestByKey.values()].sort((a, b) => {
+    if (a.routeType === 'loop' && b.routeType !== 'loop') return -1
+    if (b.routeType === 'loop' && a.routeType !== 'loop') return 1
+    return scoreCandiate(b, targetKm) - scoreCandiate(a, targetKm)
+  })
+
+  // ④ remove near-identical distances of the same type (< 8% diff)
+  const finalDeduped: RouteCandidate[] = []
+  for (const c of byScore) {
+    const isDup = finalDeduped.some(e =>
+      e.routeType === c.routeType &&
+      Math.abs(e.totalDistanceKm - c.totalDistanceKm) /
+        Math.max(e.totalDistanceKm, 0.1) < 0.08,
+    )
+    if (!isDup) finalDeduped.push(c)
+  }
+
+  return finalDeduped
 }
+
+// ── Concurrency-limited queue with early exit ─────────────────────────────────
+
+/**
+ * Executes thunks with a maximum of `concurrency` running at any time.
+ * Resolves as soon as `maxRoutes` unique candidates survive deduplication —
+ * any remaining thunks in the queue are discarded without running.
+ * If the AbortSignal fires, pending thunks are dropped and whatever has been
+ * collected so far is returned immediately.
+ */
+async function runQueue(
+  thunks:  Array<() => Promise<RouteCandidate | null>>,
+  options: {
+    concurrency: number
+    maxRoutes:   number
+    targetKm:    number
+    signal:      AbortSignal
+  },
+): Promise<RouteCandidate[]> {
+  const { concurrency, maxRoutes, targetKm, signal } = options
+  const pending     = [...thunks]
+  const accumulated: RouteCandidate[] = []
+  let   activeCount = 0
+  let   resolved    = false
+
+  return new Promise<RouteCandidate[]>(resolve => {
+    function finish(reason: string): void {
+      if (resolved) return
+      resolved = true
+      const result = deduplicateCandidates(accumulated, targetKm).slice(0, maxRoutes)
+      console.log(
+        `[NEXUS:Route] ▶ done (${reason}) — `  +
+        `${result.length} routes from ${accumulated.length} candidates, `  +
+        `${pending.length} pending thunks discarded`,
+      )
+      resolve(result)
+    }
+
+    function onResult(candidate: RouteCandidate | null): void {
+      activeCount--
+      if (resolved) { pump(); return }
+      if (candidate) {
+        accumulated.push(candidate)
+        const deduped = deduplicateCandidates(accumulated, targetKm)
+        if (deduped.length >= maxRoutes) {
+          finish(`${maxRoutes} unique routes found`)
+          return
+        }
+      }
+      pump()
+    }
+
+    function pump(): void {
+      if (resolved) return
+      if (signal.aborted) { finish('master timeout'); return }
+
+      while (activeCount < concurrency && pending.length > 0 && !resolved) {
+        const thunk = pending.shift()!
+        activeCount++
+        thunk().then(onResult, () => { activeCount--; if (!resolved) pump() })
+      }
+
+      if (activeCount === 0 && pending.length === 0 && !resolved) {
+        finish('all thunks exhausted')
+      }
+    }
+
+    pump()
+  })
+}
+
+// ── Session cache ─────────────────────────────────────────────────────────────
+
+/**
+ * In-memory cache keyed by `${activityId}:${lat4dp}:${lng4dp}:${targetKm}`.
+ * Lives for the duration of the browser session (cleared on full page reload).
+ * Prevents redundant OSRM searches when the user revisits the same search.
+ */
+const routeSessionCache = new Map<string, RouteCandidate[]>()
 
 // ── OSRM query ────────────────────────────────────────────────────────────────
 
@@ -605,116 +694,133 @@ async function queryOsrm(
   profile:       string = 'foot',
   stats:         DiagStats,
 ): Promise<RouteCandidate | null> {
-  stats.sent++
-
   const coordStr = waypoints
     .map(({ lat, lng }) => `${lng.toFixed(6)},${lat.toFixed(6)}`)
     .join(';')
 
   const base = osrmBaseForProfile(profile)
-  const url =
+  const url  =
     `${base}/route/v1/${profile}/${coordStr}` +
     `?overview=full&geometries=geojson&steps=true&continue_straight=false`
 
-  const controller = new AbortController()
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  // [NEXUS DEBUG] Remove timing instrumentation once investigation is complete
-  const t0         = performance.now()
+  // Retry loop — only 429s trigger a retry; timeouts and other errors bail immediately.
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delayMs = RETRY_BASE_MS * (2 ** (attempt - 1))   // 1 s, 2 s, 4 s
+      console.log(`[NEXUS:Route] ↻ ${candidateId} — retry ${attempt}/${MAX_RETRIES} in ${delayMs}ms`)
+      stats.retries++
+      await new Promise<void>(r => setTimeout(r, delayMs))
+    }
 
-  try {
-    const res = await fetch(url, {
-      signal:  controller.signal,
-      headers: { Accept: 'application/json' },
-    })
-    const elapsedMs = Math.round(performance.now() - t0)
+    stats.sent++
+    const controller = new AbortController()
+    const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const t0         = performance.now()
 
-    if (!res.ok) {
-      if (res.status === 429) {
-        stats.http429++
-        // [NEXUS DEBUG]
-        console.warn(`[NEXUS:OSRM] 429 rate-limited — ${candidateId} (${elapsedMs}ms) — reduce BATCH_CONCURRENCY or increase BATCH_DELAY_MS`)
-      } else if (res.status >= 500) {
-        stats.http5xx++
-        // [NEXUS DEBUG]
-        console.warn(`[NEXUS:OSRM] HTTP ${res.status} server error — ${candidateId} (${elapsedMs}ms)`)
-      } else {
-        stats.httpOther++
-        // [NEXUS DEBUG]
-        console.warn(`[NEXUS:OSRM] HTTP ${res.status} — ${candidateId} (${elapsedMs}ms)`)
+    try {
+      const res       = await fetch(url, {
+        signal:  controller.signal,
+        headers: { Accept: 'application/json' },
+      })
+      const elapsedMs = Math.round(performance.now() - t0)
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          stats.http429++
+          const willRetry = attempt < MAX_RETRIES
+          console.warn(
+            `[NEXUS:Route] 429 — ${candidateId} (${elapsedMs}ms, attempt ${attempt + 1})` +
+            (willRetry ? ` — retrying` : ` — giving up after ${MAX_RETRIES} retries`),
+          )
+          if (willRetry) continue   // back to top of for-loop → backoff → retry
+          return null
+        }
+        if (res.status >= 500) {
+          stats.http5xx++
+          console.warn(`[NEXUS:Route] HTTP ${res.status} server error — ${candidateId} (${elapsedMs}ms)`)
+        } else {
+          stats.httpOther++
+          console.warn(`[NEXUS:Route] HTTP ${res.status} — ${candidateId} (${elapsedMs}ms)`)
+        }
+        return null   // non-429 errors are not retried
       }
-      return null
+
+      stats.http200++
+
+      const data = (await res.json()) as OsrmResponse
+      if (data.code !== 'Ok' || !data.routes?.length) {
+        console.warn(`[NEXUS:Route] NoRoute(${data.code}) — ${candidateId}`)
+        return null
+      }
+
+      const route  = data.routes[0]!
+      const coords = route.geometry.coordinates
+      if (coords.length < 2) return null
+
+      const distKm = Math.round((route.distance / 1000) * 100) / 100
+      if (distKm < MIN_ROUTE_KM) return null
+
+      const cumDist        = cumulativeDistances(coords)
+      const allSteps       = route.legs.flatMap(leg => leg.steps ?? [])
+      const retrace        = computeRetraceRatio(coords)
+      const loopQ          = computeLoopQuality(coords, distKm)
+      const routeType      = classifyRoute(coords, distKm, retrace, loopQ)
+      const wpts           = buildWaypoints(coords, cumDist, allSteps, directionName, routeType)
+      const name           = buildRouteName(distKm, directionName, routeType, targetKm)
+      const surfaceProfile = inferSurfaceProfile(allSteps)
+
+      const grade: RouteCandidate['grade'] =
+        distKm < 3  ? 'easy'     :
+        distKm < 8  ? 'moderate' :
+        distKm < 15 ? 'hard'     : 'expert'
+
+      const roadPct = Math.round(surfaceProfile.roadFraction * 100)
+      const surfaceSummary =
+        roadPct < 20 ? 'Mostly paths & trails'  :
+        roadPct < 45 ? 'Mix of paths and roads'  :
+        roadPct < 70 ? 'Mix of roads and paths'  :
+        'Mostly roads'
+
+      stats.generated++
+      console.log(
+        `[NEXUS:Route] ✓ ${candidateId} — ${distKm}km ${routeType} ` +
+        `retrace=${retrace.toFixed(2)} lq=${loopQ.toFixed(2)} (${Math.round(performance.now() - t0)}ms)`,
+      )
+
+      return {
+        id:               candidateId,
+        name,
+        waypoints:        wpts,
+        totalDistanceKm:  distKm,
+        estimatedMinutes: Math.round(distKm * RUNNING_PACE_MIN_PER_KM),
+        surfaceSummary:   `${surfaceSummary} · OpenStreetMap`,
+        grade,
+        routeType,
+        isLoop:           routeType === 'loop',
+        retraceRatio:     retrace,
+        loopQuality:      loopQ,
+        dataSource:       'real',
+        providerName:     'OSRM · OpenStreetMap',
+        geometry:         coords,
+        surfaceProfile,
+      }
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') {
+        stats.timeouts++
+        console.warn(`[NEXUS:Route] ⏱ timeout (>${TIMEOUT_MS}ms) — ${candidateId}`)
+      } else {
+        // Network-level failure (ECONNREFUSED, ECONNRESET, DNS, etc.)
+        // These happen when the server drops the TCP connection entirely —
+        // common when a server-side IP block is in place.
+        console.warn(`[NEXUS:Route] ✗ network error — ${candidateId}: ${(err as Error)?.message ?? err}`)
+      }
+      return null   // neither error type is retried (only 429s retry)
+    } finally {
+      clearTimeout(timer)
     }
-
-    stats.http200++
-
-    const data = (await res.json()) as OsrmResponse
-    if (data.code !== 'Ok' || !data.routes?.length) {
-      // [NEXUS DEBUG]
-      console.warn(`[NEXUS:OSRM] OSRM code=${data.code} (no usable route) — ${candidateId}`)
-      return null
-    }
-
-    const route  = data.routes[0]!
-    const coords = route.geometry.coordinates
-    if (coords.length < 2) return null
-
-    const distKm = Math.round((route.distance / 1000) * 100) / 100
-    if (distKm < MIN_ROUTE_KM) return null
-
-    const cumDist       = cumulativeDistances(coords)
-    const allSteps      = route.legs.flatMap(leg => leg.steps ?? [])
-    const retrace       = computeRetraceRatio(coords)
-    const loopQ         = computeLoopQuality(coords, distKm)
-    const routeType     = classifyRoute(coords, distKm, retrace, loopQ)
-    const waypoints     = buildWaypoints(coords, cumDist, allSteps, directionName, routeType)
-    const name          = buildRouteName(distKm, directionName, routeType, targetKm)
-    const surfaceProfile = inferSurfaceProfile(allSteps)
-
-    const grade: RouteCandidate['grade'] =
-      distKm < 3  ? 'easy' :
-      distKm < 8  ? 'moderate' :
-      distKm < 15 ? 'hard' : 'expert'
-
-    const roadPct = Math.round(surfaceProfile.roadFraction * 100)
-    const surfaceSummary =
-      roadPct < 20 ? 'Mostly paths & trails' :
-      roadPct < 45 ? 'Mix of paths and roads' :
-      roadPct < 70 ? 'Mix of roads and paths' :
-      'Mostly roads'
-
-    // [NEXUS DEBUG] Remove once investigation is complete
-    const elapsedFull = Math.round(performance.now() - t0)
-    console.log(`[NEXUS:OSRM] ✓ ${candidateId} — ${distKm} km ${routeType} retrace=${retrace.toFixed(2)} lq=${loopQ.toFixed(2)} (${elapsedFull}ms)`)
-
-    stats.generated++
-
-    return {
-      id:               candidateId,
-      name,
-      waypoints,
-      totalDistanceKm:  distKm,
-      estimatedMinutes: Math.round(distKm * RUNNING_PACE_MIN_PER_KM),
-      surfaceSummary:   `${surfaceSummary} · OpenStreetMap`,
-      grade,
-      routeType,
-      isLoop:           routeType === 'loop',
-      retraceRatio:     retrace,
-      loopQuality:      loopQ,
-      dataSource:       'real',
-      providerName:     'OSRM · OpenStreetMap',
-      geometry:         coords,
-      surfaceProfile,
-    }
-  } catch (err) {
-    if ((err as Error)?.name === 'AbortError') {
-      stats.timeouts++
-      // [NEXUS DEBUG]
-      console.warn(`[NEXUS:OSRM] ⏱ timeout (>${TIMEOUT_MS}ms) — ${candidateId}`)
-    }
-    return null
-  } finally {
-    clearTimeout(timer)
   }
+
+  return null   // exhausted MAX_RETRIES
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
@@ -742,193 +848,119 @@ export class OsrmRouteProvider implements RouteProvider {
     const maxRoutes = options.maxRoutes ?? 3
     const profile   = this.profile
 
-    // ── Diagnostic counters — one object shared across all queries ───────────
+    // ── Session cache ─────────────────────────────────────────────────────────
+    const cacheKey = `${activityId}:${lat.toFixed(4)}:${lng.toFixed(4)}:${targetKm}`
+    const cached   = routeSessionCache.get(cacheKey)
+    if (cached) {
+      console.log(`[NEXUS:Route] cache hit — ${cacheKey} (${cached.length} routes)`)
+      return cached
+    }
+
     const stats: DiagStats = {
       sent: 0, http200: 0, http429: 0, http5xx: 0, httpOther: 0,
-      timeouts: 0, generated: 0,
+      timeouts: 0, retries: 0, generated: 0,
     }
     const searchTimestamp = new Date().toISOString()
+    const searchStart     = performance.now()
 
-    // ── Build all candidate queries ──────────────────────────────────────────
-    //
-    // For each of 8 compass directions we fire 4 triangle configurations:
-    //
-    //   #1-2  Triangle small (legKm = targetKm × 0.22):
-    //         Left turn  → start → via1 → via2(bearing+90°) → start
-    //         Right turn → start → via1 → via2(bearing-90°) → start
-    //
-    //   #3-4  Triangle larger (legKm = targetKm × 0.35):
-    //         Left turn  (same pattern, larger legs)
-    //         Right turn (same pattern, larger legs)
-    //
-    // Why no 2-leg queries:
-    //   The former 2-leg (start → mid → start) queries were removed to cut
-    //   the total from 40 to 32 and reduce rate-limit pressure.  They almost
-    //   exclusively produced OUT_AND_BACK routes that the triangles already
-    //   cover — removing them does not reduce route variety.
-    //
-    // The triangle configs force OSRM to traverse different road segments on
-    // each leg, which can produce genuine loops where the road network allows.
-    // Where it doesn't (e.g., linear corridor towns), OSRM still finds real
-    // routes but our retrace metric will correctly classify them as OUT_AND_BACK.
-    //
-    // Total: up to 8 × 4 = 32 queries, executed in batches via runBatched()
-    // to avoid HTTP 429 rate limiting from routing.openstreetmap.de.
-    // Queries are stored as thunks so they only start when their batch fires —
-    // NOT immediately on push (which was the original source of the 429 flood).
-
-    const queries: Array<() => Promise<RouteCandidate | null>> = []
-
-    const LEG_SIZES = [0.22, 0.35]  // fractions of targetKm per triangle leg
+    // ── Build thunks ──────────────────────────────────────────────────────────
+    // 8 compass bearings × 4 triangle configs (2 leg sizes × L/R turn) = 32.
+    // Stored as thunks — nothing fires until runQueue dequeues them.
+    const thunks: Array<() => Promise<RouteCandidate | null>> = []
+    const LEG_SIZES = [0.22, 0.35]
 
     for (const { bearing, label } of BEARINGS) {
-      // 4 triangle configs per bearing (2 leg sizes × 2 turn directions)
       for (const legFrac of LEG_SIZES) {
         const legKm = targetKm * legFrac
         const via1  = destinationPoint(lat, lng, legKm, bearing)
 
-        // Left turn (bearing + 90°)
         const via2L = destinationPoint(via1.lat, via1.lng, legKm, bearing + 90)
-        queries.push(() =>
+        thunks.push(() =>
           queryOsrm(
             [{ lat, lng }, via1, via2L, { lat, lng }],
             `osrm-tri-${bearing}-L-${legFrac}`,
-            label,
-            targetKm,
-            profile,
-            stats,
+            label, targetKm, profile, stats,
           ),
         )
 
-        // Right turn (bearing - 90°)
         const via2R = destinationPoint(via1.lat, via1.lng, legKm, bearing - 90)
-        queries.push(() =>
+        thunks.push(() =>
           queryOsrm(
             [{ lat, lng }, via1, via2R, { lat, lng }],
             `osrm-tri-${bearing}-R-${legFrac}`,
-            label,
-            targetKm,
-            profile,
-            stats,
+            label, targetKm, profile, stats,
           ),
         )
       }
     }
 
-    // ── Collect results (batched to avoid 429 rate limiting) ─────────────────
-    //
-    // A master AbortController caps the entire search at MASTER_TIMEOUT_MS.
-    // When it fires, runBatched() stops launching new batches and returns
-    // whatever partial results have already settled — so the user gets routes
-    // from the first N batches instead of waiting indefinitely for the last
-    // few timed-out requests.
-    //
-    // This closes the "hangs indefinitely" failure mode: in a backgrounded
-    // browser tab setTimeout can be throttled, causing individual per-request
-    // AbortControllers to fire much later than their nominal 10 s.  The master
-    // controller fires on wall-clock time from the planner layer and is not
-    // subject to that throttling.
-
-    // [NEXUS DEBUG] Remove timing instrumentation once investigation is complete
-    const searchStart      = performance.now()
+    // ── Run queue ─────────────────────────────────────────────────────────────
     const masterController = new AbortController()
-    const masterTimer      = setTimeout(
-      () => masterController.abort(),
-      MASTER_TIMEOUT_MS,
-    )
-    console.log(`[NEXUS:OSRM] starting ${queries.length} queries — profile=${profile} ${BATCH_CONCURRENCY} concurrent, ${BATCH_DELAY_MS}ms inter-batch delay, master timeout ${MASTER_TIMEOUT_MS}ms`)
+    const masterTimer      = setTimeout(() => {
+      console.warn(`[NEXUS:Route] ⏱ master timeout after ${MASTER_TIMEOUT_MS}ms`)
+      masterController.abort()
+    }, MASTER_TIMEOUT_MS)
 
-    let settled: Array<PromiseSettledResult<RouteCandidate | null>>
+    console.log(
+      `[NEXUS:Route] search start — activity=${activityId} profile=${profile} ` +
+      `target=${targetKm}km thunks=${thunks.length} concurrency=${CONCURRENCY} maxRoutes=${maxRoutes}`,
+    )
+
+    let finalResult: RouteCandidate[]
     try {
-      settled = await runBatched(queries, BATCH_CONCURRENCY, BATCH_DELAY_MS, masterController.signal)
+      finalResult = await runQueue(thunks, {
+        concurrency: CONCURRENCY,
+        maxRoutes,
+        targetKm,
+        signal: masterController.signal,
+      })
     } finally {
       clearTimeout(masterTimer)
     }
 
     const totalElapsedMs = Math.round(performance.now() - searchStart)
-
-    const all: RouteCandidate[] = settled
-      .filter((r): r is PromiseFulfilledResult<RouteCandidate | null> => r.status === 'fulfilled')
-      .map(r => r.value)
-      .filter((c): c is RouteCandidate => c !== null)
-
-    // ── Distance filter ───────────────────────────────────────────────────────
     const lo = targetKm * (1 - DIST_TOLERANCE)
     const hi = targetKm * (1 + DIST_TOLERANCE)
-    const filtered = all.filter(c => c.totalDistanceKm >= lo && c.totalDistanceKm <= hi)
-    const distFilterRejected = all.length - filtered.length
-    const pool     = filtered.length > 0 ? filtered : all
 
-    // ── Deduplicate by direction (keep best per direction-type key) ───────────
-    // This prevents returning 5 identical Banbury Road out-and-backs.
-    const bestByKey = new Map<string, RouteCandidate>()
-    for (const c of pool) {
-      // Key on direction label + routeType
-      const dirLabel = BEARINGS.find(b => c.id.includes(String(b.bearing)))?.label ?? 'Unknown'
-      const key      = `${dirLabel}-${c.routeType}`
-      const existing = bestByKey.get(key)
-      if (!existing || scoreCandiate(c, targetKm) > scoreCandiate(existing, targetKm)) {
-        bestByKey.set(key, c)
-      }
-    }
-
-    // ── Sort: loops first, then by composite score ────────────────────────────
-    const byScore = [...bestByKey.values()].sort((a, b) => {
-      if (a.routeType === 'loop' && b.routeType !== 'loop') return -1
-      if (b.routeType === 'loop' && a.routeType !== 'loop') return 1
-      return scoreCandiate(b, targetKm) - scoreCandiate(a, targetKm)
-    })
-
-    // ── Second dedup pass: remove near-identical distances of the same type ──
-    // Prevents "4.8 km Out & Back", "4.9 km Out & Back", "5.0 km Out & Back"
-    // from all appearing as separate routes.
-    const finalDeduped: RouteCandidate[] = []
-    for (const c of byScore) {
-      const isDup = finalDeduped.some(e =>
-        e.routeType === c.routeType &&
-        Math.abs(e.totalDistanceKm - c.totalDistanceKm) /
-          Math.max(e.totalDistanceKm, 0.1) < 0.08,
-      )
-      if (!isDup) finalDeduped.push(c)
-    }
-
-    const finalResult = finalDeduped.slice(0, maxRoutes)
-    const dedupRejected = pool.length - finalDeduped.length
-
-    // ── [NEXUS DIAG] Full diagnostic summary ──────────────────────────────────
-    // Look for this group in DevTools Console to diagnose route failures.
-    // Search: [NEXUS DIAG]
-    const label = activityId.toUpperCase()
+    // ── [NEXUS DIAG] summary ──────────────────────────────────────────────────
     console.group(
-      `%c[NEXUS DIAG] ${label} — ${searchTimestamp} (${totalElapsedMs}ms)`,
+      `%c[NEXUS DIAG] ${activityId.toUpperCase()} — ${searchTimestamp} (${totalElapsedMs}ms)`,
       'font-weight:bold;color:#f5a623',
     )
-    console.log(`  Activity:          ${activityId}`)
-    console.log(`  OSRM profile:      ${profile}`)
-    console.log(`  Target distance:   ${targetKm} km (±${DIST_TOLERANCE * 100}% = ${lo.toFixed(1)}–${hi.toFixed(1)} km)`)
-    console.log(`  Location:          ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+    console.log(`  Activity:        ${activityId}`)
+    console.log(`  OSRM profile:    ${profile}`)
+    console.log(`  Target:          ${targetKm} km (±${DIST_TOLERANCE * 100}% = ${lo.toFixed(1)}–${hi.toFixed(1)} km)`)
+    console.log(`  Location:        ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+    console.log(`  Concurrency:     ${CONCURRENCY}  Max retries: ${MAX_RETRIES}  Retry base: ${RETRY_BASE_MS}ms`)
     console.log('')
     console.log(`  ── HTTP ──`)
-    console.log(`  Requests sent:     ${stats.sent}`)
-    console.log(`  HTTP 200:          ${stats.http200}`)
-    console.log(`  HTTP 429:          ${stats.http429}${stats.http429 > 0 ? '  ← rate-limited (IP temporarily throttled)' : ''}`)
-    console.log(`  HTTP 5xx:          ${stats.http5xx}`)
-    console.log(`  HTTP other:        ${stats.httpOther}`)
-    console.log(`  Timeouts:          ${stats.timeouts}`)
-    console.log(`  No-route / error:  ${stats.http200 - stats.generated}  (200 OK but OSRM returned no usable route)`)
+    console.log(`  Requests sent:   ${stats.sent}${stats.retries > 0 ? ` (incl. ${stats.retries} retries)` : ''}`)
+    console.log(`  HTTP 200:        ${stats.http200}`)
+    console.log(`  HTTP 429:        ${stats.http429}${stats.http429 > 0 ? '  ← rate-limited' : ''}`)
+    console.log(`  HTTP 5xx:        ${stats.http5xx}`)
+    console.log(`  HTTP other:      ${stats.httpOther}`)
+    console.log(`  Timeouts:        ${stats.timeouts}`)
+    console.log(`  Retries:         ${stats.retries}`)
+    console.log(`  No-route/err:    ${stats.http200 - stats.generated}  (200 OK but OSRM returned no usable route)`)
     console.log('')
     console.log(`  ── Candidates ──`)
-    console.log(`  Generated:         ${stats.generated}  (valid RouteCandidate objects returned by OSRM)`)
-    console.log(`  Dist filter −:     ${distFilterRejected}  (outside ${lo.toFixed(1)}–${hi.toFixed(1)} km; pool fell back to all=${filtered.length === 0})`)
-    console.log(`  Dedup −:           ${dedupRejected}  (direction-type + near-identical-distance passes)`)
-    console.log(`  Final returned:    ${finalResult.length}${finalResult.length === 0 ? '  ← NO ROUTES — see failure point above' : ''}`)
+    console.log(`  Generated:       ${stats.generated}`)
+    console.log(`  Accepted:        ${finalResult.length}`)
+    console.log(`  Rejected:        ${stats.generated - finalResult.length}  (distance filter + dedup)`)
     if (finalResult.length > 0) {
       finalResult.forEach((c, i) =>
-        console.log(`    [${i + 1}] ${c.name} — ${c.totalDistanceKm} km ${c.routeType} retrace=${c.retraceRatio.toFixed(2)} lq=${c.loopQuality.toFixed(2)}`),
+        console.log(`    [${i + 1}] ${c.name} — ${c.totalDistanceKm}km ${c.routeType}`),
       )
+    } else {
+      console.warn('  ← NO ROUTES — see HTTP section above for failure cause')
     }
     console.groupEnd()
-    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Store to session cache ────────────────────────────────────────────────
+    if (finalResult.length > 0) {
+      routeSessionCache.set(cacheKey, finalResult)
+      console.log(`[NEXUS:Route] cached — ${cacheKey}`)
+    }
 
     return finalResult
   }
