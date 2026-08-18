@@ -397,10 +397,7 @@ export function ActivityScreen({ onBack: _onBack, onNavigate }: ActivityScreenPr
       <BottomNav
         activeTab="activity"
         onTabChange={(tab) => {
-          if (tab === 'home') onNavigate('home')
-          if (tab === 'groups') onNavigate('groups')
-          if (tab === 'world') onNavigate('world')
-          if (tab === 'profile') onNavigate('profile')
+          if (tab !== 'activity') onNavigate(tab)
         }}
       />
 

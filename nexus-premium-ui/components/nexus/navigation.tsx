@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, Users, Clock, User, Globe } from 'lucide-react'
+import { Home, Users, Clock, User, Globe, Users2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BottomNavProps {
@@ -10,11 +10,12 @@ interface BottomNavProps {
 }
 
 const navItems = [
-  { id: 'home', icon: Home, label: 'Home' },
-  { id: 'groups', icon: Users, label: 'Groups' },
-  { id: 'world', icon: Globe, label: 'World' },
-  { id: 'activity', icon: Clock, label: 'Activity' },
-  { id: 'profile', icon: User, label: 'Profile' },
+  { id: 'home',     icon: Home,   label: 'Home'    },
+  { id: 'groups',   icon: Users,  label: 'Groups'  },
+  { id: 'world',    icon: Globe,  label: 'World'   },
+  { id: 'activity', icon: Clock,  label: 'Activity'},
+  { id: 'social',   icon: Users2, label: 'Social'  },
+  { id: 'profile',  icon: User,   label: 'Profile' },
 ]
 
 export function BottomNav({ activeTab, onTabChange, className }: BottomNavProps) {
@@ -22,30 +23,30 @@ export function BottomNav({ activeTab, onTabChange, className }: BottomNavProps)
     <nav className={cn(
       'fixed bottom-0 left-0 right-0 z-50',
       'glass-card border-t border-border/50',
-      'px-4 py-2 pb-safe',
+      'px-2 py-2 pb-safe',
       className
     )}>
       <div className="max-w-md mx-auto flex items-center justify-around">
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activeTab === item.id
-          
+
           return (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
               className={cn(
-                'flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-all duration-300',
+                'flex flex-col items-center gap-0.5 p-1 rounded-lg transition-all duration-300',
                 'hover:bg-muted/50',
                 isActive && 'text-primary'
               )}
             >
               <Icon className={cn(
-                'w-5 h-5 transition-colors',
+                'w-4.5 h-4.5 transition-colors',
                 isActive ? 'text-primary' : 'text-muted-foreground'
               )} />
               <span className={cn(
-                'text-[10px] transition-colors',
+                'text-[9px] transition-colors',
                 isActive ? 'text-primary font-medium' : 'text-muted-foreground'
               )}>
                 {item.label}

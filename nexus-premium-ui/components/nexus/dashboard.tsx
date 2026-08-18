@@ -251,11 +251,7 @@ export function Dashboard({ onGroupClick, onNavigate, onCreateGroup }: Dashboard
         activeTab={activeTab}
         onTabChange={(tab) => {
           setActiveTab(tab)
-          if (tab === 'home')     onNavigate('home')
-          if (tab === 'groups')   onNavigate('groups')
-          if (tab === 'world')    onNavigate('world')
-          if (tab === 'activity') onNavigate('activity')
-          if (tab === 'profile')  onNavigate('profile')
+          onNavigate(tab)
         }}
       />
     </div>

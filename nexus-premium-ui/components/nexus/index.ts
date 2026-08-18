@@ -1,4 +1,5 @@
 export { NexusApp } from './nexus-app'
+export { SocialScreen } from './social-screen'
 export { LandingPage } from './landing-page'
 export { AuthScreen } from './auth-screen'
 export { OnboardingFlow } from './onboarding-flow'

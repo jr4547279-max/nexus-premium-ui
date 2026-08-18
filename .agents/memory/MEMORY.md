@@ -5,3 +5,4 @@
 - [Nexus World map experience](nexus-world.md) — MapLibre v6 world (Eastbourne/South Downs); free tile/DEM sources, LOD via minzoom, async lifecycle guard pattern, no-WebGL2 screenshot limits.
 - [Live run tracker](run-tracker.md) — GPS tracking screen built on OSRM jogging planner; geometry preservation, coordinate conventions, GPS lifecycle, no framer-motion.
 - [OSRM intermittent failures](osrm-intermittent-failures.md) — 4 root causes (429 flood, no try-catch, race condition, timeout); batching fix + master timeout; Replit IPs are blocked by the server so never test with curl.
+- [Nexus Social system](social-system.md) — Phase 1 identity (username/avatar/bio/search); migration SQL must be run; OSRM cache key = profile not activityId.

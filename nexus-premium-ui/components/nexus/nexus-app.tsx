@@ -15,6 +15,7 @@ import type { PlannerResult } from '@/lib/planners/planner-engine'
 import { ActivityScreen } from './activity-screen'
 import { WorldScreen } from './world-screen'
 import { ProfileScreen } from './profile-screen'
+import { SocialScreen } from './social-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
@@ -36,6 +37,7 @@ type Screen =
   | 'activity'
   | 'world'
   | 'profile'
+  | 'social'
   | 'run-tracker'
   // DEV-ONLY — remove before production
   | 'dev-test'
@@ -307,6 +309,14 @@ export function NexusApp() {
           onBack={() => setCurrentScreen('home')}
           onNavigate={handleNavigate}
           onLogout={handleLogout}
+        />
+      )
+      break
+
+    case 'social':
+      screenContent = (
+        <SocialScreen
+          onNavigate={handleNavigate}
         />
       )
       break

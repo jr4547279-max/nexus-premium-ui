@@ -14,6 +14,11 @@ export interface Profile {
   formatted_address:    string | null
   place_id:             string | null
   location_updated_at:  string | null
+  // Social identity — added by supabase/social_migration.sql
+  username:             string | null
+  avatar_url:           string | null
+  bio:                  string | null
+  favourite_activities: string[] | null
 }
 
 export interface UserLocation {
