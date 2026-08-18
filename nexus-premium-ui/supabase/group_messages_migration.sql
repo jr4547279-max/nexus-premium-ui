@@ -135,6 +135,42 @@ BEGIN
   END IF;
 END $$;
 
+-- 9. RLS — Any group member can update poll metadata (for voting)
+--    The existing "users_can_edit_own_messages" policy only allows the
+--    message author to update their own rows. Voting requires any member
+--    to update the metadata JSONB of a poll message they didn't create.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'group_messages'
+      AND policyname = 'group_members_can_vote_on_polls'
+  ) THEN
+    EXECUTE $pol$
+      CREATE POLICY "group_members_can_vote_on_polls"
+        ON group_messages
+        FOR UPDATE
+        TO authenticated
+        USING (
+          message_type = 'poll'
+          AND EXISTS (
+            SELECT 1 FROM group_members gm
+            WHERE gm.group_id = group_messages.group_id
+              AND gm.user_id  = auth.uid()
+          )
+        )
+        WITH CHECK (
+          message_type = 'poll'
+          AND EXISTS (
+            SELECT 1 FROM group_members gm
+            WHERE gm.group_id = group_messages.group_id
+              AND gm.user_id  = auth.uid()
+          )
+        )
+    $pol$;
+  END IF;
+END $$;
+
 -- Verify:
 -- SELECT table_name, column_name, data_type
 -- FROM   information_schema.columns

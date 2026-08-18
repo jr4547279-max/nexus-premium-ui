@@ -1,10 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Nexus Message Service
 // ─────────────────────────────────────────────────────────────────────────────
-// Handles group message CRUD and real-time Supabase subscriptions.
-// System messages (join, create, route, golden window) use message_type='system'
-// and are attributed to the triggering user (required by RLS).
-// ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from './supabase'
 
@@ -12,13 +8,25 @@ import { supabase } from './supabase'
 
 export type MessageType = 'text' | 'system' | 'route' | 'location' | 'poll' | 'image'
 
+export interface PollOption {
+  id:    string       // stable identifier, e.g. "opt-1234567890-0"
+  text:  string
+  votes: string[]     // array of user IDs who selected this option
+}
+
+export interface PollMetadata {
+  event:    'poll'
+  question: string
+  options:  PollOption[]
+}
+
 export interface GroupMessage {
   id:                string
   group_id:          string
   user_id:           string | null
   message:           string
   message_type:      MessageType
-  /** Structured payload for future-ready features (reactions, route data, etc.) */
+  /** Structured payload — poll data, system event keys, future features. */
   metadata:          Record<string, unknown> | null
   created_at:        string
   updated_at:        string
@@ -28,7 +36,7 @@ export interface GroupMessage {
   sender_avatar_url: string | null
 }
 
-// ── Internal row shape returned by Supabase ───────────────────────────────────
+// ── Internal row shape ────────────────────────────────────────────────────────
 
 interface RawMessageRow {
   id:           string
@@ -46,7 +54,7 @@ interface RawMessageRow {
   } | null
 }
 
-// ── Column projection used across all queries ─────────────────────────────────
+// ── Column projection ─────────────────────────────────────────────────────────
 
 const COLS = `
   id, group_id, user_id, message, message_type, metadata, created_at, updated_at,
@@ -73,9 +81,7 @@ function toMessage(row: RawMessageRow): GroupMessage {
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-/**
- * Fetch the most recent `limit` messages for a group, oldest-first.
- */
+/** Fetch the most recent `limit` messages for a group, oldest-first. */
 export async function fetchMessages(groupId: string, limit = 80): Promise<GroupMessage[]> {
   const { data, error } = await supabase
     .from('group_messages')
@@ -91,7 +97,7 @@ export async function fetchMessages(groupId: string, limit = 80): Promise<GroupM
   return (data ?? []).map(r => toMessage(r as unknown as RawMessageRow))
 }
 
-/** Fetch a single message by id (used after real-time INSERT to hydrate profile data). */
+/** Fetch a single message with profile join (used after real-time events). */
 async function fetchMessageById(id: string): Promise<GroupMessage | null> {
   const { data, error } = await supabase
     .from('group_messages')
@@ -105,9 +111,7 @@ async function fetchMessageById(id: string): Promise<GroupMessage | null> {
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
-/**
- * Send a plain text message. Returns the saved message or null on error.
- */
+/** Send a plain text message. */
 export async function sendMessage(
   groupId: string,
   userId:  string,
@@ -133,18 +137,12 @@ export async function sendMessage(
 
 /**
  * Send a system event message attributed to the triggering user.
- * Non-blocking — failures are logged but not surfaced to the UI.
- *
- * `text` should be a short human-readable description of the event,
- *   e.g. "created this group" or "joined the group".
- *
- * `metadata` can carry structured context for the UI renderer,
- *   e.g. { event: 'golden_window' } or { event: 'route_generated', distance_km: 5.2 }.
+ * Non-blocking — failures are logged but never surface to the UI.
  */
 export async function sendSystemMessage(
-  groupId:  string,
-  userId:   string,
-  text:     string,
+  groupId:   string,
+  userId:    string,
+  text:      string,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   const { error } = await supabase
@@ -157,42 +155,148 @@ export async function sendSystemMessage(
       metadata:     metadata ?? null,
     })
 
-  if (error) {
-    console.warn('[message-service] sendSystemMessage:', error.message)
+  if (error) console.warn('[message-service] sendSystemMessage:', error.message)
+}
+
+/**
+ * Create a new poll in the group chat.
+ * `optTexts` must contain at least 2 non-empty strings.
+ */
+export async function sendPoll(
+  groupId:  string,
+  userId:   string,
+  question: string,
+  optTexts: string[],
+): Promise<GroupMessage | null> {
+  const ts      = Date.now()
+  const options: PollOption[] = optTexts.map((text, i) => ({
+    id:    `opt-${ts}-${i}`,
+    text:  text.trim(),
+    votes: [],
+  }))
+
+  const metadata: PollMetadata = {
+    event:    'poll',
+    question: question.trim(),
+    options,
   }
+
+  const { data, error } = await supabase
+    .from('group_messages')
+    .insert({
+      group_id:     groupId,
+      user_id:      userId,
+      message:      question.trim(),   // human-readable fallback text
+      message_type: 'poll',
+      metadata,
+    })
+    .select(COLS)
+    .single()
+
+  if (error) {
+    console.error('[message-service] sendPoll:', error.message)
+    return null
+  }
+  return toMessage(data as unknown as RawMessageRow)
+}
+
+/**
+ * Cast (or change) a vote on a poll.
+ *
+ * Strategy: read-modify-write on the metadata JSONB.
+ * - Removes the user from every option's votes array.
+ * - Adds the user to the target option's votes array.
+ * This enforces one-vote-per-user client-side. The voting RLS policy
+ * ("group_members_can_vote_on_polls") ensures only members can update polls.
+ *
+ * Returns true on success.
+ */
+export async function castVote(
+  messageId: string,
+  optionId:  string,
+  userId:    string,
+): Promise<boolean> {
+  // 1. Fetch current metadata
+  const { data: current, error: fetchErr } = await supabase
+    .from('group_messages')
+    .select('metadata')
+    .eq('id', messageId)
+    .single()
+
+  if (fetchErr || !current) {
+    console.error('[message-service] castVote fetch:', fetchErr?.message)
+    return false
+  }
+
+  const meta = current.metadata as PollMetadata | null
+  if (!meta?.options) return false
+
+  // 2. Build updated options: remove user from all, add to target
+  const updatedOptions: PollOption[] = meta.options.map(opt => ({
+    ...opt,
+    votes: opt.id === optionId
+      ? [...opt.votes.filter(v => v !== userId), userId]
+      : opt.votes.filter(v => v !== userId),
+  }))
+
+  // 3. Persist
+  const { error: updateErr } = await supabase
+    .from('group_messages')
+    .update({
+      metadata:   { ...meta, options: updatedOptions },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', messageId)
+
+  if (updateErr) {
+    console.error('[message-service] castVote update:', updateErr.message)
+    return false
+  }
+  return true
 }
 
 // ── Real-time subscription ────────────────────────────────────────────────────
 
 /**
- * Subscribe to new messages in a group.
- * Automatically hydrates profile data on each new INSERT so the caller
- * receives a fully populated GroupMessage.
+ * Subscribe to live message events for a group.
  *
+ * - `onInsert` fires when a new message arrives.
+ * - `onUpdate` fires when a message is updated (e.g. a vote is cast on a poll).
+ *
+ * Both callbacks receive a fully hydrated GroupMessage (with profile join).
  * Returns an unsubscribe function — call it in useEffect cleanup.
  */
 export function subscribeToMessages(
   groupId:   string,
-  onMessage: (msg: GroupMessage) => void,
+  onInsert:  (msg: GroupMessage) => void,
+  onUpdate?: (msg: GroupMessage) => void,
 ): () => void {
-  const channel = supabase
+  const filter = `group_id=eq.${groupId}`
+
+  let channel = supabase
     .channel(`group-chat:${groupId}`)
     .on(
       'postgres_changes',
-      {
-        event:  'INSERT',
-        schema: 'public',
-        table:  'group_messages',
-        filter: `group_id=eq.${groupId}`,
-      },
+      { event: 'INSERT', schema: 'public', table: 'group_messages', filter },
       async (payload) => {
         const row = payload.new as { id: string }
-        // Re-fetch with profile join — the raw CDC payload has no joined cols.
         const msg = await fetchMessageById(row.id)
-        if (msg) onMessage(msg)
+        if (msg) onInsert(msg)
       },
     )
-    .subscribe()
 
+  if (onUpdate) {
+    channel = channel.on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'group_messages', filter },
+      async (payload) => {
+        const row = payload.new as { id: string }
+        const msg = await fetchMessageById(row.id)
+        if (msg) onUpdate(msg)
+      },
+    )
+  }
+
+  channel.subscribe()
   return () => { supabase.removeChannel(channel) }
 }
