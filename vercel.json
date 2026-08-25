@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "installCommand": "pnpm install --frozen-lockfile",
+  "installCommand": "pnpm install --frozen-lockfile --filter my-project",
   "buildCommand": "pnpm --filter my-project build",
   "outputDirectory": "nexus-premium-ui/.next"
 }
