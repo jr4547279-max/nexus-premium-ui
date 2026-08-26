@@ -1,10 +1,11 @@
 import { supabase } from './supabase'
-import { markGoldenWindowStale } from './golden-window-persistence'
+import { markGoldenWindowStale, saveGoldenWindow } from './golden-window-persistence'
+import { computeGoldenWindows } from './golden-window'
 
 export interface AvailabilitySlot {
-  day_of_week: number
-  start_time: string
-  end_time: string
+  day_of_week: number   // 0 = Sun, 1 = Mon, … 6 = Sat
+  start_time: string    // "HH:MM"
+  end_time: string      // "HH:MM"
 }
 
 export interface GroupAvailabilityRow extends AvailabilitySlot {
@@ -44,15 +45,15 @@ async function withTimeout<T>(promise: PromiseLike<T>, fallback: T, label: strin
 }
 
 export async function getMyAvailability(groupId: string): Promise<AvailabilitySlot[]> {
-  const { data: userData } = await withTimeout<any>(
+  const { data: userData } = await withTimeout(
     supabase.auth.getUser(),
-    { data: { user: null }, error: null },
+    { data: { user: null }, error: null } as unknown as Awaited<ReturnType<typeof supabase.auth.getUser>>,
     'auth.getUser',
   )
   const uid = userData.user?.id
   if (!uid) return []
 
-  const { data, error } = await withTimeout<any>(
+  const { data, error } = await withTimeout(
     supabase
       .from('availability')
       .select('day_of_week, start_time, end_time')
@@ -60,7 +61,7 @@ export async function getMyAvailability(groupId: string): Promise<AvailabilitySl
       .eq('user_id', uid)
       .order('day_of_week')
       .order('start_time'),
-    { data: null, error: { message: 'Availability read timed out' } },
+    { data: null, error: { message: 'Availability read timed out' } as never },
     'getMyAvailability',
   )
 
@@ -75,13 +76,13 @@ export async function saveAvailability(
   groupId: string,
   slots: AvailabilitySlot[],
 ): Promise<SaveAvailabilityResult> {
-  const result = await withTimeout<any>(
+  const result = await withTimeout(
     supabase.rpc('save_availability', { p_group_id: groupId, p_slots: slots }),
     {
       data: null,
       error: { message: `Availability save timed out after ${REQUEST_TIMEOUT_MS}ms`, code: 'TIMEOUT' },
       status: 408,
-    },
+    } as never,
     'saveAvailability',
   )
 
@@ -92,12 +93,32 @@ export async function saveAvailability(
     return { inserted: null, errorMessage: msg }
   }
 
+  // Availability changed, so the previous Golden Window is stale. Immediately
+  // recompute from the complete group state so the user never gets stranded
+  // with a "find Golden Window first" dead end after saving availability.
   markGoldenWindowStale(groupId).catch(() => undefined)
+  try {
+    const groupRows = await getGroupAvailability(groupId)
+    const members = [...new Set(groupRows.map((row) => row.user_id))].map((id) => ({
+      id,
+      name: groupRows.find((row) => row.user_id === id)?.display_name ?? null,
+    }))
+    const windows = computeGoldenWindows(members, groupRows)
+    const best = windows[0]
+    if (best) {
+      await saveGoldenWindow(groupId, best)
+    }
+  } catch (goldenWindowError) {
+    // Availability itself was saved successfully. Golden Window generation is
+    // best-effort; the group page can still calculate it on demand.
+    console.warn('[availability-service] automatic Golden Window generation failed', goldenWindowError)
+  }
+
   return { inserted: (data as number) ?? 0, errorMessage: null }
 }
 
 export async function getGroupAvailability(groupId: string): Promise<GroupAvailabilityRow[]> {
-  const directResult = await withTimeout<any>(
+  const directResult = await withTimeout(
     supabase
       .from('availability')
       .select('user_id, day_of_week, start_time, end_time')
@@ -105,7 +126,7 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
       .order('user_id')
       .order('day_of_week')
       .order('start_time'),
-    { data: null, error: { message: 'Group availability read timed out' } },
+    { data: null, error: { message: 'Group availability read timed out' } as never },
     'getGroupAvailability',
   )
 
@@ -113,9 +134,9 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
 
   if (availError) {
     console.error('[availability-service] getGroupAvailability (direct) failed', availError)
-    const fallback = await withTimeout<any>(
+    const fallback = await withTimeout(
       supabase.rpc('list_group_availability', { p_group_id: groupId }),
-      { data: null, error: { message: 'Group availability fallback timed out' } },
+      { data: null, error: { message: 'Group availability fallback timed out' } as never },
       'list_group_availability',
     )
     if (fallback.error) {
@@ -135,12 +156,12 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
   const profileMap = new Map<string, { display_name: string | null; email: string | null }>()
 
   if (userIds.length > 0) {
-    const profileResult = await withTimeout<any>(
+    const profileResult = await withTimeout(
       supabase
         .from('profiles')
         .select('id, display_name, email')
         .in('id', userIds),
-      { data: [], error: null },
+      { data: [], error: null } as never,
       'profile enrichment',
     )
     for (const p of (profileResult.data ?? [])) {
