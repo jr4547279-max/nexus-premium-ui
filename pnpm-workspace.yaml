@@ -39,7 +39,8 @@ catalog:
 
 autoInstallPeers: false
 
-# pnpm 10 approval list.
+# Vercel/pnpm 10 blocks dependency lifecycle scripts unless explicitly approved.
+# These are required native build packages for the Next.js/Tailwind stack.
 onlyBuiltDependencies:
   - '@swc/core'
   - '@tailwindcss/oxide'
@@ -111,8 +112,9 @@ overrides:
   "rollup>@rollup/rollup-darwin-arm64": "-"
   "rollup>@rollup/rollup-darwin-x64": "-"
   "rollup>@rollup/rollup-freebsd-arm64": "-"
-  "rollup>@rollup/rollup-darwin-x64": "-"
+  "rollup>@rollup/rollup-freebsd-x64": "-"
   "rollup>@rollup/rollup-linux-arm-gnueabihf": "-"
+  "rollup>@rollup/rollup-linux-arm-musleabihf": "-"
   "rollup>@rollup/rollup-linux-arm64-gnu": "-"
   "rollup>@rollup/rollup-linux-arm64-musl": "-"
   "rollup>@rollup/rollup-linux-loong64-gnu": "-"
