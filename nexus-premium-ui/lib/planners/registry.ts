@@ -1,59 +1,44 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Planner Registry
-// ─────────────────────────────────────────────────────────────────────────────
-// Maps activity IDs to their planner implementations.
-// To add a new activity: import the planner and append one entry below.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import type { PlannerDefinition } from './types'
-import { pubCrawlPlanner } from './pub-crawl-planner'
-import { createSingleVenuePlanner } from './single-venue-planner'
+import { pubCrawlPlannerV2 } from './pub-crawl-planner-v2'
+import { createUniversalVenuePlanner } from './universal-venue-planner'
 import { joggingPlanner } from './jogging-planner'
 import { walkingPlanner } from './walking-planner'
 import { hikingPlanner } from './hiking-planner'
 import { cyclingPlanner } from './cycling-planner'
 
-// ── Registry ──────────────────────────────────────────────────────────────────
-
 const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
-  // Multi-stop pub crawl — dedicated planner with route optimisation
-  'pub-crawl': pubCrawlPlanner,
+  'pub-crawl': pubCrawlPlannerV2,
 
-  // Route planners — OSRM routing, real routes, no API key
+  // Real route planners — OSRM, no API key required.
   'jogging': joggingPlanner,
   'walking': walkingPlanner,
-  'hiking':  hikingPlanner,   // foot profile, 12–15 km default, trail surfaces
-  'cycling': cyclingPlanner,  // bike profile, 20 km default, loop preferred
+  'hiking': hikingPlanner,
+  'cycling': cyclingPlanner,
 
-  // Single-venue planners — uses OSM for real venues, mock as fallback
-  'cocktail-bar':  createSingleVenuePlanner({ activityId: 'cocktail-bar',  activityEmoji: '🍹', activityLabel: 'Cocktail Bar' }),
-  'restaurant':    createSingleVenuePlanner({ activityId: 'restaurant',    activityEmoji: '🍽️', activityLabel: 'Restaurant' }),
-  'brunch':        createSingleVenuePlanner({ activityId: 'brunch',        activityEmoji: '🥞', activityLabel: 'Brunch' }),
-  'coffee':        createSingleVenuePlanner({ activityId: 'coffee',        activityEmoji: '☕', activityLabel: 'Coffee' }),
-  'cinema':        createSingleVenuePlanner({ activityId: 'cinema',        activityEmoji: '🎬', activityLabel: 'Cinema' }),
-  'bowling':       createSingleVenuePlanner({ activityId: 'bowling',       activityEmoji: '🎳', activityLabel: 'Bowling' }),
-  'live-music':    createSingleVenuePlanner({ activityId: 'live-music',    activityEmoji: '🎵', activityLabel: 'Live Music' }),
-  'board-games':   createSingleVenuePlanner({ activityId: 'board-games',   activityEmoji: '🎲', activityLabel: 'Board Games' }),
-  'escape-room':   createSingleVenuePlanner({ activityId: 'escape-room',   activityEmoji: '🔐', activityLabel: 'Escape Room' }),
+  // Universal real-location planners. No demo/mock fallback in real groups.
+  'swimming': createUniversalVenuePlanner({ activityId: 'swimming', activityLabel: 'Swimming', emoji: '🏊' }),
+  'gym': createUniversalVenuePlanner({ activityId: 'gym', activityLabel: 'Gym', emoji: '💪' }),
+  'beach': createUniversalVenuePlanner({ activityId: 'beach', activityLabel: 'Beach', emoji: '🏖️' }),
+  'picnic': createUniversalVenuePlanner({ activityId: 'picnic', activityLabel: 'Picnic', emoji: '🧺' }),
+  'cocktail-bar': createUniversalVenuePlanner({ activityId: 'cocktail-bar', activityLabel: 'Cocktail Bar', emoji: '🍹' }),
+  'restaurant': createUniversalVenuePlanner({ activityId: 'restaurant', activityLabel: 'Restaurant', emoji: '🍽️' }),
+  'brunch': createUniversalVenuePlanner({ activityId: 'brunch', activityLabel: 'Brunch', emoji: '🥞' }),
+  'coffee': createUniversalVenuePlanner({ activityId: 'coffee', activityLabel: 'Coffee', emoji: '☕' }),
+  'cinema': createUniversalVenuePlanner({ activityId: 'cinema', activityLabel: 'Cinema', emoji: '🎬' }),
+  'bowling': createUniversalVenuePlanner({ activityId: 'bowling', activityLabel: 'Bowling', emoji: '🎳' }),
+  'live-music': createUniversalVenuePlanner({ activityId: 'live-music', activityLabel: 'Live Music', emoji: '🎵' }),
+  'board-games': createUniversalVenuePlanner({ activityId: 'board-games', activityLabel: 'Board Games', emoji: '🎲' }),
+  'escape-room': createUniversalVenuePlanner({ activityId: 'escape-room', activityLabel: 'Escape Room', emoji: '🔐' }),
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Returns true if a planner exists for the given activity. */
 export function hasPlannerFor(activityId: string | null | undefined): boolean {
-  if (!activityId) return false
-  return activityId in PLANNER_REGISTRY
+  return !!activityId && activityId in PLANNER_REGISTRY
 }
 
-/** Returns the planner definition for an activity, or null if none exists. */
-export function getPlannerFor(
-  activityId: string | null | undefined,
-): PlannerDefinition | null {
-  if (!activityId) return null
-  return PLANNER_REGISTRY[activityId] ?? null
+export function getPlannerFor(activityId: string | null | undefined): PlannerDefinition | null {
+  return activityId ? PLANNER_REGISTRY[activityId] ?? null : null
 }
 
-/** Returns all registered planner activity IDs. */
 export function registeredPlannerIds(): string[] {
   return Object.keys(PLANNER_REGISTRY)
 }
