@@ -109,6 +109,7 @@ export const realPubCrawlPlanner: PlannerDefinition = {
     ])].map((radius) => Math.min(radius, 10000))
 
     let bestReal: PlannerResult | null = null
+    let bestRadius = baseRadius
 
     for (const radiusMetres of radii) {
       const candidateRequest = {
@@ -122,11 +123,12 @@ export const realPubCrawlPlanner: PlannerDefinition = {
 
         if (!bestReal || result.stops.length > bestReal.stops.length) {
           bestReal = result
+          bestRadius = radiusMetres
         }
 
-        // Four real stops is the normal target. Stop widening once we have it.
         if (result.stops.length >= desiredStops) {
           bestReal = result
+          bestRadius = radiusMetres
           break
         }
       } catch {
@@ -138,8 +140,6 @@ export const realPubCrawlPlanner: PlannerDefinition = {
       throw new Error('Nexus could not find enough real pubs at this location right now. Try moving the planning location or choosing a different area.')
     }
 
-    return enrichWithGooglePlaces(bestReal, bestReal.stops.length >= desiredStops
-      ? { ...location, radiusMetres: radii.find((r) => r >= baseRadius) ?? baseRadius }
-      : location)
+    return enrichWithGooglePlaces(bestReal, { ...location, radiusMetres: bestRadius })
   },
 }
