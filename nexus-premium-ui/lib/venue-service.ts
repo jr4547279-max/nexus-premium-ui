@@ -7,6 +7,7 @@ export interface Venue {
   open_now: boolean | null
   address: string | null
   category: string | null
+  description: string | null
   maps_url: string | null
   price_level: string | null
   distance_km: number | null
