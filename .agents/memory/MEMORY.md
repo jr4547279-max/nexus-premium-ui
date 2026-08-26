@@ -1,3 +1,4 @@
+- **Canonical Nexus codebase:** `jr4547279-max/nexus-premium-ui` on `main`. All ongoing Nexus UI, product logic, venue discovery, Golden Window, availability, planner, and deployment work must be made here. Treat older `nexus-real-app` / `golden-hour-planner` repositories as historical references only.
 - [Next build generated files](next-build-generated-files.md) — Next.js 16 may rewrite the tracked route-type import during local builds.
 - [Golden Window v2 architecture](golden-window-v2.md) — persistence + progressive scoring model; key decisions for future changes.
 - [Real Venue Engine architecture](real-venue-engine.md) — provider abstraction + OSM + single-venue planner factory; key decisions for future planner work.
