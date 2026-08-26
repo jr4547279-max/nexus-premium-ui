@@ -18,6 +18,8 @@ export interface SaveAvailabilityResult {
   errorMessage: string | null
 }
 
+const REQUEST_TIMEOUT_MS = 8_000
+
 function formatError(
   error: { code?: string | null; message: string; hint?: string | null; details?: string | null },
   status?: number,
@@ -26,21 +28,47 @@ function formatError(
 }
 
 /**
- * Returns the current user's saved slots for a group.
- * Direct select is fine — RLS limits rows to (auth.uid(), group_id).
+ * Supabase requests should never leave the Availability UI spinning forever.
+ * A timeout is treated as a failed read, allowing the caller to show an
+ * actionable empty/error state and keeping the rest of the group page usable.
  */
+async function withTimeout<T>(promise: PromiseLike<T>, fallback: T, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[availability-service] ${label} timed out after ${REQUEST_TIMEOUT_MS}ms`)
+      resolve(fallback)
+    }, REQUEST_TIMEOUT_MS)
+  })
+
+  try {
+    return await Promise.race([Promise.resolve(promise), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** Returns the current user's saved slots for a group. */
 export async function getMyAvailability(groupId: string): Promise<AvailabilitySlot[]> {
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData } = await withTimeout(
+    supabase.auth.getUser(),
+    { data: { user: null }, error: null } as Awaited<ReturnType<typeof supabase.auth.getUser>>,
+    'auth.getUser',
+  )
   const uid = userData.user?.id
   if (!uid) return []
 
-  const { data, error } = await supabase
-    .from('availability')
-    .select('day_of_week, start_time, end_time')
-    .eq('group_id', groupId)
-    .eq('user_id', uid)
-    .order('day_of_week')
-    .order('start_time')
+  const { data, error } = await withTimeout(
+    supabase
+      .from('availability')
+      .select('day_of_week, start_time, end_time')
+      .eq('group_id', groupId)
+      .eq('user_id', uid)
+      .order('day_of_week')
+      .order('start_time'),
+    { data: null, error: { message: 'Availability read timed out' } as never },
+    'getMyAvailability',
+  )
 
   if (error) {
     console.error('[availability-service] getMyAvailability failed', error)
@@ -49,73 +77,67 @@ export async function getMyAvailability(groupId: string): Promise<AvailabilitySl
   return (data ?? []) as AvailabilitySlot[]
 }
 
-/**
- * Atomically replaces ALL of the current user's slots for a group with
- * the supplied list. Returns the number of rows that landed.
- *
- * After a successful save the group's persisted Golden Window is marked stale
- * so the UI can prompt recalculation. The stale marking is best-effort —
- * a failure there is non-fatal and does not affect the save result.
- */
+/** Atomically replaces all of the current user's slots for a group. */
 export async function saveAvailability(
   groupId: string,
   slots: AvailabilitySlot[],
 ): Promise<SaveAvailabilityResult> {
-  const { data, error, status } = await supabase
-    .rpc('save_availability', { p_group_id: groupId, p_slots: slots })
+  const result = await withTimeout(
+    supabase.rpc('save_availability', { p_group_id: groupId, p_slots: slots }),
+    {
+      data: null,
+      error: { message: `Availability save timed out after ${REQUEST_TIMEOUT_MS}ms`, code: 'TIMEOUT' },
+      status: 408,
+    } as never,
+    'saveAvailability',
+  )
 
+  const { data, error, status } = result
   if (error) {
     const msg = formatError(error, status)
     console.error('[availability-service] saveAvailability FAILED', msg, error)
     return { inserted: null, errorMessage: msg }
   }
 
-  // Mark the saved Golden Window stale only after a confirmed successful save.
-  markGoldenWindowStale(groupId).catch(() => {
-    // Best-effort — stale marking is non-fatal.
-  })
+  // Best-effort — a stale-mark failure never invalidates a successful save.
+  markGoldenWindowStale(groupId).catch(() => undefined)
 
   return { inserted: (data as number) ?? 0, errorMessage: null }
 }
 
 /**
- * Returns every group member's availability slots, including display_name.
- *
- * Implementation note: the `list_group_availability` SECURITY DEFINER RPC
- * guards itself with `is_group_member(auth.uid())`, but `auth.uid()` can
- * return null when PostgREST invokes a SECURITY DEFINER function in certain
- * Supabase configurations — causing the RPC to raise `not_a_member` even for
- * valid authenticated sessions.
- *
- * The direct table query is the reliable path: the
- * `availability_select_group_member` RLS policy (`using is_group_member(group_id)`)
- * evaluates correctly for authenticated clients, and is the same mechanism
- * that `getMyAvailability` and `saveAvailability` use successfully.
- *
- * Display names are fetched best-effort: the `profiles` RLS only allows each
- * user to read their own row, so other members' names fall back to null (shown
- * as "Member" in the editor summary — the GW calculation never uses display_name).
+ * Returns every group member's availability slots.
+ * The direct table query is the primary RLS-scoped path; the SECURITY DEFINER
+ * RPC remains a fallback for older database policies.
  */
 export async function getGroupAvailability(groupId: string): Promise<GroupAvailabilityRow[]> {
-  // ── Primary path: direct table query via RLS ──────────────────────────────
-  const { data: availData, error: availError } = await supabase
-    .from('availability')
-    .select('user_id, day_of_week, start_time, end_time')
-    .eq('group_id', groupId)
-    .order('user_id')
-    .order('day_of_week')
-    .order('start_time')
+  const directResult = await withTimeout(
+    supabase
+      .from('availability')
+      .select('user_id, day_of_week, start_time, end_time')
+      .eq('group_id', groupId)
+      .order('user_id')
+      .order('day_of_week')
+      .order('start_time'),
+    { data: null, error: { message: 'Group availability read timed out' } as never },
+    'getGroupAvailability',
+  )
+
+  const { data: availData, error: availError } = directResult
 
   if (availError) {
     console.error('[availability-service] getGroupAvailability (direct) failed', availError)
-    // ── Fallback: try the original RPC ─────────────────────────────────────
-    const { data, error } = await supabase
-      .rpc('list_group_availability', { p_group_id: groupId })
-    if (error) {
-      console.error('[availability-service] getGroupAvailability (RPC fallback) also failed', error)
+
+    const fallback = await withTimeout(
+      supabase.rpc('list_group_availability', { p_group_id: groupId }),
+      { data: null, error: { message: 'Group availability fallback timed out' } as never },
+      'list_group_availability',
+    )
+    if (fallback.error) {
+      console.error('[availability-service] getGroupAvailability (RPC fallback) failed', fallback.error)
       return []
     }
-    return (data ?? []) as GroupAvailabilityRow[]
+    return (fallback.data ?? []) as GroupAvailabilityRow[]
   }
 
   const rows = (availData ?? []) as Pick<
@@ -124,20 +146,20 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
   >[]
   if (rows.length === 0) return []
 
-  // ── Best-effort display name enrichment ───────────────────────────────────
-  // Profiles RLS: each user can only read their own row.  In practice this
-  // means the current user's name is always resolved; other members show null
-  // (which the editor summary renders as "Member").  The GW engine never reads
-  // display_name, so this does not affect window calculation.
+  // Display names are best-effort and never block availability itself.
   const userIds = [...new Set(rows.map((r) => r.user_id))]
   const profileMap = new Map<string, { display_name: string | null; email: string | null }>()
 
   if (userIds.length > 0) {
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('id, display_name, email')
-      .in('id', userIds)
-    for (const p of (profileData ?? [])) {
+    const profileResult = await withTimeout(
+      supabase
+        .from('profiles')
+        .select('id, display_name, email')
+        .in('id', userIds),
+      { data: [], error: null } as never,
+      'profile enrichment',
+    )
+    for (const p of (profileResult.data ?? [])) {
       profileMap.set(p.id, {
         display_name: (p as { display_name?: string | null }).display_name ?? null,
         email:        (p as { email?: string | null }).email ?? null,
