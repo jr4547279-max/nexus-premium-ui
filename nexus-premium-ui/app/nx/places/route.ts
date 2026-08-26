@@ -49,6 +49,8 @@ interface PlaceApiResponse {
     userRatingCount?: number
     formattedAddress?: string
     googleMapsUri?: string
+    websiteUri?: string
+    editorialSummary?: { text?: string }
     regularOpeningHours?: { openNow?: boolean }
     primaryTypeDisplayName?: { text?: string }
     types?: string[]
@@ -142,6 +144,8 @@ export async function GET(req: Request) {
           'places.userRatingCount',
           'places.formattedAddress',
           'places.googleMapsUri',
+          'places.websiteUri',
+          'places.editorialSummary',
           'places.regularOpeningHours.openNow',
           'places.primaryTypeDisplayName',
           'places.types',
@@ -241,6 +245,7 @@ export async function GET(req: Request) {
       open_now: openNow,
       address: p.formattedAddress ?? null,
       category: p.primaryTypeDisplayName?.text ?? p.types?.[0] ?? null,
+      description: p.editorialSummary?.text ?? null,
       maps_url: p.googleMapsUri ?? null,
       price_level: p.priceLevel ?? null,
       distance_km,
