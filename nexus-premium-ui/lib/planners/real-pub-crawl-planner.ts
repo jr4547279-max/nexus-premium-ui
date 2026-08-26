@@ -79,22 +79,15 @@ async function enrichWithGooglePlaces(
 
     return { ...result, stops: enrichedStops }
   } catch {
-    // Google enrichment is optional. The underlying OSM plan remains fully real.
     return result
   }
 }
 
-/**
- * Production pub-crawl planner guard.
- *
- * The legacy planner contains a deterministic demo fallback so the prototype
- * remains usable in development. The real app must never silently present that
- * fallback as a recommendation, so production routes through this wrapper.
- */
 export const realPubCrawlPlanner: PlannerDefinition = {
   ...pubCrawlPlanner,
   async plan(request): Promise<PlannerResult> {
-    if (!request.groupLocation) {
+    const location = request.groupLocation
+    if (!location) {
       throw new Error('Set a planning location first so Nexus can find real pubs near your group.')
     }
 
@@ -104,6 +97,6 @@ export const realPubCrawlPlanner: PlannerDefinition = {
       throw new Error('Nexus could not find enough real pubs at this location right now. Try a wider planning radius or a different location.')
     }
 
-    return enrichWithGooglePlaces(result, request.groupLocation)
+    return enrichWithGooglePlaces(result, location)
   },
 }
