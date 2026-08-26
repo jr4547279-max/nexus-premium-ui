@@ -83,6 +83,14 @@ async function enrichWithGooglePlaces(
   }
 }
 
+/**
+ * Production pub-crawl planner.
+ *
+ * Location Intelligence can deliberately choose a tight radius (for example
+ * 800 m in a dense urban core). That is useful for normal planning, but it can
+ * be too restrictive for a four-stop pub crawl. We therefore widen the REAL
+ * venue search progressively when needed — never falling back to demo venues.
+ */
 export const realPubCrawlPlanner: PlannerDefinition = {
   ...pubCrawlPlanner,
   async plan(request): Promise<PlannerResult> {
@@ -91,12 +99,47 @@ export const realPubCrawlPlanner: PlannerDefinition = {
       throw new Error('Set a planning location first so Nexus can find real pubs near your group.')
     }
 
-    const result = await pubCrawlPlanner.plan(request)
+    const desiredStops = Math.max(2, request.desiredStops ?? 4)
+    const baseRadius = location.radiusMetres ?? 1500
+    const radii = [...new Set([
+      baseRadius,
+      Math.max(baseRadius, 3500),
+      Math.max(baseRadius, 5000),
+      Math.max(baseRadius, 8000),
+    ])].map((radius) => Math.min(radius, 10000))
 
-    if (result.dataSource !== 'real') {
-      throw new Error('Nexus could not find enough real pubs at this location right now. Try a wider planning radius or a different location.')
+    let bestReal: PlannerResult | null = null
+
+    for (const radiusMetres of radii) {
+      const candidateRequest = {
+        ...request,
+        groupLocation: { ...location, radiusMetres },
+      }
+
+      try {
+        const result = await pubCrawlPlanner.plan(candidateRequest)
+        if (result.dataSource !== 'real') continue
+
+        if (!bestReal || result.stops.length > bestReal.stops.length) {
+          bestReal = result
+        }
+
+        // Four real stops is the normal target. Stop widening once we have it.
+        if (result.stops.length >= desiredStops) {
+          bestReal = result
+          break
+        }
+      } catch {
+        // Try the next wider radius. The final error below is user-friendly.
+      }
     }
 
-    return enrichWithGooglePlaces(result, location)
+    if (!bestReal) {
+      throw new Error('Nexus could not find enough real pubs at this location right now. Try moving the planning location or choosing a different area.')
+    }
+
+    return enrichWithGooglePlaces(bestReal, bestReal.stops.length >= desiredStops
+      ? { ...location, radiusMetres: radii.find((r) => r >= baseRadius) ?? baseRadius }
+      : location)
   },
 }
