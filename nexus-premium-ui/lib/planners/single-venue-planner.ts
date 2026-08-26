@@ -4,12 +4,9 @@
 // Creates a PlannerDefinition for any activity that results in choosing one
 // best-fit venue (restaurant, coffee, cinema, bowling, live-music, etc.).
 //
-// Strategy:
-//   1. Require an explicit planning location — no silent fallbacks.
-//   2. Try OpenStreetMap provider with the group's location.
-//   3. Fall back to MockVenueProvider when OSM returns insufficient results.
-//   4. Score all candidates with the universal scorer.
-//   5. Return the top pick as a single-stop PlannerResult.
+// Production rule: planner recommendations must be real venues. We use the
+// OpenStreetMap/Overpass provider as the no-key real-data source and never fall
+// back to fictional/demo venues in the user-facing planner.
 
 import type {
   PlannerDefinition,
@@ -21,13 +18,10 @@ import type {
   MatchQuality,
 } from './types'
 import { OpenStreetMapVenueProvider } from './providers/openstreetmap-venue-provider'
-import { MockVenueProvider } from './providers/mock-venue-provider'
 import { scoreVenueForActivity, isVenueOpenAt, addMinutesToTime, format12h } from './scoring'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-/** Minimum real venues before we accept OSM results (avoids thin coverage areas) */
-const MIN_OSM_RESULTS = 2
+const MIN_REAL_RESULTS = 1
+const DEFAULT_RADIUS_METRES = 1500
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -38,20 +32,7 @@ const QUALITY_LABELS: Record<MatchQuality, string> = {
   compromise: 'BEST OPTION',
 }
 
-// ── Shared providers ──────────────────────────────────────────────────────────
-// MockVenueProvider is stateless and location-agnostic — a single instance is fine.
-// OpenStreetMapVenueProvider encapsulates the search radius, so it is created
-// per-request using groupLocation.radiusMetres to respect the group's planning
-// context (urban-core 800m / suburban 2km / town 3.5km / rural 8km).
-const mockProvider = new MockVenueProvider()
-
-/** Default OSM search radius when no planning intelligence radius is stored (1500 m). */
-const DEFAULT_RADIUS_METRES = 1500
-
-// ── Factory ───────────────────────────────────────────────────────────────────
-
 export interface SingleVenuePlannerConfig {
-  /** Must match the activityId in the PLANNER_REGISTRY key */
   activityId: string
   activityEmoji: string
   activityLabel: string
@@ -80,7 +61,6 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         )
       }
 
-      // ── Location is required — no silent fallback ──────────────────────────
       if (!groupLocation) {
         throw new Error(
           `Add a planning location so Nexus can find ${activityLabel.toLowerCase()} venues nearby.`,
@@ -88,45 +68,38 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       }
 
       const startTime = goldenWindow.start_time
-
-      // Adaptive planning radius — from Location Intelligence when available,
-      // else DEFAULT_RADIUS_METRES. Used for both OSM discovery and distance scoring
-      // so they stay in sync with the group's actual planning context.
       const radiusMetres = groupLocation.radiusMetres ?? DEFAULT_RADIUS_METRES
       const planningRadiusKm = radiusMetres / 1000
 
-      // ── Venue discovery ────────────────────────────────────────────────────
-      // OSM provider is created per-request (not a singleton) so each request
-      // uses the correct search radius for the group's area type.
-      let venues: PlannerVenue[] = []
-      let dataSource: 'real' | 'mock' = 'real'
-      let providerName = 'OpenStreetMap'
-
+      // ── Real venue discovery only ──────────────────────────────────────────
+      // OSM is deliberately the fallback-free production provider here. It
+      // returns named, geographically real-world venues and never invents data.
+      const provider = new OpenStreetMapVenueProvider(radiusMetres)
+      let venues: PlannerVenue[]
       try {
-        const osmProvider = new OpenStreetMapVenueProvider(radiusMetres)
-        const realVenues = await osmProvider.getVenues(activityId, groupLocation)
-        if (realVenues.length >= MIN_OSM_RESULTS) {
-          venues = realVenues
-        } else {
-          throw new Error(
-            `Only ${realVenues.length} OSM result(s) — insufficient for confident recommendation`,
-          )
-        }
-      } catch {
-        venues = await mockProvider.getVenues(activityId, groupLocation)
-        dataSource = 'mock'
-        providerName = 'Demo Venues'
+        venues = await provider.getVenues(activityId, groupLocation)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Venue search failed.'
+        throw new Error(
+          `Nexus could not reach the real venue service for ${activityLabel.toLowerCase()}. ${message}`,
+        )
       }
 
-      if (venues.length === 0) {
+      if (venues.length < MIN_REAL_RESULTS) {
         throw new Error(
-          `No ${activityLabel.toLowerCase()} venues found near your location. Try a different meeting place.`,
+          `Nexus couldn't find a real ${activityLabel.toLowerCase()} venue within ${radiusMetres >= 1000 ? `${(radiusMetres / 1000).toFixed(1)} km` : `${radiusMetres} m`} of your planning location. Try a nearby location or a different activity.`,
         )
       }
 
       // ── Score & filter ─────────────────────────────────────────────────────
       const candidates = venues.map((venue) => {
-        const scored = scoreVenueForActivity(venue, activityId, budgetPreference, startTime, planningRadiusKm)
+        const scored = scoreVenueForActivity(
+          venue,
+          activityId,
+          budgetPreference,
+          startTime,
+          planningRadiusKm,
+        )
         const openDuringWindow =
           isVenueOpenAt(venue, startTime) ||
           isVenueOpenAt(venue, addMinutesToTime(startTime, 30)) ||
@@ -134,31 +107,33 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         return { venue, scored, openDuringWindow }
       })
 
-      // Prefer open venues, but don't exclude everything if all are closed
+      // Prefer venues that are open at the Golden Window. If OSM doesn't have
+      // hours for any candidate, retain them rather than pretending they are closed.
       const open = candidates.filter((c) => c.openDuringWindow)
       const pool = open.length > 0 ? open : candidates
       pool.sort((a, b) => b.scored.total - a.scored.total)
 
       const { venue, scored } = pool[0]!
 
-      // ── Warnings ───────────────────────────────────────────────────────────
       const warnings: string[] = []
-
-      if (dataSource === 'mock') {
+      if (venue.openingHoursKnown === false) {
         warnings.push(
-          'Showing demo venues — OpenStreetMap returned limited results for this area. Real venue discovery will improve as OSM data grows.',
+          `Opening hours for ${venue.name} are not listed in OpenStreetMap — verify before visiting.`,
         )
       }
-      const gw = goldenWindow
-      const matchQuality = ((gw.match_quality ?? 'partial') as MatchQuality)
-      if (matchQuality === 'compromise') {
-        warnings.push("This time is a best-effort compromise — not everyone is fully available.")
+      if (venue.ratingKnown === false) {
+        warnings.push('Ratings and review counts are not available from the real venue source.')
       }
-      if (venue.openingHoursKnown === false && dataSource === 'real') {
-        warnings.push(`Opening hours for ${venue.name} are not listed on OpenStreetMap — verify before visiting.`)
+      if (venue.priceLevelKnown === false) {
+        warnings.push('Pricing is not available from the real venue source.')
       }
 
-      // ── Build result ───────────────────────────────────────────────────────
+      const gw = goldenWindow
+      const matchQuality = (gw.match_quality ?? 'partial') as MatchQuality
+      if (matchQuality === 'compromise') {
+        warnings.push('This time is a best-effort compromise — not everyone is fully available.')
+      }
+
       const groupMatchPercent =
         gw.available_member_count != null && gw.total_member_count
           ? Math.round((gw.available_member_count / gw.total_member_count) * 100)
@@ -178,9 +153,8 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
 
       const costLabel = venue.priceLevelKnown !== false
         ? '£'.repeat(Math.max(1, Math.min(4, venue.priceLevel)))
-        : '££'
+        : 'Price unavailable'
 
-      // Suppress the quality label in explanation — it's shown in the UI badge
       void QUALITY_LABELS
 
       return {
@@ -195,7 +169,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         stops: [stop],
         overallScore: scored.total,
         explanation: [
-          `Nexus selected ${venue.name} from ${venues.length} nearby ${activityLabel.toLowerCase()} venue${venues.length !== 1 ? 's' : ''}.`,
+          `Nexus selected ${venue.name} from ${venues.length} real nearby ${activityLabel.toLowerCase()} venue${venues.length !== 1 ? 's' : ''}.`,
           scored.reasons.length > 0
             ? `Chosen because: ${scored.reasons.slice(0, 3).join(', ')}.`
             : '',
@@ -204,8 +178,8 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         generatedAt: new Date().toISOString(),
         goldenWindowQuality: matchQuality,
         groupMatchPercent,
-        dataSource,
-        providerName,
+        dataSource: 'real',
+        providerName: 'OpenStreetMap',
         scoreReasons: scored.reasons,
       }
     },
