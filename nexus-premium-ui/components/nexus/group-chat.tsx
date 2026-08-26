@@ -1,719 +1,93 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useTransition } from 'react'
-import {
-  Send, Loader2, MessageCircle, Sparkles, Route,
-  MapPin, BarChart2, ImageIcon, X, Plus, Check,
-} from 'lucide-react'
+import { Send, Loader2, MessageCircle, Sparkles, Route, MapPin, BarChart2, ImageIcon, X, Plus, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import type { GroupMember } from '@/lib/group-service'
-import {
-  fetchMessages,
-  sendMessage,
-  sendPoll,
-  castVote,
-  subscribeToMessages,
-  type GroupMessage,
-  type PollMetadata,
-} from '@/lib/message-service'
+import { fetchMessages, sendMessage, sendPoll, castVote, subscribeToMessages, type GroupMessage, type PollMetadata } from '@/lib/message-service'
+import { supabase } from '@/lib/supabase'
 
-// ── Props ─────────────────────────────────────────────────────────────────────
+interface GroupChatProps { groupId: string; groupName: string; members: GroupMember[] }
 
-interface GroupChatProps {
-  groupId:   string
-  groupName: string
-  members:   GroupMember[]
+function formatTime(iso: string) { return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }
+function formatDateDivider(iso: string) { const d=new Date(iso), now=new Date(), diff=now.getTime()-d.getTime(); if(diff<86400000&&now.getDate()===d.getDate())return'Today'; if(diff<172800000)return'Yesterday'; return d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'}) }
+function isGrouped(messages: GroupMessage[], i: number) { if(i===0)return false; const p=messages[i-1],c=messages[i]; if(c.message_type==='system'||p.message_type==='system'||c.message_type==='poll'||p.message_type==='poll'||p.user_id!==c.user_id)return false; return new Date(c.created_at).getTime()-new Date(p.created_at).getTime()<300000 }
+function needsDateDivider(messages: GroupMessage[], i: number) { if(i===0)return true; return new Date(messages[i-1].created_at).toDateString()!==new Date(messages[i].created_at).toDateString() }
+
+async function sendRich(groupId:string,userId:string,message:string,messageType:'route'|'location'|'image',metadata:Record<string,unknown>) {
+  const { error }=await supabase.from('group_messages').insert({group_id:groupId,user_id:userId,message,message_type:messageType,metadata})
+  if(error){console.error('[group-chat] rich message',error);return false} return true
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+export function GroupChat({ groupId, groupName }: GroupChatProps) {
+  const { user }=useAuth(); const [messages,setMessages]=useState<GroupMessage[]>([]); const [loading,setLoading]=useState(true); const [input,setInput]=useState(''); const [pending,startSend]=useTransition(); const [pollOpen,setPollOpen]=useState(false); const [locationOpen,setLocationOpen]=useState(false); const [routeOpen,setRouteOpen]=useState(false); const [photoBusy,setPhotoBusy]=useState(false); const fileRef=useRef<HTMLInputElement>(null); const bottomRef=useRef<HTMLDivElement>(null)
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-}
+  useEffect(()=>{let alive=true;setLoading(true);fetchMessages(groupId).then(m=>{if(alive){setMessages(m);setLoading(false)}});return()=>{alive=false}},[groupId])
+  useEffect(()=>subscribeToMessages(groupId,m=>setMessages(p=>p.some(x=>x.id===m.id)?p:[...p,m]),m=>setMessages(p=>p.map(x=>x.id===m.id?m:x))),[groupId])
+  useEffect(()=>{const t=setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:'smooth'}),60);return()=>clearTimeout(t)},[messages])
 
-function formatDateDivider(iso: string) {
-  const d   = new Date(iso)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  if (diff < 24 * 60 * 60 * 1000 && now.getDate() === d.getDate()) return 'Today'
-  if (diff < 48 * 60 * 60 * 1000) return 'Yesterday'
-  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
-}
+  const handleSend=useCallback(()=>{const text=input.trim();if(!text||!user?.id)return;setInput('');startSend(async()=>{const sent=await sendMessage(groupId,user.id,text);if(!sent)setInput(text)})},[input,user?.id,groupId])
+  const handleVote=useCallback(async(id:string,opt:string)=>{if(user?.id)await castVote(id,opt,user.id)},[user?.id])
 
-function isGrouped(messages: GroupMessage[], i: number): boolean {
-  if (i === 0) return false
-  const prev = messages[i - 1]
-  const curr = messages[i]
-  if (curr.message_type === 'system' || prev.message_type === 'system') return false
-  if (curr.message_type === 'poll'   || prev.message_type === 'poll')   return false
-  if (prev.user_id !== curr.user_id) return false
-  return (new Date(curr.created_at).getTime() - new Date(prev.created_at).getTime()) < 5 * 60 * 1000
-}
-
-function needsDateDivider(messages: GroupMessage[], i: number): boolean {
-  if (i === 0) return true
-  const prev = new Date(messages[i - 1].created_at)
-  const curr = new Date(messages[i].created_at)
-  return prev.getDate() !== curr.getDate()
-      || prev.getMonth() !== curr.getMonth()
-      || prev.getFullYear() !== curr.getFullYear()
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
-
-export function GroupChat({ groupId, groupName, members }: GroupChatProps) {
-  const { user } = useAuth()
-  const [messages,  setMessages]  = useState<GroupMessage[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [input,     setInput]     = useState('')
-  const [pending,   startSend]    = useTransition()
-  const [pollOpen,  setPollOpen]  = useState(false)
-
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef  = useRef<HTMLInputElement>(null)
-
-  // ── Load initial messages ────────────────────────────────────────────────
-  useEffect(() => {
-    let alive = true
-    setLoading(true)
-    fetchMessages(groupId).then(msgs => {
-      if (!alive) return
-      setMessages(msgs)
-      setLoading(false)
-    })
-    return () => { alive = false }
-  }, [groupId])
-
-  // ── Real-time: INSERT + UPDATE (for vote counts) ─────────────────────────
-  useEffect(() => {
-    const unsub = subscribeToMessages(
-      groupId,
-      // INSERT → append if not already present
-      (msg) => setMessages(prev =>
-        prev.some(m => m.id === msg.id) ? prev : [...prev, msg],
-      ),
-      // UPDATE → replace existing row in-place (poll votes, etc.)
-      (msg) => setMessages(prev =>
-        prev.map(m => m.id === msg.id ? msg : m),
-      ),
-    )
-    return unsub
-  }, [groupId])
-
-  // ── Auto-scroll ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    const t = setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, 60)
-    return () => clearTimeout(t)
-  }, [messages])
-
-  // ── Send text ────────────────────────────────────────────────────────────
-  const handleSend = useCallback(() => {
-    const text = input.trim()
-    if (!text || !user?.id) return
-    setInput('')
-    startSend(async () => { await sendMessage(groupId, user.id, text) })
-  }, [input, user?.id, groupId])
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  const shareLocation=async()=>{
+    if(!user?.id)return; setLocationOpen(false)
+    if(!navigator.geolocation){alert('Location sharing is not supported on this device.');return}
+    navigator.geolocation.getCurrentPosition(async pos=>{const {latitude:lat,longitude:lng}=pos.coords;const url=`https://www.google.com/maps?q=${lat},${lng}`;const ok=await sendRich(groupId,user.id,'Shared their live location','location',{location:{lat,lng},url});if(!ok)alert('We could not share your location. Please try again.')},()=>alert('Location permission was denied. You can enable it in your browser settings.'),{enableHighAccuracy:true,timeout:10000,maximumAge:30000})
   }
 
-  // ── Vote on a poll ───────────────────────────────────────────────────────
-  const handleVote = useCallback(async (messageId: string, optionId: string) => {
-    if (!user?.id) return
-    await castVote(messageId, optionId, user.id)
-    // The UPDATE subscription updates messages state automatically
-  }, [user?.id])
+  const shareRoute=async(destination:string)=>{if(!user?.id)return;setRouteOpen(false);const url=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;const ok=await sendRich(groupId,user.id,`Route to ${destination}`,'route',{destination,url});if(!ok)alert('We could not share that route. Please try again.')}
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <>
-      <div
-        className="flex flex-col rounded-xl overflow-hidden border border-border/20 bg-black/20"
-        style={{ height: 'min(480px, 60vh)' }}
-      >
-        {/* ── Message list ──────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-0.5">
-          {loading && (
-            <div className="flex justify-center items-center h-full">
-              <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-            </div>
-          )}
-
-          {!loading && messages.length === 0 && (
-            <EmptyState groupName={groupName} />
-          )}
-
-          {!loading && messages.map((msg, i) => {
-            const grouped = isGrouped(messages, i)
-            const divider = needsDateDivider(messages, i)
-            const isMine  = msg.user_id === user?.id
-
-            return (
-              <div key={msg.id}>
-                {divider && <DateDivider label={formatDateDivider(msg.created_at)} />}
-                {msg.message_type === 'system'
-                  ? <SystemBubble msg={msg} />
-                  : msg.message_type === 'poll'
-                  ? <PollCard msg={msg} currentUserId={user?.id} onVote={handleVote} />
-                  : <MessageBubble msg={msg} isMine={isMine} grouped={grouped} />
-                }
-              </div>
-            )
-          })}
-
-          <div ref={bottomRef} />
-        </div>
-
-        {/* ── Action bar (Route, Location, Poll, Photo) ─────────────── */}
-        <div className="flex items-center gap-0.5 px-2 py-1.5 border-t border-border/10">
-          <ActionIcon
-            icon={<Route    className="w-4 h-4" />}
-            title="Share Route"
-            disabled
-          />
-          <ActionIcon
-            icon={<MapPin   className="w-4 h-4" />}
-            title="Share Location"
-            disabled
-          />
-          <ActionIcon
-            icon={<BarChart2 className="w-4 h-4" />}
-            title="Create Poll"
-            onClick={() => { if (user?.id) setPollOpen(true) }}
-            active={!!user?.id}
-          />
-          <ActionIcon
-            icon={<ImageIcon className="w-4 h-4" />}
-            title="Share Photo"
-            disabled
-          />
-        </div>
-
-        {/* ── Input bar ─────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 px-2 py-2 bg-black/30 border-t border-border/20">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={user?.id ? 'Type a message…' : 'Sign in to chat'}
-            maxLength={1000}
-            disabled={pending || !user?.id}
-            className={cn(
-              'flex-1 bg-muted/20 border border-border/30 rounded-full',
-              'px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground/60',
-              'outline-none focus:border-primary/50 transition-colors',
-              'disabled:opacity-40',
-            )}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || pending || !user?.id}
-            aria-label="Send message"
-            className={cn(
-              'w-9 h-9 rounded-full shrink-0 flex items-center justify-center',
-              'bg-primary text-primary-foreground',
-              'transition-all duration-200 hover:bg-primary/90 active:scale-95',
-              'disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100',
-            )}
-          >
-            {pending
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Send    className="w-4 h-4" />
-            }
-          </button>
-        </div>
-      </div>
-
-      {/* ── Poll creator modal ─────────────────────────────────────── */}
-      {pollOpen && user?.id && (
-        <PollCreatorModal
-          groupId={groupId}
-          userId={user.id}
-          onClose={() => setPollOpen(false)}
-        />
-      )}
-    </>
-  )
-}
-
-// ── ActionIcon ────────────────────────────────────────────────────────────────
-
-function ActionIcon({
-  icon, title, onClick, disabled = false, active = false,
-}: {
-  icon:      React.ReactNode
-  title:     string
-  onClick?:  () => void
-  disabled?: boolean
-  active?:   boolean
-}) {
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      disabled={disabled || !active && !onClick}
-      className={cn(
-        'p-1.5 rounded-lg transition-all duration-150',
-        active && onClick
-          ? 'text-primary hover:bg-primary/10 hover:text-primary cursor-pointer'
-          : 'text-muted-foreground/30 cursor-not-allowed',
-      )}
-    >
-      {icon}
-    </button>
-  )
-}
-
-// ── PollCreatorModal ──────────────────────────────────────────────────────────
-
-function PollCreatorModal({
-  groupId, userId, onClose,
-}: {
-  groupId: string
-  userId:  string
-  onClose: () => void
-}) {
-  const [question, setQuestion]   = useState('')
-  const [options,  setOptions]    = useState(['', ''])
-  const [creating, setCreating]   = useState(false)
-  const optRefs = useRef<(HTMLInputElement | null)[]>([])
-
-  const isValid = question.trim().length > 0
-    && options.filter(o => o.trim()).length >= 2
-
-  const addOption = () => {
-    if (options.length >= 6) return
-    setOptions(prev => [...prev, ''])
-    setTimeout(() => optRefs.current[options.length]?.focus(), 40)
+  const uploadPhoto=async(file:File)=>{
+    if(!user?.id)return
+    if(!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)){alert('Please choose a JPG, PNG, WebP or GIF.');return}
+    if(file.size>10*1024*1024){alert('That image is over 10MB. Please choose a smaller photo.');return}
+    setPhotoBusy(true)
+    const path=`${groupId}/${user.id}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`
+    const {error}=await supabase.storage.from('group-chat-media').upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'})
+    if(error){console.error('[group-chat] photo upload',error);setPhotoBusy(false);alert('Photo upload failed. Please try again.');return}
+    const {data}=supabase.storage.from('group-chat-media').getPublicUrl(path)
+    const ok=await sendRich(groupId,user.id,'Shared a photo','image',{url:data.publicUrl,path});setPhotoBusy(false);if(!ok)alert('Photo uploaded but could not be shared. Please try again.')
   }
 
-  const removeOption = (i: number) => {
-    if (options.length <= 2) return
-    setOptions(prev => prev.filter((_, idx) => idx !== i))
-  }
-
-  const updateOption = (i: number, val: string) =>
-    setOptions(prev => prev.map((o, idx) => idx === i ? val : o))
-
-  const handleOptionKeyDown = (e: React.KeyboardEvent, i: number) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      if (i === options.length - 1) addOption()
-      else optRefs.current[i + 1]?.focus()
-    }
-  }
-
-  const handleCreate = async () => {
-    if (!isValid || creating) return
-    const validOptions = options.filter(o => o.trim())
-    setCreating(true)
-    await sendPoll(groupId, userId, question.trim(), validOptions)
-    setCreating(false)
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Sheet */}
-      <div className={cn(
-        'relative w-full max-w-md rounded-2xl p-5 space-y-4',
-        'bg-[hsl(var(--card))] border border-border/40',
-        'shadow-2xl',
-      )}>
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center">
-              <BarChart2 className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <h3 className="font-semibold text-sm">Create Poll</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Question */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-            Question
-          </label>
-          <input
-            value={question}
-            onChange={e => setQuestion(e.target.value)}
-            placeholder="Ask the group something…"
-            autoFocus
-            maxLength={200}
-            className={cn(
-              'w-full bg-muted/20 border border-border/40 rounded-xl',
-              'px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50',
-              'outline-none focus:border-primary/50 transition-colors',
-            )}
-          />
-        </div>
-
-        {/* Options */}
-        <div className="space-y-2">
-          <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-            Options
-          </label>
-          <div className="space-y-2">
-            {options.map((opt, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 font-medium">
-                  {i + 1}
-                </span>
-                <input
-                  ref={el => { optRefs.current[i] = el }}
-                  value={opt}
-                  onChange={e => updateOption(i, e.target.value)}
-                  onKeyDown={e => handleOptionKeyDown(e, i)}
-                  placeholder={`Option ${i + 1}`}
-                  maxLength={100}
-                  className={cn(
-                    'flex-1 bg-muted/20 border border-border/30 rounded-xl',
-                    'px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40',
-                    'outline-none focus:border-primary/40 transition-colors',
-                  )}
-                />
-                {options.length > 2 && (
-                  <button
-                    onClick={() => removeOption(i)}
-                    className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {options.length < 6 && (
-            <button
-              onClick={addOption}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-xl',
-                'text-xs text-primary/70 hover:text-primary',
-                'border border-dashed border-primary/20 hover:border-primary/40',
-                'transition-all duration-150 w-full justify-center mt-1',
-              )}
-            >
-              <Plus className="w-3 h-3" />
-              Add option
-            </button>
-          )}
-        </div>
-
-        {/* Create button */}
-        <button
-          onClick={handleCreate}
-          disabled={!isValid || creating}
-          className={cn(
-            'w-full py-2.5 rounded-xl text-sm font-medium',
-            'bg-primary/20 text-primary border border-primary/30',
-            'hover:bg-primary/30 transition-all duration-150',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
-            'flex items-center justify-center gap-2',
-          )}
-        >
-          {creating
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</>
-            : 'Create Poll'
-          }
-        </button>
+  return <>
+    <div className="flex flex-col rounded-xl overflow-hidden border border-border/20 bg-black/20" style={{height:'min(520px,65vh)'}}>
+      <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-0.5">
+        {loading&&<div className="flex justify-center items-center h-full"><Loader2 className="w-5 h-5 text-muted-foreground animate-spin"/></div>}
+        {!loading&&messages.length===0&&<EmptyState groupName={groupName}/>} 
+        {!loading&&messages.map((msg,i)=>{const grouped=isGrouped(messages,i),divider=needsDateDivider(messages,i);return <div key={msg.id}>{divider&&<DateDivider label={formatDateDivider(msg.created_at)}/>} {msg.message_type==='system'?<SystemBubble msg={msg}/>:msg.message_type==='poll'?<PollCard msg={msg} currentUserId={user?.id} onVote={handleVote}/>:msg.message_type==='location'?<LocationBubble msg={msg}/>:msg.message_type==='route'?<RouteBubble msg={msg}/>:msg.message_type==='image'?<ImageBubble msg={msg}/>:<MessageBubble msg={msg} isMine={msg.user_id===user?.id} grouped={grouped}/>}</div>})}
+        <div ref={bottomRef}/>
+      </div>
+      <div className="flex items-center gap-0.5 px-2 py-1.5 border-t border-border/10">
+        <ActionIcon icon={<Route className="w-4 h-4"/>} title="Share Route" onClick={()=>setRouteOpen(true)} active={!!user?.id}/>
+        <ActionIcon icon={<MapPin className="w-4 h-4"/>} title="Share Location" onClick={()=>setLocationOpen(true)} active={!!user?.id}/>
+        <ActionIcon icon={<BarChart2 className="w-4 h-4"/>} title="Create Poll" onClick={()=>setPollOpen(true)} active={!!user?.id}/>
+        <ActionIcon icon={photoBusy?<Loader2 className="w-4 h-4 animate-spin"/>:<ImageIcon className="w-4 h-4"/>} title="Share Photo" onClick={()=>fileRef.current?.click()} active={!!user?.id&&!photoBusy}/>
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)uploadPhoto(f);e.currentTarget.value=''}}/>
+      </div>
+      <div className="flex items-center gap-2 px-2 py-2 bg-black/30 border-t border-border/20">
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend()}}} placeholder={user?.id?'Type a message…':'Sign in to chat'} maxLength={1000} disabled={pending||!user?.id} className={cn('flex-1 bg-muted/20 border border-border/30 rounded-full px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/50','disabled:opacity-40')}/>
+        <button onClick={handleSend} disabled={!input.trim()||pending||!user?.id} aria-label="Send message" className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center bg-primary text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-40">{pending?<Loader2 className="w-4 h-4 animate-spin"/>:<Send className="w-4 h-4"/>}</button>
       </div>
     </div>
-  )
+    {pollOpen&&user?.id&&<PollCreatorModal groupId={groupId} userId={user.id} onClose={()=>setPollOpen(false)}/>} 
+    {locationOpen&&<ConfirmModal title="Share your location?" description="Your current location will be visible to everyone in this group." confirm="Share location" onCancel={()=>setLocationOpen(false)} onConfirm={shareLocation}/>} 
+    {routeOpen&&<RouteModal onClose={()=>setRouteOpen(false)} onShare={shareRoute}/>} 
+  </>
 }
 
-// ── PollCard ──────────────────────────────────────────────────────────────────
+function ActionIcon({icon,title,onClick,active=false}:{icon:React.ReactNode;title:string;onClick?:()=>void;active?:boolean}){return <button type="button" title={title} aria-label={title} onClick={onClick} disabled={!active||!onClick} className={cn('p-2 rounded-lg transition-all duration-150',active?'text-primary hover:bg-primary/10 cursor-pointer':'text-muted-foreground/30 cursor-not-allowed')}>{icon}</button>}
+function EmptyState({groupName}:{groupName:string}){return <div className="h-full flex flex-col items-center justify-center text-center px-6"><div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3"><MessageCircle className="w-5 h-5 text-primary"/></div><p className="text-sm font-medium">Start the conversation</p><p className="text-xs text-muted-foreground mt-1 max-w-xs">Plan {groupName} together, share a location, post a poll or send a photo.</p></div>}
+function DateDivider({label}:{label:string}){return <div className="flex items-center gap-3 py-3"><div className="h-px flex-1 bg-border/20"/><span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span><div className="h-px flex-1 bg-border/20"/></div>}
+function MessageBubble({msg,isMine,grouped}:{msg:GroupMessage;isMine:boolean;grouped:boolean}){return <div className={cn('flex gap-2 max-w-[88%]',isMine?'ml-auto flex-row-reverse':'mr-auto',grouped?'mt-0.5':'mt-2')}><div className={cn('w-7 h-7 rounded-full shrink-0 overflow-hidden bg-primary/10',grouped&&'invisible')}>{msg.sender_avatar_url?<img src={msg.sender_avatar_url} alt="" className="w-full h-full object-cover"/>:<span className="w-full h-full flex items-center justify-center text-[10px] text-primary">{(msg.sender_name||msg.sender_username||'?')[0].toUpperCase()}</span>}</div><div className={cn('min-w-0',isMine?'items-end':'items-start')}><div className="flex items-baseline gap-2 mb-0.5">{!isMine&&!grouped&&<span className="text-[10px] text-muted-foreground">{msg.sender_name||`@${msg.sender_username||'member'}`}</span>}<span className="text-[9px] text-muted-foreground/50">{formatTime(msg.created_at)}</span></div><div className={cn('px-3 py-2 rounded-2xl text-sm leading-relaxed break-words',isMine?'bg-primary text-primary-foreground rounded-tr-md':'bg-muted/30 text-foreground border border-border/20 rounded-tl-md')}>{msg.message}</div></div></div>}
+function SystemBubble({msg}:{msg:GroupMessage}){return <div className="flex items-center justify-center py-2"><div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60"><Sparkles className="w-3 h-3"/>{msg.message}</div></div>}
+function LocationBubble({msg}:{msg:GroupMessage}){const m=msg.metadata||{},loc=m.location as {lat:number;lng:number}|undefined,url=typeof m.url==='string'?m.url:'';return <div className="max-w-[86%] mr-auto mt-2"><div className="rounded-2xl overflow-hidden border border-border/20 bg-muted/20"><div className="p-3 flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center"><MapPin className="w-5 h-5 text-primary"/></div><div className="flex-1"><p className="text-sm font-medium">{msg.sender_name||'A member'} shared a location</p>{loc&&<p className="text-[10px] text-muted-foreground">{loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}</p>}</div><a href={url||'#'} target="_blank" rel="noreferrer" className="p-2 rounded-lg hover:bg-muted/40"><ExternalLink className="w-4 h-4"/></a></div></div></div>}
+function RouteBubble({msg}:{msg:GroupMessage}){const m=msg.metadata||{},url=typeof m.url==='string'?m.url:'#',destination=typeof m.destination==='string'?m.destination:'Shared route';return <div className="max-w-[86%] mr-auto mt-2"><div className="rounded-2xl border border-border/20 bg-muted/20 p-3 flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center"><Route className="w-5 h-5 text-primary"/></div><div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{destination}</p><p className="text-[10px] text-muted-foreground">{msg.sender_name||'A member'} shared directions</p></div><a href={url} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-medium">Open</a></div></div>}
+function ImageBubble({msg}:{msg:GroupMessage}){const url=typeof msg.metadata?.url==='string'?msg.metadata.url:'';return <div className="max-w-[78%] mt-2"><div className="overflow-hidden rounded-2xl border border-border/20 bg-muted/20"><a href={url} target="_blank" rel="noreferrer"><img src={url} alt="Shared photo" loading="lazy" className="max-h-80 w-full object-cover"/></a><div className="px-3 py-2 text-[10px] text-muted-foreground">{msg.sender_name||'A member'} · {formatTime(msg.created_at)}</div></div></div>}
 
-function PollCard({
-  msg, currentUserId, onVote,
-}: {
-  msg:           GroupMessage
-  currentUserId: string | undefined
-  onVote:        (messageId: string, optionId: string) => Promise<void>
-}) {
-  const meta = msg.metadata as PollMetadata | null
-  if (!meta?.options) return null
+function ConfirmModal({title,description,confirm,onCancel,onConfirm}:{title:string;description:string;confirm:string;onCancel:()=>void;onConfirm:()=>Promise<void>}){const[busy,setBusy]=useState(false);const run=async()=>{setBusy(true);try{await onConfirm()}finally{setBusy(false)}};return <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"><div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel}/><div className="relative w-full max-w-sm rounded-2xl border border-border/40 bg-[hsl(var(--card))] p-5 shadow-2xl"><h3 className="font-semibold">{title}</h3><p className="text-sm text-muted-foreground mt-2">{description}</p><div className="flex gap-2 mt-5"><button onClick={onCancel} className="flex-1 rounded-xl border border-border/40 py-2.5 text-sm">Cancel</button><button onClick={run} disabled={busy} className="flex-1 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm">{busy?<Loader2 className="w-4 h-4 animate-spin mx-auto"/>:confirm}</button></div></div></div>}
+function RouteModal({onClose,onShare}:{onClose:()=>void;onShare:(destination:string)=>Promise<void>}){const[destination,setDestination]=useState('');const[busy,setBusy]=useState(false);return <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"><div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}/><div className="relative w-full max-w-sm rounded-2xl border border-border/40 bg-[hsl(var(--card))] p-5 shadow-2xl"><div className="flex items-center justify-between"><div><h3 className="font-semibold">Share a route</h3><p className="text-xs text-muted-foreground mt-1">Send the group a Google Maps route.</p></div><button onClick={onClose} className="p-2 rounded-full hover:bg-muted/40"><X className="w-4 h-4"/></button></div><input autoFocus value={destination} onChange={e=>setDestination(e.target.value)} placeholder="Where are you going?" className="mt-4 w-full rounded-xl border border-border/40 bg-muted/20 px-3 py-3 text-sm outline-none focus:border-primary/50"/><button disabled={!destination.trim()||busy} onClick={async()=>{setBusy(true);await onShare(destination.trim());setBusy(false)}} className="mt-3 w-full rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium disabled:opacity-40">{busy?<Loader2 className="w-4 h-4 animate-spin mx-auto"/>:'Share route'}</button></div></div>}
 
-  const [voting, setVoting] = useState<string | null>(null) // optionId being voted on
+function PollCreatorModal({groupId,userId,onClose}:{groupId:string;userId:string;onClose:()=>void}){const[q,setQ]=useState('');const[options,setOptions]=useState(['','']);const[busy,setBusy]=useState(false);const valid=!!q.trim()&&options.filter(x=>x.trim()).length>=2;const create=async()=>{if(!valid||busy)return;setBusy(true);const ok=await sendPoll(groupId,userId,q.trim(),options.filter(x=>x.trim()));setBusy(false);if(ok)onClose();else alert('Could not create the poll. Please try again.')};return <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"><div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}/><div className="relative w-full max-w-md rounded-2xl border border-border/40 bg-[hsl(var(--card))] p-5 shadow-2xl"><div className="flex items-center justify-between"><div><h3 className="font-semibold">Create poll</h3><p className="text-xs text-muted-foreground mt-1">Let the group decide together.</p></div><button onClick={onClose} className="p-2 rounded-full hover:bg-muted/40"><X className="w-4 h-4"/></button></div><input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="What should the group decide?" className="mt-4 w-full rounded-xl border border-border/40 bg-muted/20 px-3 py-3 text-sm outline-none focus:border-primary/50"/><div className="mt-3 space-y-2">{options.map((o,i)=><div key={i} className="flex gap-2"><input value={o} onChange={e=>setOptions(p=>p.map((x,j)=>j===i?e.target.value:x))} placeholder={`Option ${i+1}`} className="flex-1 rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5 text-sm outline-none"/>{options.length>2&&<button onClick={()=>setOptions(p=>p.filter((_,j)=>j!==i))}><X className="w-4 h-4"/></button>}</div>)}</div>{options.length<6&&<button onClick={()=>setOptions(p=>[...p,''])} className="mt-3 w-full rounded-xl border border-dashed border-primary/30 py-2 text-xs text-primary">+ Add option</button>}<button disabled={!valid||busy} onClick={create} className="mt-3 w-full rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium disabled:opacity-40">{busy?<Loader2 className="w-4 h-4 animate-spin mx-auto"/>:'Create poll'}</button></div></div>}
 
-  const totalVotes    = meta.options.reduce((s, o) => s + o.votes.length, 0)
-  const myVoteOptId   = currentUserId
-    ? (meta.options.find(o => o.votes.includes(currentUserId))?.id ?? null)
-    : null
-  const hasVoted      = myVoteOptId !== null
-
-  const name = msg.sender_name ?? msg.sender_username ?? 'Someone'
-  const time = formatTime(msg.created_at)
-
-  const handleVote = async (optionId: string) => {
-    if (!currentUserId || voting) return
-    setVoting(optionId)
-    await onVote(msg.id, optionId)
-    setVoting(null)
-  }
-
-  return (
-    <div className="my-3 w-full">
-      <div className={cn(
-        'rounded-2xl border border-border/25 overflow-hidden',
-        'bg-gradient-to-b from-white/[0.04] to-black/20',
-      )}>
-        {/* Poll header */}
-        <div className="flex items-start gap-2.5 px-4 pt-4 pb-3 border-b border-border/15">
-          <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
-            <BarChart2 className="w-3.5 h-3.5 text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold leading-snug">{meta.question}</p>
-            <p className="text-[10px] text-muted-foreground mt-1">
-              {name} · {time}
-              {totalVotes > 0 && (
-                <> · <span className="text-primary/70">{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</span></>
-              )}
-            </p>
-          </div>
-        </div>
-
-        {/* Options */}
-        <div className="px-3 py-3 space-y-2">
-          {meta.options.map(opt => {
-            const count   = opt.votes.length
-            const pct     = totalVotes > 0 ? (count / totalVotes) * 100 : 0
-            const isMine  = opt.id === myVoteOptId
-            const isVoting = voting === opt.id
-
-            if (hasVoted) {
-              // Result view — progress bar
-              return (
-                <div
-                  key={opt.id}
-                  className={cn(
-                    'relative h-10 rounded-xl overflow-hidden border transition-colors',
-                    isMine
-                      ? 'border-primary/40 bg-primary/5'
-                      : 'border-border/20 bg-white/[0.02]',
-                  )}
-                >
-                  {/* Fill bar */}
-                  <div
-                    className={cn(
-                      'absolute inset-y-0 left-0 transition-all duration-700 ease-out rounded-xl',
-                      isMine ? 'bg-primary/25' : 'bg-white/5',
-                    )}
-                    style={{ width: `${pct}%` }}
-                  />
-                  {/* Label row */}
-                  <div className="relative flex items-center justify-between h-full px-3 gap-2">
-                    <span className={cn(
-                      'text-xs font-medium truncate',
-                      isMine ? 'text-primary' : 'text-foreground/80',
-                    )}>
-                      {isMine && <Check className="w-3 h-3 inline mr-1 shrink-0" />}
-                      {opt.text}
-                    </span>
-                    <span className={cn(
-                      'text-[10px] shrink-0 tabular-nums',
-                      isMine ? 'text-primary font-medium' : 'text-muted-foreground',
-                    )}>
-                      {count}{totalVotes > 0 ? ` · ${Math.round(pct)}%` : ''}
-                    </span>
-                  </div>
-                </div>
-              )
-            }
-
-            // Vote view — tappable option
-            return (
-              <button
-                key={opt.id}
-                onClick={() => handleVote(opt.id)}
-                disabled={!!voting || !currentUserId}
-                className={cn(
-                  'w-full h-10 rounded-xl border border-border/30',
-                  'px-3 flex items-center justify-between text-left',
-                  'bg-white/[0.03] hover:bg-primary/10 hover:border-primary/35',
-                  'transition-all duration-150 group',
-                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                )}
-              >
-                <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate">
-                  {opt.text}
-                </span>
-                {isVoting && (
-                  <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0" />
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Footer */}
-        <div className="px-4 pb-3">
-          {!hasVoted && currentUserId && (
-            <p className="text-[10px] text-muted-foreground/50 text-center">
-              Tap an option to cast your vote
-            </p>
-          )}
-          {!currentUserId && (
-            <p className="text-[10px] text-muted-foreground/50 text-center">
-              Sign in to vote
-            </p>
-          )}
-          {hasVoted && (
-            <p className="text-[10px] text-muted-foreground/50 text-center">
-              You've voted · tap another option to change
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── MessageBubble ─────────────────────────────────────────────────────────────
-
-function MessageBubble({
-  msg, isMine, grouped,
-}: {
-  msg:     GroupMessage
-  isMine:  boolean
-  grouped: boolean
-}) {
-  const name    = msg.sender_name ?? msg.sender_username ?? 'Member'
-  const initial = (name[0] ?? '?').toUpperCase()
-  const avatar  = msg.sender_avatar_url
-  const time    = formatTime(msg.created_at)
-
-  return (
-    <div className={cn(
-      'flex items-end gap-2',
-      isMine ? 'flex-row-reverse' : 'flex-row',
-      grouped ? 'mt-0.5' : 'mt-3',
-    )}>
-      <div className="shrink-0 w-7 h-7 self-end mb-0.5">
-        {!grouped && (
-          <div className={cn(
-            'w-7 h-7 rounded-full overflow-hidden border border-primary/20',
-            'flex items-center justify-center',
-            'bg-gradient-to-br from-primary/20 to-primary/5',
-          )}>
-            {avatar
-              ? <img src={avatar} alt={name} className="w-full h-full object-cover" />
-              : <span className="text-[10px] font-semibold text-primary">{initial}</span>
-            }
-          </div>
-        )}
-      </div>
-
-      <div className={cn(
-        'flex flex-col max-w-[78%]',
-        isMine ? 'items-end' : 'items-start',
-      )}>
-        {!grouped && (
-          <p className={cn(
-            'text-[10px] text-muted-foreground mb-1 px-1',
-            isMine ? 'text-right' : 'text-left',
-          )}>
-            {isMine ? 'You' : name}
-            <span className="ml-1.5 opacity-60">{time}</span>
-          </p>
-        )}
-        <div className={cn(
-          'px-3 py-2 text-sm leading-relaxed break-words',
-          isMine
-            ? 'rounded-2xl rounded-br-sm bg-primary/20 border border-primary/25 text-foreground'
-            : 'rounded-2xl rounded-bl-sm bg-white/5 border border-border/20 text-foreground',
-        )}>
-          {msg.message}
-        </div>
-        {grouped && (
-          <p className="text-[9px] text-muted-foreground/40 px-1 mt-0.5">{time}</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── SystemBubble ──────────────────────────────────────────────────────────────
-
-function SystemBubble({ msg }: { msg: GroupMessage }) {
-  const event     = msg.metadata?.event as string | undefined
-  const name      = msg.sender_name ?? msg.sender_username ?? 'Someone'
-  const isGolden  = event === 'golden_window'
-  const isRoute   = event === 'route_generated'
-  const isCreated = event === 'group_created'
-  const isJoined  = event === 'member_joined'
-
-  return (
-    <div className="flex justify-center my-3">
-      <div className={cn(
-        'inline-flex items-center gap-1.5 px-3 py-1 rounded-full',
-        'text-[11px] font-medium max-w-[90%] text-center',
-        isGolden
-          ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
-          : isRoute
-          ? 'bg-primary/10 text-primary border border-primary/20'
-          : 'bg-muted/30 text-muted-foreground/80 border border-border/20',
-      )}>
-        {isGolden  && <Sparkles className="w-3 h-3 shrink-0 text-amber-400" />}
-        {isRoute   && <Route    className="w-3 h-3 shrink-0 text-primary"   />}
-        {isCreated && <span className="text-base leading-none shrink-0">🎉</span>}
-        {isJoined  && <span className="text-base leading-none shrink-0">👋</span>}
-        <span>
-          <strong className="font-semibold">{name}</strong>{' '}{msg.message}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-// ── DateDivider ───────────────────────────────────────────────────────────────
-
-function DateDivider({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 my-3">
-      <div className="flex-1 h-px bg-border/20" />
-      <span className="text-[10px] text-muted-foreground/50 font-medium px-2 uppercase tracking-wider">
-        {label}
-      </span>
-      <div className="flex-1 h-px bg-border/20" />
-    </div>
-  )
-}
-
-// ── EmptyState ────────────────────────────────────────────────────────────────
-
-function EmptyState({ groupName }: { groupName: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-3 py-8 text-center px-6">
-      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-        <MessageCircle className="w-6 h-6 text-primary/60" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">No messages yet</p>
-        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-          Be the first to start the conversation for{' '}
-          <span className="text-primary font-medium">{groupName}</span>
-        </p>
-      </div>
-    </div>
-  )
-}
+function PollCard({msg,currentUserId,onVote}:{msg:GroupMessage;currentUserId?:string;onVote:(id:string,opt:string)=>void}){const meta=msg.metadata as PollMetadata|null;if(!meta?.options)return null;const total=meta.options.reduce((n,o)=>n+o.votes.length,0);return <div className="max-w-[92%] mr-auto mt-2 rounded-2xl border border-border/30 bg-muted/20 p-4"><div className="flex items-start gap-2"><BarChart2 className="w-4 h-4 text-primary mt-0.5"/><div><p className="text-sm font-medium">{meta.question}</p><p className="text-[10px] text-muted-foreground mt-0.5">{total} vote{total===1?'':'s'}</p></div></div><div className="mt-3 space-y-2">{meta.options.map(o=>{const pct=total?Math.round(o.votes.length/total*100):0;const mine=!!currentUserId&&o.votes.includes(currentUserId);return <button key={o.id} onClick={()=>currentUserId&&onVote(msg.id,o.id)} disabled={!currentUserId} className={cn('relative overflow-hidden w-full text-left rounded-xl border px-3 py-2.5 text-sm',mine?'border-primary/60':'border-border/30')}><div className="absolute inset-y-0 left-0 bg-primary/10" style={{width:`${pct}%`}}/><span className="relative flex justify-between gap-3"><span>{o.text}</span><span className="text-xs text-muted-foreground">{pct}%</span></span></button>})}</div></div>}
