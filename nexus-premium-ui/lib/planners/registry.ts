@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PlannerDefinition } from './types'
-import { pubCrawlPlanner } from './pub-crawl-planner'
+import { realPubCrawlPlanner } from './real-pub-crawl-planner'
 import { createSingleVenuePlanner } from './single-venue-planner'
 import { joggingPlanner } from './jogging-planner'
 import { walkingPlanner } from './walking-planner'
@@ -16,14 +16,14 @@ import { cyclingPlanner } from './cycling-planner'
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
-  // Multi-stop pub crawl — dedicated planner with route optimisation
-  'pub-crawl': pubCrawlPlanner,
+  // Multi-stop pub crawl — production wrapper requires real venue data.
+  'pub-crawl': realPubCrawlPlanner,
 
   // Route planners — OSRM routing, real routes, no API key
   'jogging': joggingPlanner,
   'walking': walkingPlanner,
-  'hiking':  hikingPlanner,   // foot profile, 12–15 km default, trail surfaces
-  'cycling': cyclingPlanner,  // bike profile, 20 km default, loop preferred
+  'hiking':  hikingPlanner,
+  'cycling': cyclingPlanner,
 
   // Single-venue planners — uses OSM for real venues, mock as fallback
   'cocktail-bar':  createSingleVenuePlanner({ activityId: 'cocktail-bar',  activityEmoji: '🍹', activityLabel: 'Cocktail Bar' }),
@@ -39,13 +39,11 @@ const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Returns true if a planner exists for the given activity. */
 export function hasPlannerFor(activityId: string | null | undefined): boolean {
   if (!activityId) return false
   return activityId in PLANNER_REGISTRY
 }
 
-/** Returns the planner definition for an activity, or null if none exists. */
 export function getPlannerFor(
   activityId: string | null | undefined,
 ): PlannerDefinition | null {
@@ -53,7 +51,6 @@ export function getPlannerFor(
   return PLANNER_REGISTRY[activityId] ?? null
 }
 
-/** Returns all registered planner activity IDs. */
 export function registeredPlannerIds(): string[] {
   return Object.keys(PLANNER_REGISTRY)
 }
