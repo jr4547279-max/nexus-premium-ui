@@ -15,7 +15,7 @@ import type { PlannerResult } from '@/lib/planners/planner-engine'
 import { ActivityScreen } from './activity-screen'
 import { WorldScreen } from './world-screen'
 import { ProfileScreen } from './profile-screen'
-import { SocialScreen } from './social-screen'
+import { SocialPeopleScreen } from './social-people-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
@@ -54,13 +54,6 @@ export function NexusApp() {
 
   const initializedRef = useRef(false)
 
-  /* ── Initial auth resolution ──
-     Runs ONCE after Supabase finishes its first session check. We deliberately
-     do NOT add a “redirect to landing when session disappears” effect — that
-     auto-detector caused authenticated users to be bounced back to the landing
-     screen whenever Supabase emitted a transient null-session event on tab
-     focus / token refresh / button click. Explicit sign-out is handled by
-     handleLogout below. */
   useEffect(() => {
     if (loading) return
     if (initializedRef.current) return
@@ -71,7 +64,6 @@ export function NexusApp() {
     }
   }, [loading, session])
 
-  /* ── Once profile is known, decide: onboarding or home ── */
   useEffect(() => {
     if (!initializedRef.current) return
     if (currentScreen !== 'resolving') return
@@ -82,10 +74,6 @@ export function NexusApp() {
     setCurrentScreen(next)
   }, [currentScreen, session, profileLoading, profile])
 
-  /* ── Consume a pending invite after the user signs in.
-        /invite/[code] stashes the code in localStorage when the visitor isn't
-        signed in yet; once auth resolves we finish the join here and bump the
-        groups list so it appears immediately. ── */
   useEffect(() => {
     if (!session) return
     let pending: string | null = null
@@ -110,7 +98,6 @@ export function NexusApp() {
     })
   }, [session])
 
-  /* ── Navigation helpers ── */
   const handleGroupClick = (groupId: string, from: Screen = 'home') => {
     setSelectedGroupId(groupId)
     setPrevGroupScreen(from)
@@ -118,9 +105,6 @@ export function NexusApp() {
   }
 
   const handleNavigate = (screen: string) => {
-    // Track where the user came from when entering onboarding so we can route
-    // them back correctly (e.g. "Edit preferences" from profile should return
-    // to profile, not to landing).
     if (screen === 'onboarding' && currentScreen !== 'resolving' && currentScreen !== 'landing') {
       setOnboardingReturnTo(currentScreen)
     }
@@ -132,8 +116,6 @@ export function NexusApp() {
   }
 
   const handleGroupCreated = () => {
-    // Force the dashboard/groups screens to refetch their useGroups() list.
-    // Bumping a key on the rendered screen below remounts it cleanly.
     setGroupsVersion((v) => v + 1)
   }
 
@@ -142,8 +124,6 @@ export function NexusApp() {
     setCurrentScreen('landing')
   }
 
-  // Treat onboarding as "edit mode" whenever the user already completed it.
-  // In edit mode, both back and complete return to where they came from.
   const isEditingPreferences =
     currentScreen === 'onboarding' && Boolean(profile?.onboarding_completed)
 
@@ -160,13 +140,9 @@ export function NexusApp() {
       setCurrentScreen(onboardingReturnTo)
       return
     }
-    // First-time onboarding: back goes to landing only when there's no session.
     setCurrentScreen(session ? 'home' : 'landing')
   }
 
-  /* ── Screen router ── */
-
-  /* ── Screen router ── */
   if (currentScreen === 'resolving') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -207,8 +183,6 @@ export function NexusApp() {
       />
     )
   }
-
-  // ── Authenticated screens ──
 
   let screenContent: React.ReactNode
 
@@ -257,9 +231,6 @@ export function NexusApp() {
           onViewGoldenWindow={() => setCurrentScreen('golden-window')}
           onNavigate={handleNavigate}
           onGroupDeleted={() => {
-            // Bump version so GroupsScreen / Dashboard remount and re-fetch,
-            // then navigate back — the deleted group will no longer appear
-            // because RLS (groups_select_member) excludes it.
             setGroupsVersion((v) => v + 1)
             setCurrentScreen(prevGroupScreen)
           }}
@@ -315,13 +286,12 @@ export function NexusApp() {
 
     case 'social':
       screenContent = (
-        <SocialScreen
+        <SocialPeopleScreen
           onNavigate={handleNavigate}
         />
       )
       break
 
-    // DEV-ONLY — gated by NEXT_PUBLIC_DEV_TOOLS=true; not reachable in production
     case 'dev-test':
       screenContent = process.env.NEXT_PUBLIC_DEV_TOOLS === 'true'
         ? <DevTestPanel onBack={() => setCurrentScreen('groups')} />
