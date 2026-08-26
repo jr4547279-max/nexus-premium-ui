@@ -1315,6 +1315,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         onOpenChange={setInviteOpen}
         groupName={name}
         inviteCode={inviteCode}
+        groupId={groupId}
+        onMemberAdded={() => window.location.reload()}
       />
 
       {/* ── Delete Group confirmation ── */}
