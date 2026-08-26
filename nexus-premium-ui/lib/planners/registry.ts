@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PlannerDefinition } from './types'
-import { realPubCrawlPlanner } from './real-pub-crawl-planner'
+import { googlePubCrawlPlanner } from './google-pub-crawl-planner'
 import { createSingleVenuePlanner } from './single-venue-planner'
 import { joggingPlanner } from './jogging-planner'
 import { walkingPlanner } from './walking-planner'
@@ -16,13 +16,13 @@ import { cyclingPlanner } from './cycling-planner'
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
-  // Multi-stop pub crawl — production wrapper requires real venue data.
-  'pub-crawl': realPubCrawlPlanner,
+  // Multi-stop pub crawl — Google Places first, real OSM fallback.
+  'pub-crawl': googlePubCrawlPlanner,
 
   // Route planners — OSRM routing, real routes, no API key
   'jogging': joggingPlanner,
   'walking': walkingPlanner,
-  'hiking':  hikingPlanner,
+  'hiking': hikingPlanner,
   'cycling': cyclingPlanner,
 
   // Single-venue planners — uses OSM for real venues, mock as fallback
