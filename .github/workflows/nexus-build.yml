@@ -14,5 +14,5 @@ jobs:
         with:
           node-version: 22
       - run: npm install -g pnpm@10.17.1
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter my-project build
