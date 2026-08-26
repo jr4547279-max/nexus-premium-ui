@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "installCommand": "pnpm install --no-frozen-lockfile",
-  "buildCommand": "pnpm build",
+  "installCommand": "corepack enable && corepack pnpm install --no-frozen-lockfile",
+  "buildCommand": "corepack pnpm build",
   "outputDirectory": "nexus-premium-ui/.next"
 }
