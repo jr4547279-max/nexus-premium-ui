@@ -21,18 +21,16 @@ export interface VenuesResult {
   vibe: Vibe
   cached: boolean
   fallback?: string
+  provider?: string
   error?: string
 }
 
-// Eastbourne midpoint, mirrors the server-side fallback.
+// Eastbourne midpoint is retained only as a legacy display fallback. Real group
+// searches must provide a planning location; the UI deliberately does not use
+// this coordinate for venue discovery.
 export const FALLBACK_LAT = 50.7686
 export const FALLBACK_LNG = 0.2906
 
-/**
- * Average a set of member coordinates to a single midpoint, falling back to
- * Eastbourne if nobody has set a location yet. Structured so the real member
- * geolocation feature can drop in later without changing call sites.
- */
 export function computeMidpoint(
   coords: Array<{ lat: number; lng: number } | null | undefined>,
 ): { lat: number; lng: number; fallback: boolean } {
@@ -48,7 +46,6 @@ export function computeMidpoint(
   return { lat, lng, fallback: false }
 }
 
-/** Guess a vibe from a group name. Tiny on purpose — user can flip chips. */
 export function inferVibe(groupName: string | null | undefined): Vibe {
   const n = (groupName ?? '').toLowerCase()
   if (/\bpub|beer|ale|tap\b/.test(n)) return 'pub'
@@ -66,24 +63,34 @@ export const VIBE_LABEL: Record<Vibe, string> = {
   activity: 'Activity',
 }
 
-/**
- * Outdoor vibes ride the weather harder. With no weather API hooked up yet,
- * indoor vibes always "fit"; outdoor (activity) tentatively also fits.
- * This is the seam where a real forecast will plug in.
- */
 export function weatherFits(vibe: Vibe, _venue: Venue): boolean {
-  if (vibe === 'activity') return true // placeholder until forecast lands
+  if (vibe === 'activity') return true
   return true
 }
 
-/** Friendly one-liner used as a recommendation reason inside venue cards. */
 export function venueReason(v: Venue): string {
   if (v.rating != null && v.rating >= 4.4) return `Highly rated nearby — ${v.rating.toFixed(1)}★`
   if (v.open_now === true) return 'Open now and close to the midpoint'
   if (v.distance_km != null && v.distance_km < 1) return 'Right by the midpoint'
-  return 'Popular spot nearby'
+  if (v.maps_url) return 'Real venue nearby'
+  return 'Nearby venue'
 }
 
+async function requestJson(url: string): Promise<{ response: Response; json: VenuesResult | null }> {
+  const response = await fetch(url)
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    await response.text().catch(() => '')
+    return { response, json: null }
+  }
+  return { response, json: (await response.json()) as VenuesResult }
+}
+
+/**
+ * Fetch real venues. Google Places remains the richer provider when configured,
+ * but Nexus automatically falls back to OpenStreetMap/Overpass so a missing
+ * Google key never turns the venue experience into a dead end.
+ */
 export async function fetchVenues(opts: {
   vibe: Vibe
   lat?: number
@@ -98,23 +105,45 @@ export async function fetchVenues(opts: {
   if (opts.limit != null) qs.set('limit', String(opts.limit))
 
   try {
-    const res = await fetch(`/nx/places?${qs.toString()}`)
-    const ct = res.headers.get('content-type') ?? ''
-    if (!ct.includes('application/json')) {
-      const text = await res.text().catch(() => '')
+    const primary = await requestJson(`/nx/places?${qs.toString()}`)
+    if (primary.response.ok && primary.json && primary.json.venues.length > 0) {
+      return primary.json
+    }
+
+    // No Google key / Google billing issue / empty Google result → real OSM fallback.
+    if (opts.lat != null && opts.lng != null) {
+      const osm = await requestJson(`/nx/places/osm?${qs.toString()}`)
+      if (osm.response.ok && osm.json) {
+        return {
+          ...osm.json,
+          provider: osm.json.provider ?? 'OpenStreetMap',
+          fallback: primary.json?.error ?? 'Using OpenStreetMap real-world venue data',
+        }
+      }
       return {
         venues: [],
         vibe: opts.vibe,
         cached: false,
-        error: `Server returned ${res.status} ${ct}: ${text.slice(0, 120)}`,
+        error: osm.json?.error ?? primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`,
       }
     }
-    const json = (await res.json()) as VenuesResult
-    if (!res.ok) {
-      return { venues: [], vibe: opts.vibe, cached: false, error: json.error ?? `HTTP ${res.status}` }
+
+    return {
+      venues: [],
+      vibe: opts.vibe,
+      cached: false,
+      error: primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`,
     }
-    return json
   } catch (err) {
+    if (opts.lat != null && opts.lng != null) {
+      try {
+        const osm = await requestJson(`/nx/places/osm?${qs.toString()}`)
+        if (osm.response.ok && osm.json) return osm.json
+      } catch {
+        // Fall through to the actionable error below.
+      }
+    }
+
     return {
       venues: [],
       vibe: opts.vibe,
