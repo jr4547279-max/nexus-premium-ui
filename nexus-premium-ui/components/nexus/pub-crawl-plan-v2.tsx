@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { GlassCard } from './glass-card'
 import { Button } from '@/components/ui/button'
@@ -199,9 +200,9 @@ export function PubCrawlPlanV2({ plan, onRecalculate }: { plan: PlannerResult; o
 
       {onRecalculate && <Button variant="outline" onClick={onRecalculate} className="w-full h-9 mt-4 rounded-xl text-xs"><RefreshCw className="w-3 h-3 mr-1.5" />Recalculate</Button>}
 
-      {selectedVenue && selectedStop && (
+      {selectedVenue && selectedStop && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4"
+          className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-label={`${selectedVenue.name} details`}
@@ -295,7 +296,8 @@ export function PubCrawlPlanV2({ plan, onRecalculate }: { plan: PlannerResult; o
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </GlassCard>
   )
