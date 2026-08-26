@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
+  "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "cd nexus-premium-ui && next dev -H 0.0.0.0 -p 3000",
     "build": "cd nexus-premium-ui && next build",
