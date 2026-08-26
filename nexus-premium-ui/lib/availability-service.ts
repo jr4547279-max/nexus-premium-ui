@@ -3,9 +3,9 @@ import { markGoldenWindowStale, saveGoldenWindow } from './golden-window-persist
 import { computeGoldenWindows } from './golden-window'
 
 export interface AvailabilitySlot {
-  day_of_week: number   // 0 = Sun, 1 = Mon, … 6 = Sat
-  start_time: string    // "HH:MM"
-  end_time: string      // "HH:MM"
+  day_of_week: number
+  start_time: string
+  end_time: string
 }
 
 export interface GroupAvailabilityRow extends AvailabilitySlot {
@@ -93,10 +93,16 @@ export async function saveAvailability(
     return { inserted: null, errorMessage: msg }
   }
 
-  // Availability changed, so the previous Golden Window is stale. Immediately
-  // recompute from the complete group state so the user never gets stranded
-  // with a "find Golden Window first" dead end after saving availability.
-  markGoldenWindowStale(groupId).catch(() => undefined)
+  // The stale marker must be cleared BEFORE saving the replacement window.
+  // Previously this was fire-and-forget, which could race with saveGoldenWindow:
+  // the old stale RPC could finish after the new window was saved and mark the
+  // freshly computed result stale again.
+  try {
+    await markGoldenWindowStale(groupId)
+  } catch {
+    // Best effort only; availability itself was saved successfully.
+  }
+
   try {
     const groupRows = await getGroupAvailability(groupId)
     const members = [...new Set(groupRows.map((row) => row.user_id))].map((id) => ({
@@ -109,8 +115,6 @@ export async function saveAvailability(
       await saveGoldenWindow(groupId, best)
     }
   } catch (goldenWindowError) {
-    // Availability itself was saved successfully. Golden Window generation is
-    // best-effort; the group page can still calculate it on demand.
     console.warn('[availability-service] automatic Golden Window generation failed', goldenWindowError)
   }
 
