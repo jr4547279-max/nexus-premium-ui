@@ -13,7 +13,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { VIBE_LABEL, type Venue, type Vibe } from '@/lib/venue-service'
+import { VIBE_LABEL, buildMapUrl, type Venue, type Vibe } from '@/lib/venue-service'
 import { buildWeatherReason, type Weather } from '@/lib/weather-service'
 import type { ActivityIntent } from '@/lib/activity-intelligence'
 
@@ -36,16 +36,11 @@ interface Props {
 }
 
 /**
- * Phase 5C — cinematic venue detail sheet.
+ * Cinematic venue detail sheet.
  *
- * Mobile-first bottom-sheet that fills the screen, with a large photo header,
- * gold-bordered cards for "Why this fits your group", "Group vote", and
- * address. Renders into document.body via a portal so it always sits above
- * the rest of the Nexus UI regardless of scroll context.
- *
- * Only signals we actually have drive the "Why this fits" bullets — there is
- * no weather data on the client right now, so weather is intentionally
- * omitted (we never invent a forecast).
+ * Mobile-first bottom-sheet with real venue facts, an evidence-based
+ * "Why this fits" explanation, Google's editorial description when supplied,
+ * a Nexus-styled map preview, and a direct Google Maps action.
  */
 export function VenueDetailSheet({
   venue,
@@ -66,9 +61,6 @@ export function VenueDetailSheet({
     setMounted(true)
   }, [])
 
-  // While the sheet is open: lock background scroll, close on Esc, capture
-  // the previously focused element to restore on close, move focus into the
-  // sheet (close button), and trap Tab focus inside the dialog.
   useEffect(() => {
     if (!venue) return
 
@@ -76,7 +68,6 @@ export function VenueDetailSheet({
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
-    // Defer focus to after the portal mounts.
     const focusTimer = window.setTimeout(() => {
       closeButtonRef.current?.focus()
     }, 0)
@@ -89,7 +80,6 @@ export function VenueDetailSheet({
       }
       if (e.key !== 'Tab' || !sheetRef.current) return
 
-      // Simple focus trap — wrap from last to first / first to last.
       const focusables = sheetRef.current.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input, select, textarea',
       )
@@ -112,7 +102,6 @@ export function VenueDetailSheet({
       window.clearTimeout(focusTimer)
       document.body.style.overflow = prevOverflow
       window.removeEventListener('keydown', onKey)
-      // Restore focus to whatever opened the sheet.
       if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
         previouslyFocused.focus()
       }
@@ -126,6 +115,16 @@ export function VenueDetailSheet({
   const ratingCountLabel = formatRatingCount(venue.rating_count)
   const upCount = vote === 1 ? 1 : 0
   const downCount = vote === -1 ? 1 : 0
+  const mapUrl = venue.lat != null && venue.lng != null
+    ? buildMapUrl({
+        lat: venue.lat,
+        lng: venue.lng,
+        topPickCoord: { lat: venue.lat, lng: venue.lng },
+        zoom: 16,
+        w: 600,
+        h: 300,
+      })
+    : null
 
   return createPortal(
     <div
@@ -163,11 +162,9 @@ export function VenueDetailSheet({
             </div>
           )}
 
-          {/* Gradient overlays for legibility */}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#05080f] via-[#05080f]/30 to-transparent" />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-transparent" />
 
-          {/* Open / closed pill — only if we have a real signal */}
           {venue.open_now !== null && (
             <div
               className={cn(
@@ -187,7 +184,6 @@ export function VenueDetailSheet({
             </div>
           )}
 
-          {/* Close button */}
           <button
             ref={closeButtonRef}
             type="button"
@@ -198,7 +194,6 @@ export function VenueDetailSheet({
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
 
-          {/* Title overlay */}
           <div className="absolute bottom-3 left-4 right-4">
             <h2 className="text-2xl font-semibold text-white drop-shadow-lg leading-tight">
               {venue.name}
@@ -226,9 +221,7 @@ export function VenueDetailSheet({
             {venue.category && (
               <>
                 {venue.rating != null && (
-                  <span className="text-muted-foreground/40" aria-hidden="true">
-                    •
-                  </span>
+                  <span className="text-muted-foreground/40" aria-hidden="true">•</span>
                 )}
                 <span className="text-muted-foreground">{venue.category}</span>
               </>
@@ -240,9 +233,7 @@ export function VenueDetailSheet({
               <Navigation className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
               <span>
                 {distanceLabel && <span>{distanceLabel} from midpoint</span>}
-                {distanceLabel && venue.address && (
-                  <span className="text-muted-foreground/40"> · </span>
-                )}
+                {distanceLabel && venue.address && <span className="text-muted-foreground/40"> · </span>}
                 {venue.address && <span>{venue.address}</span>}
               </span>
             </div>
@@ -259,14 +250,57 @@ export function VenueDetailSheet({
             <ul className="space-y-2">
               {reasons.map((r, i) => (
                 <li key={i} className="flex gap-2 text-[13px] text-foreground/90 leading-snug">
-                  <span
-                    className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]"
-                    aria-hidden="true"
-                  />
+                  <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]" aria-hidden="true" />
                   <span>{r}</span>
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {/* ─── About the venue ─── */}
+        {venue.description && (
+          <section className="mx-4 mt-3 p-4 rounded-xl border border-white/10 bg-white/[0.02]">
+            <h3 className="text-[11px] font-semibold tracking-widest uppercase text-muted-foreground mb-2">
+              About this place
+            </h3>
+            <p className="text-[13px] leading-relaxed text-foreground/85">
+              {venue.description}
+            </p>
+          </section>
+        )}
+
+        {/* ─── Venue map ─── */}
+        {mapUrl && (
+          <section className="mx-4 mt-3 overflow-hidden rounded-xl border border-amber-400/15 bg-white/[0.02]">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <h3 className="text-[11px] font-semibold tracking-widest uppercase text-muted-foreground">
+                  Where it is
+                </h3>
+                <p className="mt-0.5 text-[11px] text-muted-foreground/70">Venue location</p>
+              </div>
+              {venue.maps_url && (
+                <a
+                  href={venue.maps_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-2.5 py-1.5 text-[11px] font-medium text-amber-300 hover:bg-amber-400/10 transition-colors"
+                >
+                  <Navigation className="h-3.5 w-3.5" aria-hidden="true" />
+                  Directions
+                </a>
+              )}
+            </div>
+            <img
+              src={mapUrl}
+              alt={`Map showing ${venue.name}`}
+              className="block w-full aspect-[2/1] object-cover bg-[#08111d]"
+              loading="lazy"
+              onError={(e) => {
+                ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+              }}
+            />
           </section>
         )}
 
@@ -313,17 +347,10 @@ export function VenueDetailSheet({
                   <MapPin className="w-4 h-4 text-amber-300" aria-hidden="true" />
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[11px] font-semibold tracking-widest uppercase text-muted-foreground">
-                    Address
-                  </span>
-                  <span className="block text-[13px] text-foreground/90 truncate mt-0.5">
-                    {venue.address}
-                  </span>
+                  <span className="block text-[11px] font-semibold tracking-widest uppercase text-muted-foreground">Address</span>
+                  <span className="block text-[13px] text-foreground/90 truncate mt-0.5">{venue.address}</span>
                 </span>
-                <ExternalLink
-                  className="w-4 h-4 text-muted-foreground shrink-0"
-                  aria-hidden="true"
-                />
+                <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
               </a>
             ) : (
               <div className="flex items-center gap-3 p-4">
@@ -331,12 +358,8 @@ export function VenueDetailSheet({
                   <MapPin className="w-4 h-4 text-amber-300" aria-hidden="true" />
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[11px] font-semibold tracking-widest uppercase text-muted-foreground">
-                    Address
-                  </span>
-                  <span className="block text-[13px] text-foreground/90 mt-0.5">
-                    {venue.address}
-                  </span>
+                  <span className="block text-[11px] font-semibold tracking-widest uppercase text-muted-foreground">Address</span>
+                  <span className="block text-[13px] text-foreground/90 mt-0.5">{venue.address}</span>
                 </span>
               </div>
             )}
@@ -366,8 +389,7 @@ function VoteChip({
     icon === 'up'
       ? 'border-emerald-400/60 text-emerald-300 bg-emerald-400/10'
       : 'border-rose-400/60 text-rose-300 bg-rose-400/10'
-  const label =
-    icon === 'up' ? `Vote up ${venueName}` : `Vote down ${venueName}`
+  const label = icon === 'up' ? `Vote up ${venueName}` : `Vote down ${venueName}`
   return (
     <button
       type="button"
@@ -376,9 +398,7 @@ function VoteChip({
       aria-pressed={active}
       className={cn(
         'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all',
-        active
-          ? activeColor
-          : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-border',
+        active ? activeColor : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-border',
       )}
     >
       <Icon className="w-3.5 h-3.5" aria-hidden="true" />
@@ -399,10 +419,6 @@ function formatRatingCount(n: number | null): string | null {
   return String(n)
 }
 
-/**
- * Build the "Why this fits your group" bullets from real signals only.
- * Uses Activity Intelligence intent when available for richer context.
- */
 function buildReasons(
   venue: Venue,
   vibe: Vibe,
@@ -413,11 +429,9 @@ function buildReasons(
 ): string[] {
   const reasons: string[] = []
 
-  // Weather reason — real data only, never invented.
   const weatherReason = buildWeatherReason(weather, venue, vibe)
   if (weatherReason) reasons.push(weatherReason)
 
-  // Activity Intelligence: intent-based explanation
   if (intent && intent.confidence >= 50 && intent.category !== 'general') {
     const cat = (venue.category ?? '').toLowerCase()
     if (intent.preferIndoor) {
@@ -426,74 +440,48 @@ function buildReasons(
     } else {
       switch (intent.category) {
         case 'dining':
-          if (/\b(restaurant|dining|bistro|brasserie|kitchen|food)\b/i.test(cat))
-            reasons.push('Restaurant setting matches your group\'s dining plans.')
+          if (/\b(restaurant|dining|bistro|brasserie|kitchen|food)\b/i.test(cat)) reasons.push('Restaurant setting matches your group\'s dining plans.')
           break
         case 'cafe_coffee':
-          if (/\b(cafe|coffee|bakery|brunch)\b/i.test(cat))
-            reasons.push('Café setting suits the relaxed vibe your group is after.')
+          if (/\b(cafe|coffee|bakery|brunch)\b/i.test(cat)) reasons.push('Café setting suits the relaxed vibe your group is after.')
           break
         case 'indoor_social':
-          if (/\b(bar|pub|brewery|cocktail|wine|lounge)\b/i.test(cat))
-            reasons.push('Great bar or pub — ideal for a social night out.')
+          if (/\b(bar|pub|brewery|cocktail|wine|lounge)\b/i.test(cat)) reasons.push('Great bar or pub — ideal for a social night out.')
           break
         case 'outdoor_active':
         case 'outdoor_social':
-          if (/\b(park|garden|beach|trail|outdoor|promenade)\b/i.test(cat))
-            reasons.push('Open-air venue — fits an outdoor outing perfectly.')
+          if (/\b(park|garden|beach|trail|outdoor|promenade)\b/i.test(cat)) reasons.push('Open-air venue — fits an outdoor outing perfectly.')
           break
         case 'culture':
-          if (/\b(museum|gallery|theatre|cinema|art|heritage)\b/i.test(cat))
-            reasons.push('Cultural venue well suited to the group\'s plans.')
+          if (/\b(museum|gallery|theatre|cinema|art|heritage)\b/i.test(cat)) reasons.push('Cultural venue well suited to the group\'s plans.')
           break
         case 'entertainment':
-          if (/\b(bowling|arcade|escape|karaoke|gaming|cinema)\b/i.test(cat))
-            reasons.push('Activity venue the whole group can enjoy together.')
+          if (/\b(bowling|arcade|escape|karaoke|gaming|cinema)\b/i.test(cat)) reasons.push('Activity venue the whole group can enjoy together.')
           break
       }
     }
   }
 
-  // Distance
   if (!midpointFallback && venue.distance_km != null) {
     if (venue.distance_km < 0.5) {
-      reasons.push(
-        `Just ${Math.round(venue.distance_km * 1000)}m from your midpoint — practically next door.`,
-      )
+      reasons.push(`Just ${Math.round(venue.distance_km * 1000)}m from your midpoint — practically next door.`)
     } else if (venue.distance_km < 1.5) {
-      reasons.push(
-        `Close to your midpoint — only ${
-          venue.distance_km < 1
-            ? `${Math.round(venue.distance_km * 1000)}m`
-            : `${venue.distance_km.toFixed(1)}km`
-        } away.`,
-      )
+      reasons.push(`Close to your midpoint — only ${venue.distance_km < 1 ? `${Math.round(venue.distance_km * 1000)}m` : `${venue.distance_km.toFixed(1)}km`} away.`)
     }
   }
 
-  // Rating
   if (venue.rating != null && venue.rating >= 4.4) {
     const count = formatRatingCount(venue.rating_count)
-    reasons.push(
-      count
-        ? `Highly rated at ${venue.rating.toFixed(1)}★ across ${count} reviews.`
-        : `Highly rated at ${venue.rating.toFixed(1)}★.`,
-    )
+    reasons.push(count ? `Highly rated at ${venue.rating.toFixed(1)}★ across ${count} reviews.` : `Highly rated at ${venue.rating.toFixed(1)}★.`)
   }
 
-  // Opening hours vs. Golden Window
   if (venue.open_now === true && goldenWindow) {
-    reasons.push(
-      `Open right now — fits your Golden Window of ${goldenWindow.start_time}–${goldenWindow.end_time}.`,
-    )
+    reasons.push(`Open right now — fits your Golden Window of ${goldenWindow.start_time}–${goldenWindow.end_time}.`)
   } else if (venue.open_now === true) {
     reasons.push('Open right now and ready when your group is.')
   }
 
-  // Vibe fallback
-  if (reasons.length === 0) {
-    reasons.push(`Matches the group vibe — ${VIBE_LABEL[vibe].toLowerCase()}.`)
-  }
+  if (reasons.length === 0) reasons.push(`Matches the group vibe — ${VIBE_LABEL[vibe].toLowerCase()}.`)
 
   return reasons.slice(0, 4)
 }
