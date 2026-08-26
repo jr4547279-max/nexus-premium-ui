@@ -25,7 +25,10 @@ export const FALLBACK_LAT = 50.7686
 export const FALLBACK_LNG = 0.2906
 
 const VIBE_QUERIES: Record<string, string> = {
-  pub: 'traditional pubs',
+  // Keep the pub query deliberately literal. Google Places (New) has a real
+  // `pub` place type, so we can combine the human query with strict type
+  // filtering instead of hoping relevance ranking discovers pubs.
+  pub: 'pubs',
   drinks: 'cocktail bars',
   food: 'restaurants',
   coffee: 'cafes and coffee shops',
@@ -106,6 +109,28 @@ export async function GET(req: Request) {
 
   let upstream: PlaceApiResponse
   try {
+    const body: Record<string, unknown> = {
+      textQuery: VIBE_QUERIES[vibe],
+      pageSize: Math.min(20, limit),
+      languageCode: 'en',
+      regionCode: 'GB',
+      locationBias: {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius,
+        },
+      },
+      rankPreference: 'DISTANCE',
+    }
+
+    // Google Places (New) explicitly supports `pub` as a requestable place
+    // type. Strict filtering prevents a generic "drinks" result from crowding
+    // out genuine pubs — the exact failure mode this planner was seeing.
+    if (vibe === 'pub') {
+      body.includedType = 'pub'
+      body.strictTypeFiltering = true
+    }
+
     const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
       headers: {
@@ -125,16 +150,7 @@ export async function GET(req: Request) {
           'places.photos',
         ].join(','),
       },
-      body: JSON.stringify({
-        textQuery: VIBE_QUERIES[vibe],
-        maxResultCount: limit,
-        locationBias: {
-          circle: {
-            center: { latitude: lat, longitude: lng },
-            radius,
-          },
-        },
-      }),
+      body: JSON.stringify(body),
     })
 
     const rawBody = await res.text()
