@@ -27,11 +27,6 @@ function formatError(
   return `[${error.code ?? status}] ${error.message}${error.hint ? ` — hint: ${error.hint}` : ''}${error.details ? ` — details: ${error.details}` : ''}`
 }
 
-/**
- * Supabase requests should never leave the Availability UI spinning forever.
- * A timeout is treated as a failed read, allowing the caller to show an
- * actionable empty/error state and keeping the rest of the group page usable.
- */
 async function withTimeout<T>(promise: PromiseLike<T>, fallback: T, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<T>((resolve) => {
@@ -48,11 +43,10 @@ async function withTimeout<T>(promise: PromiseLike<T>, fallback: T, label: strin
   }
 }
 
-/** Returns the current user's saved slots for a group. */
 export async function getMyAvailability(groupId: string): Promise<AvailabilitySlot[]> {
   const { data: userData } = await withTimeout(
     supabase.auth.getUser(),
-    { data: { user: null }, error: null } as Awaited<ReturnType<typeof supabase.auth.getUser>>,
+    { data: { user: null }, error: null } as unknown as Awaited<ReturnType<typeof supabase.auth.getUser>>,
     'auth.getUser',
   )
   const uid = userData.user?.id
@@ -77,7 +71,6 @@ export async function getMyAvailability(groupId: string): Promise<AvailabilitySl
   return (data ?? []) as AvailabilitySlot[]
 }
 
-/** Atomically replaces all of the current user's slots for a group. */
 export async function saveAvailability(
   groupId: string,
   slots: AvailabilitySlot[],
@@ -99,17 +92,10 @@ export async function saveAvailability(
     return { inserted: null, errorMessage: msg }
   }
 
-  // Best-effort — a stale-mark failure never invalidates a successful save.
   markGoldenWindowStale(groupId).catch(() => undefined)
-
   return { inserted: (data as number) ?? 0, errorMessage: null }
 }
 
-/**
- * Returns every group member's availability slots.
- * The direct table query is the primary RLS-scoped path; the SECURITY DEFINER
- * RPC remains a fallback for older database policies.
- */
 export async function getGroupAvailability(groupId: string): Promise<GroupAvailabilityRow[]> {
   const directResult = await withTimeout(
     supabase
@@ -127,7 +113,6 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
 
   if (availError) {
     console.error('[availability-service] getGroupAvailability (direct) failed', availError)
-
     const fallback = await withTimeout(
       supabase.rpc('list_group_availability', { p_group_id: groupId }),
       { data: null, error: { message: 'Group availability fallback timed out' } as never },
@@ -146,7 +131,6 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
   >[]
   if (rows.length === 0) return []
 
-  // Display names are best-effort and never block availability itself.
   const userIds = [...new Set(rows.map((r) => r.user_id))]
   const profileMap = new Map<string, { display_name: string | null; email: string | null }>()
 
@@ -162,17 +146,17 @@ export async function getGroupAvailability(groupId: string): Promise<GroupAvaila
     for (const p of (profileResult.data ?? [])) {
       profileMap.set(p.id, {
         display_name: (p as { display_name?: string | null }).display_name ?? null,
-        email:        (p as { email?: string | null }).email ?? null,
+        email: (p as { email?: string | null }).email ?? null,
       })
     }
   }
 
   return rows.map((r) => ({
-    user_id:      r.user_id,
-    day_of_week:  r.day_of_week,
-    start_time:   r.start_time,
-    end_time:     r.end_time,
+    user_id: r.user_id,
+    day_of_week: r.day_of_week,
+    start_time: r.start_time,
+    end_time: r.end_time,
     display_name: profileMap.get(r.user_id)?.display_name ?? null,
-    email:        profileMap.get(r.user_id)?.email ?? null,
+    email: profileMap.get(r.user_id)?.email ?? null,
   }))
 }
