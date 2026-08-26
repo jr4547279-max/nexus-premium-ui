@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "cd nexus-premium-ui && next dev -H 0.0.0.0 -p 3000",
-    "build": "cd nexus-premium-ui && next build",
+    "build": "cd nexus-premium-ui && next build && rm -rf ../.next && cp -R .next ../.next",
     "start": "cd nexus-premium-ui && next start -H 0.0.0.0 -p 3000",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./scripts\" --if-present run typecheck"
