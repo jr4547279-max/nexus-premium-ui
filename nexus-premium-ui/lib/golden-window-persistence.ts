@@ -1,11 +1,10 @@
 /**
- * Golden Window persistence — save and load a group's computed Golden Window
- * to/from Supabase, and mark it stale when availability changes.
+ * Golden Window persistence — save/load a group's computed Golden Window
+ * through membership-checked SECURITY DEFINER RPCs.
  *
- * Requires the columns added by supabase/golden_window_persistence.sql:
- *   groups.golden_window_data        JSONB
- *   groups.golden_window_computed_at TIMESTAMPTZ
- *   groups.golden_window_stale       BOOLEAN
+ * Direct updates to `groups` are intentionally avoided: the normal groups RLS
+ * policy only lets the owner update the row, but any authenticated group member
+ * is allowed to calculate and refresh the shared Golden Window.
  */
 
 import { supabase } from './supabase'
@@ -17,28 +16,21 @@ export interface SavedGoldenWindowResult {
   computedAt: string | null
 }
 
-/**
- * Persists a computed Golden Window to the group record.
- * Clears the stale flag at the same time so the saved window is fresh.
- */
+/** Persist a computed window for any authenticated member of the group. */
 export async function saveGoldenWindow(
   groupId: string,
   window: GoldenWindow,
 ): Promise<boolean> {
-  const { error } = await supabase
-    .from('groups')
-    .update({
-      golden_window_data:        window as unknown as Record<string, unknown>,
-      golden_window_computed_at: new Date().toISOString(),
-      golden_window_stale:       false,
-    })
-    .eq('id', groupId)
+  const { data, error } = await supabase.rpc('save_golden_window', {
+    p_group_id: groupId,
+    p_window: window as unknown as Record<string, unknown>,
+  })
 
   if (error) {
     console.error('[golden-window-persistence] saveGoldenWindow failed', error)
     return false
   }
-  return true
+  return data === true
 }
 
 /**
@@ -77,16 +69,11 @@ export async function loadSavedGoldenWindow(
   }
 }
 
-/**
- * Marks the group's persisted Golden Window as stale.
- * Called when a member updates their availability so the UI can prompt a
- * recalculation rather than silently serving an outdated result.
- */
+/** Mark the shared result stale after any member changes availability. */
 export async function markGoldenWindowStale(groupId: string): Promise<void> {
-  const { error } = await supabase
-    .from('groups')
-    .update({ golden_window_stale: true })
-    .eq('id', groupId)
+  const { error } = await supabase.rpc('mark_golden_window_stale', {
+    p_group_id: groupId,
+  })
 
   if (error) {
     console.error('[golden-window-persistence] markGoldenWindowStale failed', error)
