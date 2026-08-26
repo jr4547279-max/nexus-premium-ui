@@ -12,6 +12,7 @@ type PlacesVenue = {
   lng?: number | null
   photo_url?: string | null
   open_now?: boolean | null
+  description?: string | null
 }
 
 function timeToMinutes(value: string): number {
@@ -105,7 +106,7 @@ async function fetchOsmFallback(lat: number, lng: number, radius: number): Promi
 function mapVenue(place: PlacesVenue, index: number): { venue: PlannerVenue; openNow: boolean | null } | null {
   if (!place.name || place.lat == null || place.lng == null) return null
   const rating = place.rating ?? 0
-  const venue: PlannerVenue = {
+  const venue: PlannerVenue & { photoUrl?: string | null; ratingCount?: number | null; description?: string | null } = {
     id: `google-pub-${index}-${place.lat}-${place.lng}`,
     name: place.name,
     lat: place.lat,
@@ -129,7 +130,8 @@ function mapVenue(place: PlacesVenue, index: number): { venue: PlannerVenue; ope
     isRealData: true,
     photoUrl: place.photo_url ?? null,
     ratingCount: place.rating_count ?? null,
-  } as PlannerVenue & { photoUrl?: string | null; ratingCount?: number | null }
+    description: place.description ?? null,
+  }
   return { venue, openNow: place.open_now ?? null }
 }
 
@@ -183,7 +185,6 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
     mapped.sort((a, b) => scoreVenue(b.venue, b.openNow).total - scoreVenue(a.venue, a.openNow).total)
     const selected = mapped.slice(0, Math.min(Math.max(2, desiredStops), mapped.length))
 
-    // Nearest-neighbour route ordering keeps the crawl geographically sensible.
     const ordered: typeof selected = []
     const remaining = [...selected]
     ordered.push(remaining.shift()!)
