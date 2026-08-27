@@ -4,15 +4,12 @@ import { Toaster } from 'sonner'
 import { Providers } from '@/components/providers'
 import './globals.css'
 
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-})
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
   title: 'Nexus - Plans, Perfectly Aligned',
   description: 'The AI assistant that finds the perfect time and place for everyone. Discover your Golden Window.',
-  generator: 'v0.app',
+  generator: 'Nexus',
 }
 
 export const viewport: Viewport = {
@@ -20,22 +17,13 @@ export const viewport: Viewport = {
   colorScheme: 'dark light',
 }
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased min-h-screen bg-background`}>
         <Providers>
           {children}
-          <Toaster
-            position="bottom-center"
-            toastOptions={{
-              style: { marginBottom: '72px' },
-            }}
-          />
+          <Toaster position="bottom-center" toastOptions={{ style: { marginBottom: '72px' } }} />
         </Providers>
       </body>
     </html>
