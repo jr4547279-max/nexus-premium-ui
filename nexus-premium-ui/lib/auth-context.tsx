@@ -134,10 +134,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
     const cleanEmail = email.trim().toLowerCase()
-    const cleanPassword = password
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
-      password: cleanPassword,
+      password,
     })
     if (!error && data.session?.user) {
       setSession(data.session)
@@ -162,14 +161,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { error } = await supabase.auth.signInWithOAuth({
+
+    // Ask Supabase for the provider URL without relying on its implicit browser
+    // redirect. Explicit navigation is more reliable on mobile browsers and
+    // avoids leaving the UI stuck on "Redirecting to Google…" if the client
+    // returns before navigation has occurred.
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: getCallbackUrl(),
         scopes: 'openid email profile',
+        skipBrowserRedirect: true,
       },
     })
-    return { error }
+
+    if (error) return { error }
+    if (!data.url) {
+      return {
+        error: {
+          message: 'Google sign-in could not create a redirect URL. Check the Google provider configuration in Supabase.',
+          code: 'oauth_redirect_missing',
+          name: 'AuthError',
+          status: 0,
+        } as unknown as AuthError,
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.location.assign(data.url)
+    }
+
+    return { error: null }
   }, [])
 
   const resetPassword = useCallback(async (email: string) => {
