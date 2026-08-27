@@ -5,11 +5,20 @@ import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
+const PRODUCTION_SITE_URL = 'https://nexus-premium-website-business.vercel.app'
+
 function getCallbackUrl(): string {
-  if (typeof window !== 'undefined') return `${window.location.origin}/auth/callback`
   const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
   if (pinned) return `${pinned}/auth/callback`
-  return '/auth/callback'
+  if (typeof window !== 'undefined') {
+    // Always use the stable Nexus production origin for OAuth/email callbacks.
+    // Preview/stale Vercel aliases are not guaranteed to be in Supabase's
+    // redirect allow-list and can strand the user on the login screen.
+    if (window.location.hostname !== 'localhost' && !window.location.hostname.endsWith('.local')) {
+      return `${PRODUCTION_SITE_URL}/auth/callback`
+    }
+  }
+  return `${PRODUCTION_SITE_URL}/auth/callback`
 }
 
 function authError(message: string, code: string): AuthError {
@@ -141,8 +150,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
-    // Let Supabase perform the browser navigation itself. This is the standard
-    // PKCE flow and avoids a mobile browser getting stuck in the React handler.
+    // Use Supabase's standard browser navigation for the PKCE flow. The
+    // callback is pinned to the stable production URL above rather than the
+    // stale Vercel alias the user may currently have open.
     const oauthPromise = supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
