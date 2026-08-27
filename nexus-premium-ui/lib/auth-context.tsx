@@ -12,51 +12,23 @@ import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
-// ---------------------------------------------------------------------------
-// getCallbackUrl()
-//
-// Returns the absolute URL for /auth/callback on the CURRENT origin.
-//
-// Why this matters:
-//   Supabase validates every `redirectTo` / `emailRedirectTo` against its
-//   "Redirect URLs" allow-list. If the URL is not on the list, Supabase
-//   silently falls back to its configured Site URL — which sends the user to
-//   the wrong domain and shows the Replit placeholder page.
-//
-// Resolution order:
-//   1. window.location.origin — always the exact domain the user is currently
-//      on. This survives workspace restarts, domain rotations, and any other
-//      Replit environment change.  signInWithGoogle() is only ever called from
-//      a browser click, so window is guaranteed to be available.
-//   2. NEXT_PUBLIC_SITE_URL — explicit override for production deployments
-//      where you want to pin a stable .replit.app URL regardless of origin.
-//      Set this ONLY in the production environment secret, never in shared.
-//
-// NOTE: NEXT_PUBLIC_REPLIT_DEV_DOMAIN (previously priority 2) has been
-// removed. It was baked at Next.js build time and became stale whenever the
-// Replit workspace domain rotated, causing the callback to hit the wrong URL.
-//
-// Supabase → Authentication → URL Configuration → Redirect URLs must contain:
-//   https://*.kirk.replit.dev/**      (current dev cluster — matches preview URLs)
-//   https://*.replit.dev/**           (all dev clusters — add both for safety)
-//   https://*.replit.app/**           (production deployments)
-// ---------------------------------------------------------------------------
 function getCallbackUrl(): string {
-  // 1. Runtime browser origin — always the domain the user is actually on.
   if (typeof window !== 'undefined') {
-    const url = `${window.location.origin}/auth/callback`
-    console.log('[AUTH] Current origin:', window.location.origin)
-    console.log('[AUTH] Redirect URL:', url)
-    return url
+    return `${window.location.origin}/auth/callback`
   }
 
-  // 2. Explicit production pin (server-side fallback only — should not be
-  //    reached for OAuth flows, which are always triggered client-side).
-  const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim()
+  const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
   if (pinned) return `${pinned}/auth/callback`
-
-  // 3. Last resort — relative path (Supabase will reject this; signals misconfiguration)
   return '/auth/callback'
+}
+
+function notConfiguredError(): AuthError {
+  return {
+    message: 'Supabase is not configured yet. Add your production secrets to enable real auth.',
+    code: 'not_configured',
+    name: 'AuthError',
+    status: 0,
+  } as unknown as AuthError
 }
 
 interface AuthContextValue {
@@ -70,9 +42,8 @@ interface AuthContextValue {
     error: AuthError | null
     needsEmailConfirm?: boolean
   }>
-  // Google OAuth — initiates a redirect to Google's consent screen.
-  // On return, /auth/callback exchanges the PKCE code for a Supabase session.
   signInWithGoogle: () => Promise<{ error: AuthError | null }>
+  resetPassword: (email: string) => Promise<{ error: AuthError | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }
@@ -87,20 +58,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = useCallback(async (userId: string, email: string) => {
     setProfileLoading(true)
-    // Safety cap: if the Supabase profiles query hangs (slow network, paused
-    // project), release the loading state after 8 s so the user is never stuck
-    // on the resolving splash indefinitely.
-    const profileTimeout = setTimeout(() => setProfileLoading(false), 8000)
+    const timeout = setTimeout(() => setProfileLoading(false), 8000)
     try {
       let p = await getProfile(userId)
-      if (!p) {
-        p = await ensureProfile(userId, email)
-      }
+      if (!p) p = await ensureProfile(userId, email)
       setProfile(p)
     } catch {
-      // Non-fatal: profile table may not exist yet
+      setProfile(null)
     } finally {
-      clearTimeout(profileTimeout)
+      clearTimeout(timeout)
       setProfileLoading(false)
     }
   }, [])
@@ -111,60 +77,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const timeout = setTimeout(() => setLoading(false), 5000)
+    let mounted = true
+    let loadedForUserId: string | null = null
+    const timeout = setTimeout(() => {
+      if (mounted) setLoading(false)
+    }, 5000)
 
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
+        if (!mounted) return
         setSession(session)
         setLoading(false)
         if (session?.user) {
-          loadProfile(session.user.id, session.user.email ?? '')
+          loadedForUserId = session.user.id
+          void loadProfile(session.user.id, session.user.email ?? '')
         }
       })
-      .catch(() => setLoading(false))
+      .catch(() => {
+        if (mounted) setLoading(false)
+      })
       .finally(() => clearTimeout(timeout))
 
-    // Track which user we've already loaded a profile for so transient events
-    // like TOKEN_REFRESHED don't trigger redundant fetches (which flip
-    // profileLoading and cause spurious re-renders / navigation flicker).
-    let loadedForUserId: string | null = null
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('[AUTH] event', { event, hasSession: !!session, userId: session?.user?.id ?? null })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (!mounted) return
       setLoading(false)
 
-      const uid = session?.user?.id ?? null
-
-      if (!uid || !session) {
-        // Only treat as signed-out for explicit sign-out events. This protects
-        // against transient null sessions (e.g. brief refresh failures or
-        // INITIAL_SESSION races) that would otherwise bounce the user back to
-        // the landing screen. For any non-SIGNED_OUT null event, keep the
-        // previous session intact and do nothing.
+      if (!nextSession) {
         if (event === 'SIGNED_OUT') {
-          console.log('[AUTH] explicit SIGNED_OUT — clearing session/profile')
           loadedForUserId = null
           setSession(null)
           setProfile(null)
-        } else {
-          console.log('[AUTH] ignoring null-session event', event)
         }
         return
       }
 
-      // We have a real session — adopt it.
-      setSession(session)
-
-      // Refresh the profile when the user changes, on first sign-in, or when
-      // the user record was updated. Skip on TOKEN_REFRESHED to avoid churn.
-      const isNewUser = uid !== loadedForUserId
-      if (isNewUser || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+      setSession(nextSession)
+      const uid = nextSession.user.id
+      if (uid !== loadedForUserId || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
         loadedForUserId = uid
-        loadProfile(uid, session.user.email ?? '')
+        void loadProfile(uid, nextSession.user.email ?? '')
       }
     })
 
     return () => {
+      mounted = false
       clearTimeout(timeout)
       subscription.unsubscribe()
     }
@@ -175,118 +131,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loadProfile(session.user.id, session.user.email ?? '')
   }, [session, loadProfile])
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      if (!isSupabaseConfigured) {
-        return {
-          error: {
-            message: 'Supabase is not configured yet. Add your secrets to enable real auth.',
-            code: 'not_configured',
-            name: 'AuthError',
-            status: 0,
-          } as unknown as AuthError,
-        }
-      }
-      // signInWithPassword returns the session inline — no browser redirect.
-      // (emailRedirectTo is not an option here; it only applies to signUp and
-      //  signInWithOtp. Confirmation emails are only sent for new accounts.)
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      return { error }
-    },
-    [],
-  )
-
-  const signUp = useCallback(
-    async (email: string, password: string) => {
-      if (!isSupabaseConfigured) {
-        return {
-          error: {
-            message: 'Supabase is not configured yet. Add your secrets to enable real auth.',
-            code: 'not_configured',
-            name: 'AuthError',
-            status: 0,
-          } as unknown as AuthError,
-        }
-      }
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          // Confirmation email links must resolve on the CURRENT origin so new
-          // accounts confirmed on the dev preview stay on .replit.dev.
-          emailRedirectTo: getCallbackUrl(),
-        },
-      })
-      if (!error && data.user) {
-        await ensureProfile(data.user.id, email)
-      }
-      const needsEmailConfirm = !error && !data.session
-      return { error, needsEmailConfirm }
-    },
-    [],
-  )
-
-  // ---------------------------------------------------------------------------
-  // Google OAuth
-  // Calls supabase.auth.signInWithOAuth which redirects the browser to Google.
-  // After consent, Google redirects to /auth/callback?code=XXX where the PKCE
-  // code is exchanged for a real session, then the user is sent to the dashboard.
-  //
-  // The redirectTo URL MUST be whitelisted in your Supabase project under
-  // Authentication → URL Configuration → Redirect URLs. Add wildcard patterns
-  // for Replit so every preview and deployed origin is covered:
-  //
-  //   https://*.kirk.replit.dev/** ← Replit preview (current cluster)
-  //   https://*.replit.dev/**      ← Replit preview (all clusters)
-  //   https://*.replit.app/**      ← Replit deployed URLs
-  //   http://localhost:3000/**     ← Local dev
-  //
-  // If redirectTo is not in the allowed list, Supabase silently falls back to
-  // its Site URL — which will send users to the wrong page.
-  //
-  // Set NEXT_PUBLIC_SITE_URL to pin a stable callback origin in production
-  // (e.g. https://yourapp.replit.app). When absent, window.location.origin is
-  // used, which always matches the current tab — correct for preview & deployed.
-  // ---------------------------------------------------------------------------
-  const signInWithGoogle = useCallback(async () => {
-    if (!isSupabaseConfigured) {
-      return {
-        error: {
-          message: 'Supabase is not configured yet. Add your secrets to enable real auth.',
-          code: 'not_configured',
-          name: 'AuthError',
-          status: 0,
-        } as unknown as AuthError,
-      }
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+    const cleanEmail = email.trim().toLowerCase()
+    const cleanPassword = password
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: cleanPassword,
+    })
+    if (!error && data.session?.user) {
+      setSession(data.session)
+      void loadProfile(data.session.user.id, data.session.user.email ?? cleanEmail)
     }
+    return { error }
+  }, [loadProfile])
 
-    // Use getCallbackUrl() — see its definition above for resolution order.
-    // The resolved URL must be whitelisted in Supabase → Authentication →
-    // URL Configuration → Redirect URLs. For Replit, add:
-    //   https://*.kirk.replit.dev/**                    ← dev preview (current cluster)
-    //   https://*.replit.dev/**                         ← dev preview (all clusters)
-    //   https://*.replit.app/**                         ← production
-    const redirectTo = getCallbackUrl()
+  const signUp = useCallback(async (email: string, password: string) => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+    const cleanEmail = email.trim().toLowerCase()
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: { emailRedirectTo: getCallbackUrl() },
+    })
+    if (!error && data.user) {
+      await ensureProfile(data.user.id, cleanEmail)
+    }
+    return { error, needsEmailConfirm: !error && !data.session }
+  }, [])
 
-    console.log('[AUTH] OAuth callback:', redirectTo)
-
+  const signInWithGoogle = useCallback(async () => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo,
+        redirectTo: getCallbackUrl(),
         scopes: 'openid email profile',
       },
     })
+    return { error }
+  }, [])
 
-    // This only returns if an error occurred before the redirect.
-    // On success the browser navigates away and this line is never reached.
+  const resetPassword = useCallback(async (email: string) => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: getCallbackUrl(),
+    })
     return { error }
   }, [])
 
   const signOut = useCallback(async () => {
-    if (isSupabaseConfigured) {
-      await supabase.auth.signOut()
-    }
+    if (isSupabaseConfigured) await supabase.auth.signOut()
     setSession(null)
     setProfile(null)
   }, [])
@@ -302,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
+        resetPassword,
         signOut,
         refreshProfile,
       }}
