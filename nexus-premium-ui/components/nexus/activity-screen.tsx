@@ -284,7 +284,9 @@ export function ActivityScreen({ onBack: _onBack, onNavigate }: ActivityScreenPr
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         onSelect={(activity) => {
-          setSelectedActivity(activity)
+          if (!('isCustom' in activity)) {
+            setSelectedActivity(activity)
+          }
           setPickerOpen(false)
         }}
       />
