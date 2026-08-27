@@ -8,6 +8,19 @@ import { AlertTriangle } from 'lucide-react'
 
 type Phase = 'exchanging' | 'done' | 'error'
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 /**
  * Browser-side Supabase OAuth callback.
  *
@@ -15,11 +28,8 @@ type Phase = 'exchanging' | 'done' | 'error'
  * this route with a one-time `code`. We exchange that code for the browser
  * session, then return to the app.
  *
- * This handler is deliberately tolerant of a duplicate callback. Browsers,
- * previews, or an already-consumed OAuth state can cause the same callback to
- * be reached twice. If the first request already established a session, the
- * second request simply reuses that session instead of showing a false login
- * failure.
+ * The exchange is bounded so a slow/failed auth request can never leave the
+ * user on an infinite NEXUS loading screen.
  */
 export default function AuthCallbackPage() {
   const router = useRouter()
@@ -31,83 +41,102 @@ export default function AuthCallbackPage() {
     if (hasStarted.current) return
     hasStarted.current = true
 
+    const failAndReturn = (message: string, delay = 4000) => {
+      setErrorMessage(message)
+      setPhase('error')
+      setTimeout(() => router.replace('/'), delay)
+    }
+
+    const getCurrentSession = async () => {
+      return withTimeout(
+        supabase.auth.getSession(),
+        8000,
+        'The authentication service took too long to respond.',
+      )
+    }
+
     const handleCallback = async () => {
-      const url = new URL(window.location.href)
+      try {
+        const url = new URL(window.location.href)
 
-      const oauthError = url.searchParams.get('error')
-      const oauthErrorDesc = url.searchParams.get('error_description')
-      if (oauthError) {
-        const msg =
-          oauthError === 'access_denied'
-            ? 'Sign-in was cancelled.'
-            : (oauthErrorDesc ?? oauthError)
-        setErrorMessage(msg)
-        setPhase('error')
-        setTimeout(() => router.replace('/'), 3000)
-        return
-      }
-
-      const code = url.searchParams.get('code')
-      if (code) {
-        // A PKCE code is one-time-use. Remember codes we've already attempted
-        // so a duplicate navigation cannot deliberately consume it twice.
-        const storageKey = `nexus-oauth-code:${code}`
-        const alreadyAttempted = window.sessionStorage.getItem(storageKey) === '1'
-        if (alreadyAttempted) {
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session) {
-            setPhase('done')
-            router.replace('/')
-            return
-          }
-        }
-
-        window.sessionStorage.setItem(storageKey, '1')
-
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (error) {
-          // If another callback already consumed the code, the session may
-          // nevertheless be valid. Check before reporting a real failure.
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session) {
-            setPhase('done')
-            router.replace('/')
-            return
-          }
-
-          setErrorMessage('Sign-in failed — please try again.')
-          setPhase('error')
-          setTimeout(() => router.replace('/'), 4000)
+        const oauthError = url.searchParams.get('error')
+        const oauthErrorDesc = url.searchParams.get('error_description')
+        if (oauthError) {
+          const msg =
+            oauthError === 'access_denied'
+              ? 'Sign-in was cancelled.'
+              : (oauthErrorDesc ?? oauthError)
+          failAndReturn(msg, 3000)
           return
         }
 
-        setPhase('done')
-        router.replace('/')
-        return
-      }
+        const code = url.searchParams.get('code')
+        if (code) {
+          const storageKey = `nexus-oauth-code:${code}`
+          const alreadyAttempted = window.sessionStorage.getItem(storageKey) === '1'
+          if (alreadyAttempted) {
+            const { data: { session } } = await getCurrentSession()
+            if (session) {
+              setPhase('done')
+              router.replace('/')
+              return
+            }
+          }
 
-      // Fallback for an implicit-flow response.
-      const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash
-      const hashParams = new URLSearchParams(hash)
-      const accessToken = hashParams.get('access_token')
-      const refreshToken = hashParams.get('refresh_token')
-      if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        })
-        if (error) {
-          setErrorMessage('Sign-in failed — could not establish your session.')
-          setPhase('error')
-          setTimeout(() => router.replace('/'), 4000)
+          window.sessionStorage.setItem(storageKey, '1')
+
+          const { error } = await withTimeout(
+            supabase.auth.exchangeCodeForSession(code),
+            12000,
+            'Google sign-in took too long to complete.',
+          )
+
+          if (error) {
+            const { data: { session } } = await getCurrentSession()
+            if (session) {
+              setPhase('done')
+              router.replace('/')
+              return
+            }
+
+            failAndReturn('Sign-in failed — please try again.')
+            return
+          }
+
+          setPhase('done')
+          router.replace('/')
           return
         }
-        setPhase('done')
-        router.replace('/')
-        return
-      }
 
-      router.replace('/')
+        const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash
+        const hashParams = new URLSearchParams(hash)
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        if (accessToken && refreshToken) {
+          const { error } = await withTimeout(
+            supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            }),
+            12000,
+            'Sign-in took too long to establish a session.',
+          )
+          if (error) {
+            failAndReturn('Sign-in failed — could not establish your session.')
+            return
+          }
+          setPhase('done')
+          router.replace('/')
+          return
+        }
+
+        router.replace('/')
+      } catch (caught) {
+        const message = caught instanceof Error
+          ? caught.message
+          : 'Sign-in could not be completed. Please try again.'
+        failAndReturn(message)
+      }
     }
 
     handleCallback()
