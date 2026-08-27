@@ -10,13 +10,8 @@ const PRODUCTION_SITE_URL = 'https://nexus-premium-website-business.vercel.app'
 function getCallbackUrl(): string {
   const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
   if (pinned) return `${pinned}/auth/callback`
-  if (typeof window !== 'undefined') {
-    // Always use the stable Nexus production origin for OAuth/email callbacks.
-    // Preview/stale Vercel aliases are not guaranteed to be in Supabase's
-    // redirect allow-list and can strand the user on the login screen.
-    if (window.location.hostname !== 'localhost' && !window.location.hostname.endsWith('.local')) {
-      return `${PRODUCTION_SITE_URL}/auth/callback`
-    }
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.endsWith('.local'))) {
+    return `${window.location.origin}/auth/callback`
   }
   return `${PRODUCTION_SITE_URL}/auth/callback`
 }
@@ -126,13 +121,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
+
     const cleanEmail = email.trim().toLowerCase()
-    const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
-    if (!error && data.session?.user) {
-      setSession(data.session)
-      void loadProfile(data.session.user.id, data.session.user.email ?? cleanEmail)
+    if (!cleanEmail || !password) return { error: authError('Enter your email and password.', 'missing_credentials') }
+
+    const request = supabase.auth.signInWithPassword({ email: cleanEmail, password })
+    const result = await Promise.race([
+      request,
+      new Promise<{ data: { session: Session | null; user: User | null }; error: AuthError }>((resolve) => {
+        window.setTimeout(() => resolve({
+          data: { session: null, user: null },
+          error: authError('Sign-in is taking too long. Please check your connection and try again.', 'auth_timeout'),
+        }), 15000)
+      }),
+    ])
+
+    if (!result.error && result.data.session?.user) {
+      setSession(result.data.session)
+      void loadProfile(result.data.session.user.id, result.data.session.user.email ?? cleanEmail)
     }
-    return { error }
+
+    return { error: result.error }
   }, [loadProfile])
 
   const signUp = useCallback(async (email: string, password: string) => {
@@ -150,19 +159,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
-    // Use Supabase's standard browser navigation for the PKCE flow. The
-    // callback is pinned to the stable production URL above rather than the
-    // stale Vercel alias the user may currently have open.
-    const oauthPromise = supabase.auth.signInWithOAuth({
+    // Ask Supabase for the provider URL without letting the SDK perform the
+    // navigation itself. Explicitly assigning the URL is more reliable on
+    // mobile browsers and prevents the login button from appearing stuck.
+    const request = supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: getCallbackUrl(),
         scopes: 'openid email profile',
+        skipBrowserRedirect: true,
       },
     })
 
     const result = await Promise.race([
-      oauthPromise,
+      request,
       new Promise<{ data: { provider: null; url: null }; error: AuthError }>((resolve) => {
         window.setTimeout(() => resolve({
           data: { provider: null, url: null },
@@ -171,7 +181,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     ])
 
-    return { error: result.error }
+    if (result.error) return { error: result.error }
+    if (!result.data.url) return { error: authError('Google sign-in did not return a login URL. Please try again.', 'oauth_no_url') }
+
+    window.location.assign(result.data.url)
+    return { error: null }
   }, [])
 
   const resetPassword = useCallback(async (email: string) => {
