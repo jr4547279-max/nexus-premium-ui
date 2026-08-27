@@ -12,17 +12,15 @@ export interface Group {
   created_by: string
   created_at: string
   updated_at: string
-  // ── Planning location (nullable until set) ────────────────────────────────
-  planning_location_lat?:     number | null
-  planning_location_lng?:     number | null
-  planning_location_name?:    string | null
+  planning_location_lat?: number | null
+  planning_location_lng?: number | null
+  planning_location_name?: string | null
   planning_location_address?: string | null
-  planning_location_source?:  string | null
-  // ── Location Intelligence (populated after /nx/location/resolve) ──────────
-  planning_radius_metres?:    number | null
-  planning_area_type?:        string | null
-  planning_neighborhood?:     string | null
-  planning_city?:             string | null
+  planning_location_source?: string | null
+  planning_radius_metres?: number | null
+  planning_area_type?: string | null
+  planning_neighborhood?: string | null
+  planning_city?: string | null
 }
 
 export interface GroupSummary {
@@ -56,12 +54,6 @@ export interface CreateGroupResult {
   errorMessage: string | null
 }
 
-// ── Planning location helpers ─────────────────────────────────────────────────
-
-/**
- * Extract a typed PlanningLocation from a Group row.
- * Returns null when lat/lng are absent.
- */
 export function extractPlanningLocation(group: Group): PlanningLocation | null {
   const { planning_location_lat: lat, planning_location_lng: lng } = group
   if (lat == null || lng == null) return null
@@ -69,39 +61,28 @@ export function extractPlanningLocation(group: Group): PlanningLocation | null {
   const location: PlanningLocation = {
     lat,
     lng,
-    name:    group.planning_location_name    ?? '',
+    name: group.planning_location_name ?? '',
     address: group.planning_location_address ?? '',
-    source:  (group.planning_location_source as PlanningLocationSource) ?? 'saved',
+    source: (group.planning_location_source as PlanningLocationSource) ?? 'saved',
   }
 
-  // Attach intelligence fields when present
-  if (group.planning_radius_metres != null)
-    location.planningRadiusMetres = group.planning_radius_metres
-  if (group.planning_area_type != null)
-    location.areaType = group.planning_area_type as PlanningLocation['areaType']
-  if (group.planning_neighborhood != null)
-    location.neighborhood = group.planning_neighborhood
-  if (group.planning_city != null)
-    location.planningCity = group.planning_city
+  if (group.planning_radius_metres != null) location.planningRadiusMetres = group.planning_radius_metres
+  if (group.planning_area_type != null) location.areaType = group.planning_area_type as PlanningLocation['areaType']
+  if (group.planning_neighborhood != null) location.neighborhood = group.planning_neighborhood
+  if (group.planning_city != null) location.planningCity = group.planning_city
 
   return location
 }
 
-// ── Error formatter ───────────────────────────────────────────────────────────
-
 function formatError(error: { code?: string | null; message: string; hint?: string | null; details?: string | null }, status?: number) {
   return `[${error.code ?? status}] ${error.message}${error.hint ? ` — hint: ${error.hint}` : ''}${error.details ? ` — details: ${error.details}` : ''}`
 }
-
-// ── Group CRUD ────────────────────────────────────────────────────────────────
 
 export async function createGroup(
   name: string,
   emoji: string,
   activityId?: string,
 ): Promise<CreateGroupResult> {
-  // ── Step 1: create the group via stored procedure ──────────────────────────
-  // The RPC uses auth.uid() internally — no need to call getUser() here.
   console.log('[createGroup] Step 1 — calling create_group RPC', { name, emoji, activityId })
   const { data, error: rpcError, status } = await supabase
     .rpc('create_group', { p_name: name.trim(), p_emoji: emoji || '👥' })
@@ -126,7 +107,6 @@ export async function createGroup(
     return { group: null, errorMessage: 'Group created but missing an ID. Please try again.' }
   }
 
-  // ── Step 2: persist the activity (if one was chosen) ──────────────────────
   if (activityId) {
     console.log('[createGroup] Step 2 — updating activity_id', { groupId: group.id, activityId })
     const { error: updateError, status: updateStatus } = await supabase
@@ -135,7 +115,6 @@ export async function createGroup(
       .eq('id', group.id)
 
     if (updateError) {
-      // Surface this as a real error — the group was created but activity was lost.
       const msg = formatError(updateError, updateStatus)
       console.error('[createGroup] Step 2 FAILED — activity_id UPDATE error', msg, updateError)
       return { group, errorMessage: `Group created but activity could not be saved: ${msg}` }
@@ -147,7 +126,6 @@ export async function createGroup(
 
   console.log('[createGroup] Complete —', group)
 
-  // Fire-and-forget system message — does not block or affect the return value.
   supabase.auth.getUser().then(({ data }) => {
     const uid = data.user?.id
     if (uid) {
@@ -159,14 +137,15 @@ export async function createGroup(
 }
 
 export async function listMyGroups(): Promise<GroupSummary[]> {
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from('groups')
     .select('id, name, emoji, activity_id, golden_window_data, group_members(count)')
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('[group-service] listMyGroups failed', error)
-    return []
+    const message = formatError(error, status)
+    console.error('[group-service] listMyGroups failed', message, error)
+    throw new Error(message)
   }
 
   return (data ?? []).map((row) => {
@@ -198,8 +177,7 @@ export async function getGroup(groupId: string): Promise<Group | null> {
 }
 
 export async function listGroupMembers(groupId: string): Promise<GroupMember[]> {
-  const { data, error } = await supabase
-    .rpc('list_group_members', { p_group_id: groupId })
+  const { data, error } = await supabase.rpc('list_group_members', { p_group_id: groupId })
   if (error) {
     console.error('[group-service] listGroupMembers failed', error)
     return []
@@ -208,8 +186,7 @@ export async function listGroupMembers(groupId: string): Promise<GroupMember[]> 
 }
 
 export async function getGroupByInvite(code: string): Promise<InvitePreview | null> {
-  const { data, error } = await supabase
-    .rpc('get_group_by_invite', { p_code: code })
+  const { data, error } = await supabase.rpc('get_group_by_invite', { p_code: code })
   if (error) {
     console.error('[group-service] getGroupByInvite failed', error)
     return null
@@ -224,8 +201,7 @@ export interface JoinGroupResult {
 }
 
 export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> {
-  const { data, error, status } = await supabase
-    .rpc('join_group_by_invite', { p_code: code })
+  const { data, error, status } = await supabase.rpc('join_group_by_invite', { p_code: code })
   if (error) {
     const msg = formatError(error, status)
     console.error('[group-service] joinGroupByInvite FAILED', msg, error)
@@ -233,7 +209,6 @@ export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> 
   }
   const joinedGroupId = data as string
 
-  // Fire-and-forget system message — does not block or affect the return value.
   supabase.auth.getUser().then(({ data: authData }) => {
     const uid = authData.user?.id
     if (uid && joinedGroupId) {
@@ -244,25 +219,10 @@ export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> 
   return { groupId: joinedGroupId, errorMessage: null }
 }
 
-// ── Group deletion ────────────────────────────────────────────────────────────
-
-/**
- * Permanently deletes a group and all associated data.
- * Only the group owner (role = 'owner' in group_members) can call this.
- *
- * Deletion is handled by the delete_group() SECURITY DEFINER RPC (migration 007).
- * All dependent rows are removed via ON DELETE CASCADE:
- *   group_members, availability, live_events, live_locations,
- *   member_presence, event_notifications.
- * Golden window data, invite code, and planning location are inline in the
- * groups row and are deleted with it. User profiles are NOT affected.
- */
 export async function deleteGroup(
   groupId: string,
 ): Promise<{ ok: boolean; errorMessage: string | null }> {
-  const { error, status } = await supabase.rpc('delete_group', {
-    p_group_id: groupId,
-  })
+  const { error, status } = await supabase.rpc('delete_group', { p_group_id: groupId })
 
   if (error) {
     const msg = formatError(error, status)
@@ -291,12 +251,6 @@ export async function leaveGroup(groupId: string): Promise<boolean> {
   return true
 }
 
-// ── Planning Location ─────────────────────────────────────────────────────────
-
-/**
- * Persist a planning location for a group.
- * Requires the `group_planning_location.sql` migration to have been applied.
- */
 export async function saveGroupPlanningLocation(
   groupId: string,
   location: PlanningLocation,
@@ -304,16 +258,15 @@ export async function saveGroupPlanningLocation(
   const { error } = await supabase
     .from('groups')
     .update({
-      planning_location_lat:     location.lat,
-      planning_location_lng:     location.lng,
-      planning_location_name:    location.name,
+      planning_location_lat: location.lat,
+      planning_location_lng: location.lng,
+      planning_location_name: location.name,
       planning_location_address: location.address,
-      planning_location_source:  location.source,
-      // Intelligence fields — null when not yet resolved
-      planning_radius_metres:    location.planningRadiusMetres  ?? null,
-      planning_area_type:        location.areaType              ?? null,
-      planning_neighborhood:     location.neighborhood          ?? null,
-      planning_city:             location.planningCity          ?? null,
+      planning_location_source: location.source,
+      planning_radius_metres: location.planningRadiusMetres ?? null,
+      planning_area_type: location.areaType ?? null,
+      planning_neighborhood: location.neighborhood ?? null,
+      planning_city: location.planningCity ?? null,
     })
     .eq('id', groupId)
 
@@ -324,23 +277,19 @@ export async function saveGroupPlanningLocation(
   return true
 }
 
-/**
- * Remove the planning location from a group.
- */
 export async function clearGroupPlanningLocation(groupId: string): Promise<boolean> {
   const { error } = await supabase
     .from('groups')
     .update({
-      planning_location_lat:     null,
-      planning_location_lng:     null,
-      planning_location_name:    null,
+      planning_location_lat: null,
+      planning_location_lng: null,
+      planning_location_name: null,
       planning_location_address: null,
-      planning_location_source:  null,
-      // Clear intelligence fields too
-      planning_radius_metres:    null,
-      planning_area_type:        null,
-      planning_neighborhood:     null,
-      planning_city:             null,
+      planning_location_source: null,
+      planning_radius_metres: null,
+      planning_area_type: null,
+      planning_neighborhood: null,
+      planning_city: null,
     })
     .eq('id', groupId)
 
