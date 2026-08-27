@@ -1,34 +1,23 @@
 'use client'
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode,
-} from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
 function getCallbackUrl(): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/auth/callback`
-  }
-
+  if (typeof window !== 'undefined') return `${window.location.origin}/auth/callback`
   const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
   if (pinned) return `${pinned}/auth/callback`
   return '/auth/callback'
 }
 
+function authError(message: string, code: string): AuthError {
+  return { message, code, name: 'AuthError', status: 0 } as unknown as AuthError
+}
+
 function notConfiguredError(): AuthError {
-  return {
-    message: 'Supabase is not configured yet. Add your production secrets to enable real auth.',
-    code: 'not_configured',
-    name: 'AuthError',
-    status: 0,
-  } as unknown as AuthError
+  return authError('Supabase is not configured yet. Add your production secrets to enable real auth.', 'not_configured')
 }
 
 interface AuthContextValue {
@@ -38,10 +27,7 @@ interface AuthContextValue {
   loading: boolean
   profileLoading: boolean
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>
-  signUp: (email: string, password: string) => Promise<{
-    error: AuthError | null
-    needsEmailConfirm?: boolean
-  }>
+  signUp: (email: string, password: string) => Promise<{ error: AuthError | null; needsEmailConfirm?: boolean }>
   signInWithGoogle: () => Promise<{ error: AuthError | null }>
   resetPassword: (email: string) => Promise<{ error: AuthError | null }>
   signOut: () => Promise<void>
@@ -101,7 +87,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return
       setLoading(false)
-
       if (!nextSession) {
         if (event === 'SIGNED_OUT') {
           loadedForUserId = null
@@ -110,7 +95,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return
       }
-
       setSession(nextSession)
       const uid = nextSession.user.id
       if (uid !== loadedForUserId || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
@@ -134,10 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
     const cleanEmail = email.trim().toLowerCase()
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password,
-    })
+    const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
     if (!error && data.session?.user) {
       setSession(data.session)
       void loadProfile(data.session.user.id, data.session.user.email ?? cleanEmail)
@@ -153,52 +134,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       options: { emailRedirectTo: getCallbackUrl() },
     })
-    if (!error && data.user) {
-      await ensureProfile(data.user.id, cleanEmail)
-    }
+    if (!error && data.user) await ensureProfile(data.user.id, cleanEmail)
     return { error, needsEmailConfirm: !error && !data.session }
   }, [])
 
   const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
-    // Ask Supabase for the provider URL without relying on its implicit browser
-    // redirect. Explicit navigation is more reliable on mobile browsers and
-    // avoids leaving the UI stuck on "Redirecting to Google…" if the client
-    // returns before navigation has occurred.
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    // Let Supabase perform the browser navigation itself. This is the standard
+    // PKCE flow and avoids a mobile browser getting stuck in the React handler.
+    const oauthPromise = supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: getCallbackUrl(),
         scopes: 'openid email profile',
-        skipBrowserRedirect: true,
       },
     })
 
-    if (error) return { error }
-    if (!data.url) {
-      return {
-        error: {
-          message: 'Google sign-in could not create a redirect URL. Check the Google provider configuration in Supabase.',
-          code: 'oauth_redirect_missing',
-          name: 'AuthError',
-          status: 0,
-        } as unknown as AuthError,
-      }
-    }
+    const result = await Promise.race([
+      oauthPromise,
+      new Promise<{ data: { provider: null; url: null }; error: AuthError }>((resolve) => {
+        window.setTimeout(() => resolve({
+          data: { provider: null, url: null },
+          error: authError('Google sign-in is taking too long. Please try again.', 'oauth_timeout'),
+        }), 10000)
+      }),
+    ])
 
-    if (typeof window !== 'undefined') {
-      window.location.assign(data.url)
-    }
-
-    return { error: null }
+    return { error: result.error }
   }, [])
 
   const resetPassword = useCallback(async (email: string) => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: getCallbackUrl(),
-    })
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: getCallbackUrl() })
     return { error }
   }, [])
 
@@ -209,21 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider
-      value={{
-        session,
-        user: session?.user ?? null,
-        profile,
-        loading,
-        profileLoading,
-        signIn,
-        signUp,
-        signInWithGoogle,
-        resetPassword,
-        signOut,
-        refreshProfile,
-      }}
-    >
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, profile, loading, profileLoading, signIn, signUp, signInWithGoogle, resetPassword, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
