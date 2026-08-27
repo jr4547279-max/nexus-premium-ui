@@ -18,8 +18,6 @@ import {
 import type { ActivityCategory, ActivityDefinition, AnyActivity } from '@/lib/activities/types'
 import { useActivityPrefs } from '@/lib/activities/user-prefs'
 
-// ─── Activity card ────────────────────────────────────────────────────────────
-
 interface ActivityCardProps {
   activity: ActivityDefinition
   onSelect: () => void
@@ -41,7 +39,6 @@ export function ActivityCard({ activity, onSelect, onToggleFav, isFav, compact }
           compact && 'p-2 gap-1.5'
         )}
       >
-        {/* Icon swatch */}
         <div className={cn(
           'rounded-xl flex items-center justify-center transition-transform',
           activity.color.bg,
@@ -52,8 +49,6 @@ export function ActivityCard({ activity, onSelect, onToggleFav, isFav, compact }
             compact ? 'w-5 h-5' : 'w-6 h-6'
           )} />
         </div>
-
-        {/* Label */}
         <span className={cn(
           'font-medium leading-tight',
           compact ? 'text-[11px]' : 'text-xs'
@@ -62,7 +57,6 @@ export function ActivityCard({ activity, onSelect, onToggleFav, isFav, compact }
         </span>
       </button>
 
-      {/* Favourite button */}
       <button
         type="button"
         onClick={onToggleFav}
@@ -81,8 +75,6 @@ export function ActivityCard({ activity, onSelect, onToggleFav, isFav, compact }
     </div>
   )
 }
-
-// ─── Horizontal strip ─────────────────────────────────────────────────────────
 
 interface HorizontalStripProps {
   title: string
@@ -116,8 +108,6 @@ function HorizontalStrip({ title, activities, onSelect, onToggleFav, isFav }: Ho
   )
 }
 
-// ─── Picker content (reusable without the sheet wrapper) ──────────────────────
-
 interface ActivityPickerContentProps {
   onSelect: (activity: AnyActivity) => void
   compact?: boolean
@@ -146,7 +136,7 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
   }
 
   const handleCustomSubmit = () => {
-    const label = customLabel.trim()
+    const label = (customLabel || query).trim()
     if (!label) return
     onSelect({ id: 'custom', label, emoji: '✨', isCustom: true })
     setCustomLabel('')
@@ -157,7 +147,6 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <Input
@@ -178,7 +167,6 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
         )}
       </div>
 
-      {/* Category pills */}
       <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
         <button
           type="button"
@@ -209,7 +197,6 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
         ))}
       </div>
 
-      {/* Recents & Favourites strips */}
       {showStrips && (
         <div className="flex flex-col gap-4">
           <HorizontalStrip
@@ -229,7 +216,6 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
         </div>
       )}
 
-      {/* Activity grid */}
       <div>
         {showStrips && (
           <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2 font-medium px-1">
@@ -251,7 +237,6 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
               />
             ))}
 
-            {/* Custom activity card */}
             {!query && !showCustom && (
               <button
                 type="button"
@@ -284,7 +269,6 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
         )}
       </div>
 
-      {/* Custom activity input */}
       {showCustom && (
         <div className="glass-card rounded-xl p-3 flex flex-col gap-2">
           <p className="text-xs font-medium">Custom activity</p>
@@ -317,22 +301,26 @@ export function ActivityPickerContent({ onSelect, compact }: ActivityPickerConte
   )
 }
 
-// ─── Sheet wrapper ────────────────────────────────────────────────────────────
-
 interface ActivityPickerProps {
   open: boolean
-  onClose: () => void
+  onClose?: () => void
+  onOpenChange?: (open: boolean) => void
   onSelect: (activity: AnyActivity) => void
 }
 
-export function ActivityPicker({ open, onClose, onSelect }: ActivityPickerProps) {
+export function ActivityPicker({ open, onClose, onOpenChange, onSelect }: ActivityPickerProps) {
+  const setOpen = (nextOpen: boolean) => {
+    onOpenChange?.(nextOpen)
+    if (!nextOpen) onClose?.()
+  }
+
   const handleSelect = (activity: AnyActivity) => {
     onSelect(activity)
-    onClose()
+    setOpen(false)
   }
 
   return (
-    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent
         side="bottom"
         className="max-h-[85dvh] flex flex-col rounded-t-2xl px-0 pb-0"
@@ -348,8 +336,6 @@ export function ActivityPicker({ open, onClose, onSelect }: ActivityPickerProps)
     </Sheet>
   )
 }
-
-// ─── Inline activity badge (displays the chosen activity) ─────────────────────
 
 interface ActivityBadgeProps {
   activity: AnyActivity
