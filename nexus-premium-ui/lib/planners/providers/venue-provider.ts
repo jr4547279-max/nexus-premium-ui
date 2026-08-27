@@ -24,7 +24,9 @@ export const ACTIVITY_OSM_TAGS: Record<string, OsmTagSet[]> = {
   'board-games':  [{ key: 'amenity', value: 'pub' }, { key: 'leisure', value: 'amusement_arcade' }],
   'escape-room':  [{ key: 'leisure', value: 'escape_game' }],
   'gym':          [{ key: 'leisure', value: 'fitness_centre' }, { key: 'leisure', value: 'sports_centre' }],
-  'swimming':     [{ key: 'leisure', value: 'swimming_pool' }],
+  'swimming':     [{ key: 'leisure', value: 'swimming_pool' }, { key: 'leisure', value: 'water_park' }, { key: 'sport', value: 'swimming' }],
+  'beach':        [{ key: 'natural', value: 'beach' }],
+  'picnic':       [{ key: 'tourism', value: 'picnic_site' }, { key: 'leisure', value: 'park' }, { key: 'leisure', value: 'garden' }],
 }
 
 /** Returns the OSM tag sets for a given activity, or a pub fallback. */

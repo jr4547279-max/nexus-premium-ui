@@ -19,22 +19,26 @@ const PLANNER_REGISTRY: Record<string, PlannerDefinition> = {
   // Multi-stop pub crawl — Google Places first, real OSM fallback.
   'pub-crawl': googlePubCrawlPlanner,
 
-  // Route planners — OSRM routing, real routes, no API key
+  // Route planners — OSRM routing, real routes, no API key.
   'jogging': joggingPlanner,
   'walking': walkingPlanner,
   'hiking': hikingPlanner,
   'cycling': cyclingPlanner,
 
-  // Single-venue planners — uses OSM for real venues, mock as fallback
-  'cocktail-bar':  createSingleVenuePlanner({ activityId: 'cocktail-bar',  activityEmoji: '🍹', activityLabel: 'Cocktail Bar' }),
-  'restaurant':    createSingleVenuePlanner({ activityId: 'restaurant',    activityEmoji: '🍽️', activityLabel: 'Restaurant' }),
-  'brunch':        createSingleVenuePlanner({ activityId: 'brunch',        activityEmoji: '🥞', activityLabel: 'Brunch' }),
-  'coffee':        createSingleVenuePlanner({ activityId: 'coffee',        activityEmoji: '☕', activityLabel: 'Coffee' }),
-  'cinema':        createSingleVenuePlanner({ activityId: 'cinema',        activityEmoji: '🎬', activityLabel: 'Cinema' }),
-  'bowling':       createSingleVenuePlanner({ activityId: 'bowling',       activityEmoji: '🎳', activityLabel: 'Bowling' }),
-  'live-music':    createSingleVenuePlanner({ activityId: 'live-music',    activityEmoji: '🎵', activityLabel: 'Live Music' }),
-  'board-games':   createSingleVenuePlanner({ activityId: 'board-games',   activityEmoji: '🎲', activityLabel: 'Board Games' }),
-  'escape-room':   createSingleVenuePlanner({ activityId: 'escape-room',   activityEmoji: '🔐', activityLabel: 'Escape Room' }),
+  // Venue/location planners — real OpenStreetMap results only.
+  'swimming':     createSingleVenuePlanner({ activityId: 'swimming',     activityEmoji: '🏊', activityLabel: 'Swimming' }),
+  'gym':          createSingleVenuePlanner({ activityId: 'gym',          activityEmoji: '💪', activityLabel: 'Gym' }),
+  'beach':        createSingleVenuePlanner({ activityId: 'beach',        activityEmoji: '🏖️', activityLabel: 'Beach' }),
+  'picnic':       createSingleVenuePlanner({ activityId: 'picnic',       activityEmoji: '🧺', activityLabel: 'Picnic' }),
+  'cocktail-bar': createSingleVenuePlanner({ activityId: 'cocktail-bar', activityEmoji: '🍹', activityLabel: 'Cocktail Bar' }),
+  'restaurant':   createSingleVenuePlanner({ activityId: 'restaurant',   activityEmoji: '🍽️', activityLabel: 'Restaurant' }),
+  'brunch':       createSingleVenuePlanner({ activityId: 'brunch',       activityEmoji: '🥞', activityLabel: 'Brunch' }),
+  'coffee':       createSingleVenuePlanner({ activityId: 'coffee',       activityEmoji: '☕', activityLabel: 'Coffee' }),
+  'cinema':       createSingleVenuePlanner({ activityId: 'cinema',       activityEmoji: '🎬', activityLabel: 'Cinema' }),
+  'bowling':      createSingleVenuePlanner({ activityId: 'bowling',      activityEmoji: '🎳', activityLabel: 'Bowling' }),
+  'live-music':   createSingleVenuePlanner({ activityId: 'live-music',   activityEmoji: '🎵', activityLabel: 'Live Music' }),
+  'board-games':  createSingleVenuePlanner({ activityId: 'board-games',  activityEmoji: '🎲', activityLabel: 'Board Games' }),
+  'escape-room':  createSingleVenuePlanner({ activityId: 'escape-room',  activityEmoji: '🔐', activityLabel: 'Escape Room' }),
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

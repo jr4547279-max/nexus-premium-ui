@@ -19,9 +19,6 @@ import { SocialPeopleScreen } from './social-people-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
-// DEV-ONLY: static import is fine — badge + panel are gated at render time by
-// NODE_ENV. Remove this import + the 'dev-test' Screen entry to strip entirely.
-import { DevTestPanel } from './dev-test-panel'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
@@ -39,13 +36,11 @@ type Screen =
   | 'profile'
   | 'social'
   | 'run-tracker'
-  // DEV-ONLY — remove before production
-  | 'dev-test'
 
 export function NexusApp() {
   const { session, loading, profile, profileLoading, signOut } = useAuth()
   const [currentScreen, setCurrentScreen] = useState<Screen>('resolving')
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('1')
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [prevGroupScreen, setPrevGroupScreen] = useState<Screen>('home')
   const [onboardingReturnTo, setOnboardingReturnTo] = useState<Screen>('home')
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
@@ -148,9 +143,7 @@ export function NexusApp() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <GoldenRing size="md" intensity="subtle" />
-          <p className="text-muted-foreground text-xs tracking-widest animate-pulse">
-            NEXUS
-          </p>
+          <p className="text-muted-foreground text-xs tracking-widest animate-pulse">NEXUS</p>
         </div>
       </div>
     )
@@ -224,7 +217,7 @@ export function NexusApp() {
       break
 
     case 'group-detail':
-      screenContent = (
+      screenContent = selectedGroupId ? (
         <GroupDetail
           groupId={selectedGroupId}
           onBack={() => setCurrentScreen(prevGroupScreen)}
@@ -232,6 +225,7 @@ export function NexusApp() {
           onNavigate={handleNavigate}
           onGroupDeleted={() => {
             setGroupsVersion((v) => v + 1)
+            setSelectedGroupId(null)
             setCurrentScreen(prevGroupScreen)
           }}
           onStartRun={(plan) => {
@@ -239,11 +233,17 @@ export function NexusApp() {
             setCurrentScreen('run-tracker')
           }}
         />
+      ) : (
+        <GroupsScreen
+          onGroupClick={(id) => handleGroupClick(id, 'groups')}
+          onNavigate={handleNavigate}
+          onCreateGroup={handleCreateGroup}
+        />
       )
       break
 
     case 'run-tracker':
-      screenContent = activeRunPlan ? (
+      screenContent = activeRunPlan && selectedGroupId ? (
         <RunTracker
           plan={activeRunPlan}
           onBack={() => setCurrentScreen('group-detail')}
@@ -254,7 +254,7 @@ export function NexusApp() {
     case 'golden-window':
       screenContent = (
         <GoldenWindowReveal
-          groupId={selectedGroupId}
+          groupId={selectedGroupId ?? undefined}
           onBack={() => setCurrentScreen('group-detail')}
           onConfirm={() => setCurrentScreen('home')}
         />
@@ -285,17 +285,7 @@ export function NexusApp() {
       break
 
     case 'social':
-      screenContent = (
-        <SocialPeopleScreen
-          onNavigate={handleNavigate}
-        />
-      )
-      break
-
-    case 'dev-test':
-      screenContent = process.env.NEXT_PUBLIC_DEV_TOOLS === 'true'
-        ? <DevTestPanel onBack={() => setCurrentScreen('groups')} />
-        : null
+      screenContent = <SocialPeopleScreen onNavigate={handleNavigate} />
       break
 
     default:
