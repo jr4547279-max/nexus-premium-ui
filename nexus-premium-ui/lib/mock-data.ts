@@ -1,5 +1,34 @@
 // Static product configuration retained for onboarding and marketing surfaces.
 // Runtime user, group, venue, activity-feed, and notification fixtures have been removed.
+//
+// Two legacy components still import the old fixture names while their real-data
+// paths are active. Keep those exports explicitly empty/non-demo so the build is
+// truthful while the remaining legacy branches are retired. They must never be
+// used as a fallback for real Supabase data.
+
+export interface LegacyGroupFixture {
+  id: string
+  name: string
+  emoji: string
+  memberCount: number
+  members: Array<{ id: string; name: string; avatar: string; synced?: boolean }>
+  pendingConfirmations: number
+  hasGoldenWindow: boolean
+  goldenWindow?: {
+    date: string
+    time: string
+    endTime: string
+    duration: string
+    confidence: number
+    avgTravelTime: number
+  }
+}
+
+export const mockGroups: LegacyGroupFixture[] = []
+
+export const mockUser: { connectedCalendars: string[] } = {
+  connectedCalendars: [],
+}
 
 export const onboardingSteps = [
   {
