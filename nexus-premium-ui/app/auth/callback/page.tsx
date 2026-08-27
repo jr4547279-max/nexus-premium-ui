@@ -8,19 +8,6 @@ import { AlertTriangle } from 'lucide-react'
 
 type Phase = 'exchanging' | 'done' | 'error'
 
-/**
- * Browser-side Supabase OAuth callback.
- *
- * The login screen starts a PKCE OAuth flow and sends the provider back to
- * this route with a one-time `code`. We exchange that code for the browser
- * session, then return to the app.
- *
- * This handler is deliberately tolerant of a duplicate callback. Browsers,
- * previews, or an already-consumed OAuth state can cause the same callback to
- * be reached twice. If the first request already established a session, the
- * second request simply reuses that session instead of showing a false login
- * failure.
- */
 export default function AuthCallbackPage() {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('exchanging')
@@ -31,62 +18,57 @@ export default function AuthCallbackPage() {
     if (hasStarted.current) return
     hasStarted.current = true
 
+    let active = true
+    const finishWithError = (message: string) => {
+      if (!active) return
+      setErrorMessage(message)
+      setPhase('error')
+      window.setTimeout(() => router.replace('/'), 5000)
+    }
+
     const handleCallback = async () => {
       const url = new URL(window.location.href)
-
       const oauthError = url.searchParams.get('error')
       const oauthErrorDesc = url.searchParams.get('error_description')
+
       if (oauthError) {
-        const msg =
+        finishWithError(
           oauthError === 'access_denied'
             ? 'Sign-in was cancelled.'
-            : (oauthErrorDesc ?? oauthError)
-        setErrorMessage(msg)
-        setPhase('error')
-        setTimeout(() => router.replace('/'), 3000)
+            : (oauthErrorDesc ? decodeURIComponent(oauthErrorDesc) : oauthError),
+        )
         return
       }
 
       const code = url.searchParams.get('code')
       if (code) {
-        // A PKCE code is one-time-use. Remember codes we've already attempted
-        // so a duplicate navigation cannot deliberately consume it twice.
         const storageKey = `nexus-oauth-code:${code}`
         const alreadyAttempted = window.sessionStorage.getItem(storageKey) === '1'
-        if (alreadyAttempted) {
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session) {
-            setPhase('done')
-            router.replace('/')
-            return
+
+        if (!alreadyAttempted) {
+          window.sessionStorage.setItem(storageKey, '1')
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (!session) {
+              finishWithError(error.message || 'Google sign-in could not be completed.')
+              return
+            }
           }
         }
 
-        window.sessionStorage.setItem(storageKey, '1')
-
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (error) {
-          // If another callback already consumed the code, the session may
-          // nevertheless be valid. Check before reporting a real failure.
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session) {
-            setPhase('done')
-            router.replace('/')
-            return
-          }
-
-          setErrorMessage('Sign-in failed — please try again.')
-          setPhase('error')
-          setTimeout(() => router.replace('/'), 4000)
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          setPhase('done')
+          router.replace('/')
           return
         }
 
-        setPhase('done')
-        router.replace('/')
+        finishWithError('Google sign-in completed without creating a session. Please try again.')
         return
       }
 
-      // Fallback for an implicit-flow response.
+      // Support an implicit-flow response as a safe fallback.
       const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash
       const hashParams = new URLSearchParams(hash)
       const accessToken = hashParams.get('access_token')
@@ -97,9 +79,7 @@ export default function AuthCallbackPage() {
           refresh_token: refreshToken,
         })
         if (error) {
-          setErrorMessage('Sign-in failed — could not establish your session.')
-          setPhase('error')
-          setTimeout(() => router.replace('/'), 4000)
+          finishWithError(error.message || 'Google sign-in could not establish a session.')
           return
         }
         setPhase('done')
@@ -107,10 +87,21 @@ export default function AuthCallbackPage() {
         return
       }
 
-      router.replace('/')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        router.replace('/')
+      } else {
+        finishWithError('No authentication response was received. Please try signing in again.')
+      }
     }
 
-    handleCallback()
+    handleCallback().catch((error) => {
+      finishWithError(error instanceof Error ? error.message : 'Unable to complete Google sign-in.')
+    })
+
+    return () => {
+      active = false
+    }
   }, [router])
 
   if (phase === 'error') {
@@ -122,11 +113,18 @@ export default function AuthCallbackPage() {
           </div>
           <div>
             <p className="text-sm font-medium text-foreground">Sign-in failed</p>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed break-words">
               {errorMessage ?? 'Something went wrong. Returning to the app…'}
             </p>
           </div>
-          <p className="text-[10px] text-muted-foreground/50 tracking-wide">Redirecting…</p>
+          <button
+            type="button"
+            onClick={() => router.replace('/')}
+            className="rounded-full bg-primary px-5 py-2 text-xs text-primary-foreground"
+          >
+            Back to Nexus
+          </button>
+          <p className="text-[10px] text-muted-foreground/50 tracking-wide">Returning automatically…</p>
         </div>
       </div>
     )
