@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: nexus-premium-ui
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
