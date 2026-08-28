@@ -69,7 +69,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     let cancelled = false
     let map: MapInstance | null = null
     const initTimeout = window.setTimeout(() => {
-      if (!cancelled && !mapRef.current) setMapError('The world map is taking too long to initialise. Check your connection and try again.')
+      if (!cancelled && !mapReady) setMapError('The world map is taking too long to initialise. Check your connection and try again.')
     }, 12000)
 
     import('maplibre-gl').then((maplibregl) => {
