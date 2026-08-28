@@ -6,8 +6,7 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 COPY package.json ./
-COPY pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 COPY . .
 RUN pnpm run build
 
