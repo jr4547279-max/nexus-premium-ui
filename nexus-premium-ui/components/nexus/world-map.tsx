@@ -68,6 +68,9 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     if (!containerRef.current) return
     let cancelled = false
     let map: MapInstance | null = null
+    const initTimeout = window.setTimeout(() => {
+      if (!cancelled && !mapRef.current) setMapError('The world map is taking too long to initialise. Check your connection and try again.')
+    }, 12000)
 
     import('maplibre-gl').then((maplibregl) => {
       if (cancelled || !containerRef.current) return
@@ -82,7 +85,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           zoom: 3.4,
           pitch: 18,
           bearing: 0,
-          attributionControl: true,
+          attributionControl: { compact: true },
           maxPitch: 72,
           canvasContextAttributes: { antialias: true, powerPreference: 'high-performance' },
           fadeDuration: 200,
@@ -93,21 +96,9 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
         try { map.setProjection({ type: 'globe' }) } catch { /* progressive enhancement */ }
         map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: true }), 'bottom-right')
 
-        map.on('style.load', () => {
-          if (!map) return
-          try {
-            map.setFog({
-              color: 'rgba(4,8,16,.82)',
-              'high-color': 'rgba(10,18,35,.70)',
-              'horizon-blend': 0.16,
-              'space-color': '#02040a',
-              'star-intensity': 0.35,
-            })
-          } catch { /* optional */ }
-        })
-
         map.on('load', () => {
           if (!map) return
+          window.clearTimeout(initTimeout)
           const sourceId = 'openmaptiles'
           if (map.getSource(sourceId) && !map.getLayer('nexus-3d-buildings')) {
             const symbolLayer = map.getStyle().layers?.find((layer) => layer.type === 'symbol')?.id
@@ -140,18 +131,25 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           }, () => undefined, { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 })
         })
 
-        map.on('error', (event) => console.warn('[NEXUS WORLD]', event.error?.message ?? event))
+        map.on('error', (event) => {
+          const message = event.error?.message ?? 'The world map encountered a rendering error.'
+          console.warn('[NEXUS WORLD]', message)
+          if (!mapReady) setMapError(message)
+        })
       } catch (error) {
+        window.clearTimeout(initTimeout)
         console.error('[NEXUS WORLD] Map initialisation failed', error)
         setMapError('The 3D world could not initialise on this device.')
       }
     }).catch((error) => {
+      window.clearTimeout(initTimeout)
       console.error('[NEXUS WORLD] MapLibre import failed', error)
       setMapError('The map renderer could not load.')
     })
 
     return () => {
       cancelled = true
+      window.clearTimeout(initTimeout)
       markersRef.current.forEach(({ marker }) => marker.remove())
       markersRef.current = []
       map?.remove()
@@ -228,7 +226,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const countLabel = useMemo(() => `${venues.length} ${VIBE_LABEL[vibe].toLowerCase()} ${venues.length === 1 ? 'spot' : 'spots'}`, [venues.length, vibe])
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#02040a]">
+    <div className="nexus-world relative h-full w-full overflow-hidden bg-[#02040a]">
       <style jsx global>{`
         .nexus-venue-marker{position:relative;width:34px;height:48px;border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:flex-end;justify-content:center;filter:drop-shadow(0 0 10px rgba(251,191,36,.55));}
         .nexus-marker-core{position:relative;width:28px;height:28px;border-radius:999px;background:radial-gradient(circle at 35% 30%,#fff 0 8%,var(--marker-tone) 25%,rgba(0,0,0,.88) 72%);border:1px solid color-mix(in srgb,var(--marker-tone) 80%,white 20%);box-shadow:0 0 10px var(--marker-tone),0 0 28px color-mix(in srgb,var(--marker-tone) 55%,transparent),inset 0 0 10px rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:12px;color:white;z-index:2;}
