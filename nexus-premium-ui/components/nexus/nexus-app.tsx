@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth-context'
+import { CANONICAL_SITE_URL } from '@/lib/auth-context'
 import { LandingPage } from './landing-page'
 import { AuthScreen } from './auth-screen'
 import { OnboardingFlow } from './onboarding-flow'
@@ -19,8 +20,6 @@ import { SocialPeopleScreen } from './social-people-screen'
 import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
-// DEV-ONLY: static import is fine — badge + panel are gated at render time by
-// NODE_ENV. Remove this import + the 'dev-test' Screen entry to strip entirely.
 import { DevTestPanel } from './dev-test-panel'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
@@ -39,7 +38,6 @@ type Screen =
   | 'profile'
   | 'social'
   | 'run-tracker'
-  // DEV-ONLY — remove before production
   | 'dev-test'
 
 export function NexusApp() {
@@ -51,17 +49,25 @@ export function NexusApp() {
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [groupsVersion, setGroupsVersion] = useState(0)
   const [activeRunPlan, setActiveRunPlan] = useState<PlannerResult | null>(null)
-
   const initializedRef = useRef(false)
+
+  // Netlify is the canonical production deployment. If an old Vercel deployment
+  // is ever reached (including after an auth flow), immediately return to Netlify.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const host = window.location.hostname
+    const isOldVercelHost = host.endsWith('.vercel.app') || host === 'vercel.app'
+    const isCanonicalHost = host === new URL(CANONICAL_SITE_URL).hostname
+    if (isOldVercelHost && !isCanonicalHost) {
+      window.location.replace(`${CANONICAL_SITE_URL}${window.location.pathname}${window.location.search}${window.location.hash}`)
+    }
+  }, [])
 
   useEffect(() => {
     if (loading) return
     if (initializedRef.current) return
     initializedRef.current = true
-
-    if (!session) {
-      setCurrentScreen('landing')
-    }
+    if (!session) setCurrentScreen('landing')
   }, [loading, session])
 
   useEffect(() => {
@@ -69,7 +75,6 @@ export function NexusApp() {
     if (currentScreen !== 'resolving') return
     if (!session) return
     if (profileLoading) return
-
     const next = profile?.onboarding_completed ? 'home' : 'onboarding'
     setCurrentScreen(next)
   }, [currentScreen, session, profileLoading, profile])
@@ -77,24 +82,14 @@ export function NexusApp() {
   useEffect(() => {
     if (!session) return
     let pending: string | null = null
-    try {
-      pending = localStorage.getItem(PENDING_INVITE_KEY)
-    } catch {
-      return
-    }
+    try { pending = localStorage.getItem(PENDING_INVITE_KEY) } catch { return }
     if (!pending) return
-    try {
-      localStorage.removeItem(PENDING_INVITE_KEY)
-    } catch {
-      // removal is best-effort — ignore storage errors
-    }
+    try { localStorage.removeItem(PENDING_INVITE_KEY) } catch {}
     joinGroupByInvite(pending).then(({ groupId, errorMessage }) => {
       if (groupId) {
         toast.success('Joined group')
         setGroupsVersion((v) => v + 1)
-      } else if (errorMessage) {
-        toast.error(errorMessage)
-      }
+      } else if (errorMessage) toast.error(errorMessage)
     })
   }, [session])
 
@@ -111,21 +106,15 @@ export function NexusApp() {
     setCurrentScreen(screen as Screen)
   }
 
-  const handleCreateGroup = () => {
-    setCreateGroupOpen(true)
-  }
-
-  const handleGroupCreated = () => {
-    setGroupsVersion((v) => v + 1)
-  }
+  const handleCreateGroup = () => setCreateGroupOpen(true)
+  const handleGroupCreated = () => setGroupsVersion((v) => v + 1)
 
   const handleLogout = async () => {
     await signOut()
     setCurrentScreen('landing')
   }
 
-  const isEditingPreferences =
-    currentScreen === 'onboarding' && Boolean(profile?.onboarding_completed)
+  const isEditingPreferences = currentScreen === 'onboarding' && Boolean(profile?.onboarding_completed)
 
   const handleOnboardingComplete = () => {
     if (isEditingPreferences) {
@@ -148,163 +137,68 @@ export function NexusApp() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <GoldenRing size="md" intensity="subtle" />
-          <p className="text-muted-foreground text-xs tracking-widest animate-pulse">
-            NEXUS
-          </p>
+          <p className="text-muted-foreground text-xs tracking-widest animate-pulse">NEXUS</p>
         </div>
       </div>
     )
   }
 
   if (currentScreen === 'landing') {
-    return (
-      <LandingPage
-        onGetStarted={() => setCurrentScreen('onboarding')}
-        onLogin={() => setCurrentScreen('auth')}
-      />
-    )
+    return <LandingPage onGetStarted={() => setCurrentScreen('onboarding')} onLogin={() => setCurrentScreen('auth')} />
   }
 
   if (currentScreen === 'auth') {
-    return (
-      <AuthScreen
-        onBack={() => setCurrentScreen('landing')}
-        onSuccess={() => setCurrentScreen('resolving')}
-      />
-    )
+    return <AuthScreen onBack={() => setCurrentScreen('landing')} onSuccess={() => setCurrentScreen('resolving')} />
   }
 
   if (currentScreen === 'onboarding') {
-    return (
-      <OnboardingFlow
-        editMode={isEditingPreferences}
-        onComplete={handleOnboardingComplete}
-        onBack={handleOnboardingBack}
-      />
-    )
+    return <OnboardingFlow editMode={isEditingPreferences} onComplete={handleOnboardingComplete} onBack={handleOnboardingBack} />
   }
 
   let screenContent: React.ReactNode
-
   switch (currentScreen) {
     case 'home':
       screenContent = (
         <>
-          <Dashboard
-            key={`dashboard-${groupsVersion}`}
-            onGroupClick={(id) => handleGroupClick(id, 'home')}
-            onNavigate={handleNavigate}
-            onCreateGroup={handleCreateGroup}
-          />
-          <CreateGroupModal
-            open={createGroupOpen}
-            onOpenChange={setCreateGroupOpen}
-            onCreated={handleGroupCreated}
-          />
+          <Dashboard key={`dashboard-${groupsVersion}`} onGroupClick={(id) => handleGroupClick(id, 'home')} onNavigate={handleNavigate} onCreateGroup={handleCreateGroup} />
+          <CreateGroupModal open={createGroupOpen} onOpenChange={setCreateGroupOpen} onCreated={handleGroupCreated} />
         </>
       )
       break
-
     case 'groups':
       screenContent = (
         <>
-          <GroupsScreen
-            key={`groups-${groupsVersion}`}
-            onGroupClick={(id) => handleGroupClick(id, 'groups')}
-            onNavigate={handleNavigate}
-            onCreateGroup={handleCreateGroup}
-          />
-          <CreateGroupModal
-            open={createGroupOpen}
-            onOpenChange={setCreateGroupOpen}
-            onCreated={handleGroupCreated}
-          />
+          <GroupsScreen key={`groups-${groupsVersion}`} onGroupClick={(id) => handleGroupClick(id, 'groups')} onNavigate={handleNavigate} onCreateGroup={handleCreateGroup} />
+          <CreateGroupModal open={createGroupOpen} onOpenChange={setCreateGroupOpen} onCreated={handleGroupCreated} />
         </>
       )
       break
-
     case 'group-detail':
-      screenContent = (
-        <GroupDetail
-          groupId={selectedGroupId}
-          onBack={() => setCurrentScreen(prevGroupScreen)}
-          onViewGoldenWindow={() => setCurrentScreen('golden-window')}
-          onNavigate={handleNavigate}
-          onGroupDeleted={() => {
-            setGroupsVersion((v) => v + 1)
-            setCurrentScreen(prevGroupScreen)
-          }}
-          onStartRun={(plan) => {
-            setActiveRunPlan(plan)
-            setCurrentScreen('run-tracker')
-          }}
-        />
-      )
+      screenContent = <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen(prevGroupScreen)} onViewGoldenWindow={() => setCurrentScreen('golden-window')} onNavigate={handleNavigate} onGroupDeleted={() => { setGroupsVersion((v) => v + 1); setCurrentScreen(prevGroupScreen) }} onStartRun={(plan) => { setActiveRunPlan(plan); setCurrentScreen('run-tracker') }} />
       break
-
     case 'run-tracker':
-      screenContent = activeRunPlan ? (
-        <RunTracker
-          plan={activeRunPlan}
-          onBack={() => setCurrentScreen('group-detail')}
-        />
-      ) : null
+      screenContent = activeRunPlan ? <RunTracker plan={activeRunPlan} onBack={() => setCurrentScreen('group-detail')} /> : null
       break
-
     case 'golden-window':
-      screenContent = (
-        <GoldenWindowReveal
-          groupId={selectedGroupId}
-          onBack={() => setCurrentScreen('group-detail')}
-          onConfirm={() => setCurrentScreen('home')}
-        />
-      )
+      screenContent = <GoldenWindowReveal groupId={selectedGroupId} onBack={() => setCurrentScreen('group-detail')} onConfirm={() => setCurrentScreen('home')} />
       break
-
     case 'activity':
-      screenContent = (
-        <ActivityScreen
-          onBack={() => setCurrentScreen('home')}
-          onNavigate={handleNavigate}
-        />
-      )
+      screenContent = <ActivityScreen onBack={() => setCurrentScreen('home')} onNavigate={handleNavigate} />
       break
-
     case 'world':
       screenContent = <WorldScreen onNavigate={handleNavigate} />
       break
-
     case 'profile':
-      screenContent = (
-        <ProfileScreen
-          onBack={() => setCurrentScreen('home')}
-          onNavigate={handleNavigate}
-          onLogout={handleLogout}
-        />
-      )
+      screenContent = <ProfileScreen onBack={() => setCurrentScreen('home')} onNavigate={handleNavigate} onLogout={handleLogout} />
       break
-
     case 'social':
-      screenContent = (
-        <SocialPeopleScreen
-          onNavigate={handleNavigate}
-        />
-      )
+      screenContent = <SocialPeopleScreen onNavigate={handleNavigate} />
       break
-
     case 'dev-test':
-      screenContent = process.env.NEXT_PUBLIC_DEV_TOOLS === 'true'
-        ? <DevTestPanel onBack={() => setCurrentScreen('groups')} />
-        : null
+      screenContent = process.env.NEXT_PUBLIC_DEV_TOOLS === 'true' ? <DevTestPanel onBack={() => setCurrentScreen('groups')} /> : null
       break
-
     default:
-      screenContent = (
-        <LandingPage
-          onGetStarted={() => setCurrentScreen('onboarding')}
-          onLogin={() => setCurrentScreen('auth')}
-        />
-      )
+      screenContent = <LandingPage onGetStarted={() => setCurrentScreen('onboarding')} onLogin={() => setCurrentScreen('auth')} />
   }
 
   return <>{screenContent}</>
