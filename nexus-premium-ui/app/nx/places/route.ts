@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { hasValidProviderLocation, venueDistanceKm } from '@/lib/venue-location'
 
 /**
  * Phase 5: Google Places (New) text-search proxy.
@@ -59,17 +60,6 @@ interface PlaceApiResponse {
     photos?: Array<{ name?: string }>
   }>
   error?: { message?: string; status?: string }
-}
-
-function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const R = 6371
-  const toRad = (d: number) => (d * Math.PI) / 180
-  const dLat = toRad(bLat - aLat)
-  const dLng = toRad(bLng - aLng)
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2
-  return 2 * R * Math.asin(Math.sqrt(x))
 }
 
 export async function GET(req: Request) {
@@ -215,11 +205,19 @@ export async function GET(req: Request) {
     )
   }
 
-  const venues = (upstream.places ?? []).map((p) => {
+  const venues = (upstream.places ?? []).flatMap((p) => {
     const placeLat = p.location?.latitude ?? null
     const placeLng = p.location?.longitude ?? null
-    const distance_km =
-      placeLat != null && placeLng != null ? haversineKm(lat, lng, placeLat, placeLng) : null
+    const name = p.displayName?.text?.trim() ?? ''
+
+    if (!hasValidProviderLocation({ name, lat: placeLat, lng: placeLng }, { lat, lng }, radius)) {
+      return []
+    }
+
+    // Do not replace, swap, jitter or otherwise transform provider coordinates.
+    const providerLat = placeLat as number
+    const providerLng = placeLng as number
+    const distance_km = venueDistanceKm({ lat, lng }, { lat: providerLat, lng: providerLng })
 
     // Lightweight composite score:
     //   rating × log10(reviews+10)  → quality + popularity
@@ -238,8 +236,8 @@ export async function GET(req: Request) {
       ? `/nx/places/photo?name=${encodeURIComponent(photoName)}&w=200&h=200`
       : null
 
-    return {
-      name: p.displayName?.text ?? 'Unknown',
+    return [{
+      name,
       rating: rating || null,
       rating_count: ratingCount || null,
       open_now: openNow,
@@ -249,11 +247,11 @@ export async function GET(req: Request) {
       maps_url: p.googleMapsUri ?? null,
       price_level: p.priceLevel ?? null,
       distance_km,
-      lat: placeLat,
-      lng: placeLng,
+      lat: providerLat,
+      lng: providerLng,
       photo_url,
       score,
-    }
+    }]
   })
 
   venues.sort((a, b) => b.score - a.score)

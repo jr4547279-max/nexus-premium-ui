@@ -1,20 +1,10 @@
 import type { PlannerVenue, VenueProvider, PriceLevel } from '../types'
 import { getOsmTagsForActivity, type OsmTagSet } from './venue-provider'
+import { hasValidProviderLocation, venueDistanceKm } from '../../venue-location'
 
 // This provider keeps the existing OSM fallback, but pub-crawl now prefers the
 // same Google Places (New) source used by /nx/places. That gives the crawl real
 // pub names, ratings, review counts and photos instead of dropping to demo data.
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371
-  const toRad = (x: number) => (x * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLng = toRad(lng2 - lng1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
 function parseOsmHours(oh: string | undefined): { open: string; close: string } | null {
   if (!oh) return null
@@ -164,7 +154,7 @@ async function getGooglePubs(
         openingHoursKnown: openNow !== null,
         capacity: 'medium',
         tags: openNow === true ? [...tags, 'open-now'] : tags,
-        distanceFromCentre: Math.round(haversineKm(location.lat, location.lng, lat, lng) * 100) / 100,
+        distanceFromCentre: Math.round(venueDistanceKm(location, { lat, lng }) * 100) / 100,
         mapsUrl: place.googleMapsUri ?? null,
         address: place.formattedAddress ?? null,
         website: null,
@@ -174,7 +164,9 @@ async function getGooglePubs(
         ratingCount,
       } as PlannerVenue
     })
-    .filter((venue): venue is PlannerVenue => venue !== null)
+    .filter((venue): venue is PlannerVenue =>
+      venue !== null && hasValidProviderLocation(venue, location, radius),
+    )
     .sort((a, b) => {
       const ratingA = a.rating * Math.log10((a as PlannerVenue & { ratingCount?: number }).ratingCount ?? 0 + 10)
       const ratingB = b.rating * Math.log10((b as PlannerVenue & { ratingCount?: number }).ratingCount ?? 0 + 10)
@@ -238,25 +230,31 @@ export class OpenStreetMapVenueProvider implements VenueProvider {
 
       const elLat = el.type === 'node' ? el.lat! : el.center?.lat
       const elLng = el.type === 'node' ? el.lon! : el.center?.lon
-      if (elLat == null || elLng == null) continue
+      if (!hasValidProviderLocation(
+        { name, lat: elLat, lng: elLng },
+        location,
+        this.radiusMetres,
+      )) continue
+      const providerLat = elLat as number
+      const providerLng = elLng as number
 
-      const dedupeKey = `${name}|${Math.round(elLat * 1000)}|${Math.round(elLng * 1000)}`
+      const dedupeKey = `${name}|${Math.round(providerLat * 1000)}|${Math.round(providerLng * 1000)}`
       if (seen.has(dedupeKey)) continue
       seen.add(dedupeKey)
 
       const hours = parseOsmHours(tags['opening_hours'])
-      const dist = haversineKm(lat, lng, elLat, elLng)
+      const dist = venueDistanceKm(location, { lat: providerLat, lng: providerLng })
       const addressParts = [tags['addr:housenumber'], tags['addr:street'], tags['addr:city']].filter(Boolean)
       const address = addressParts.length > 0 ? addressParts.join(' ') : (tags['addr:full'] ?? null)
-      const osmMapUrl = `https://www.openstreetmap.org/?mlat=${elLat}&mlon=${elLng}#map=18/${elLat}/${elLng}`
+      const osmMapUrl = `https://www.openstreetmap.org/?mlat=${providerLat}&mlon=${providerLng}#map=18/${providerLat}/${providerLng}`
       const TAG_KEYS = ['cuisine', 'sport', 'music', 'amenity', 'leisure', 'genre']
       const venueTags = TAG_KEYS.map((k) => tags[k]).filter((v): v is string => !!v)
 
       venues.push({
         id: `osm-${el.type}-${el.id}`,
         name,
-        lat: elLat,
-        lng: elLng,
+        lat: providerLat,
+        lng: providerLng,
         rating: 0,
         ratingKnown: false,
         priceLevel: 2,
