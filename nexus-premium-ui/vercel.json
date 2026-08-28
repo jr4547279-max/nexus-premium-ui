@@ -2,5 +2,6 @@
   "framework": "nextjs",
   "installCommand": "corepack enable && corepack pnpm install --no-frozen-lockfile",
   "buildCommand": "corepack pnpm build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "ignoreCommand": "echo 'Nexus production is managed by Netlify'; exit 0"
 }
