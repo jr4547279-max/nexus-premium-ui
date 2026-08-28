@@ -1,6 +1,6 @@
 [build]
   base = "/"
-  command = "pnpm run build"
+  command = "node nexus-premium-ui/scripts/copy-maplibre-worker.mjs && cd nexus-premium-ui && next build && rm -rf ../.next && cp -R .next ../.next"
   publish = ".next"
 
 [build.environment]
