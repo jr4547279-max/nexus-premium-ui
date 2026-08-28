@@ -1,10 +1,7 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { Providers } from '@/components/providers'
 import './globals.css'
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
   title: 'Nexus - Plans, Perfectly Aligned',
@@ -20,7 +17,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased min-h-screen bg-background`}>
+      <body className="font-sans antialiased min-h-screen bg-background">
         <Providers>
           {children}
           <Toaster position="bottom-center" toastOptions={{ style: { marginBottom: '72px' } }} />
