@@ -6,35 +6,14 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchVenues, VIBE_LABEL, type Venue, type Vibe } from '@/lib/venue-service'
 import { VenueDetailSheet } from './venue-detail-sheet'
 
-interface WorldMapProps {
-  onNavigate: (screen: string) => void
-}
-
+interface WorldMapProps { onNavigate: (screen: string) => void }
 type MapInstance = import('maplibre-gl').Map
-
-type MarkerEntry = {
-  marker: import('maplibre-gl').Marker
-  venue: Venue
-}
+type MarkerEntry = { marker: import('maplibre-gl').Marker; venue: Venue }
 
 const START = { lat: 50.7700, lng: 0.2767 }
 const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
-
-const VIBE_ICON: Record<Vibe, string> = {
-  pub: '🍺',
-  drinks: '✦',
-  food: '🍴',
-  coffee: '☕',
-  activity: '◆',
-}
-
-const VIBE_TONE: Record<Vibe, string> = {
-  pub: '#f59e0b',
-  drinks: '#fbbf24',
-  food: '#fb7185',
-  coffee: '#c084fc',
-  activity: '#34d399',
-}
+const VIBE_ICON: Record<Vibe, string> = { pub: '🍺', drinks: '✦', food: '🍴', coffee: '☕', activity: '◆' }
+const VIBE_TONE: Record<Vibe, string> = { pub: '#f59e0b', drinks: '#fbbf24', food: '#fb7185', coffee: '#c084fc', activity: '#34d399' }
 
 export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -43,7 +22,6 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const markersRef = useRef<MarkerEntry[]>([])
   const locationRef = useRef(START)
   const requestIdRef = useRef(0)
-
   const [vibe, setVibe] = useState<Vibe>('drinks')
   const [venues, setVenues] = useState<Venue[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,198 +35,116 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
 
   const loadVenues = useCallback(async (lat: number, lng: number, selectedVibe: Vibe) => {
     const requestId = ++requestIdRef.current
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     const result = await fetchVenues({ vibe: selectedVibe, lat, lng, radius: 5000, limit: 18 })
     if (requestId !== requestIdRef.current) return
     setVenues(result.venues.filter((v) => v.lat != null && v.lng != null))
-    setError(result.error ?? null)
-    setLoading(false)
+    setError(result.error ?? null); setLoading(false)
   }, [])
 
   const getUserLocation = useCallback(() => {
     if (!navigator.geolocation) return
     setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const next = { lat: position.coords.latitude, lng: position.coords.longitude }
-        locationRef.current = next
-        const map = mapRef.current
-        if (map) {
-          map.flyTo({ center: [next.lng, next.lat], zoom: 13, pitch: 35, bearing: 0, duration: 1400, essential: true })
-        }
-        void loadVenues(next.lat, next.lng, vibe)
-        setLocating(false)
-      },
-      () => setLocating(false),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
-    )
+    navigator.geolocation.getCurrentPosition((position) => {
+      const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+      locationRef.current = next
+      mapRef.current?.flyTo({ center: [next.lng, next.lat], zoom: 13, pitch: 35, bearing: 0, duration: 1400, essential: true })
+      void loadVenues(next.lat, next.lng, vibe); setLocating(false)
+    }, () => setLocating(false), { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 })
   }, [loadVenues, vibe])
 
   useEffect(() => {
     if (!containerRef.current) return
     let cancelled = false
     let map: MapInstance | null = null
-
     import('maplibre-gl').then((maplibregl) => {
       if (cancelled || !containerRef.current) return
       libRef.current = maplibregl
       map = new maplibregl.Map({
         container: containerRef.current,
         style: 'https://tiles.openfreemap.org/styles/dark',
-        center: [START.lng, START.lat],
-        zoom: 3.4,
-        pitch: 18,
-        bearing: 0,
-        projection: 'globe',
-        attributionControl: false,
-        maxPitch: 72,
-        canvasContextAttributes: { antialias: true },
+        center: [START.lng, START.lat], zoom: 3.4, pitch: 18, bearing: 0,
+        attributionControl: false, maxPitch: 72, canvasContextAttributes: { antialias: true },
       })
       mapRef.current = map
+      try { map.setProjection({ type: 'globe' }) } catch { /* globe is progressive enhancement */ }
       map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: true }), 'bottom-right')
-
       map.on('style.load', () => {
         if (!map) return
-        try {
-          map.setFog({
-            color: 'rgba(4, 8, 16, 0.88)',
-            'high-color': 'rgba(10, 18, 35, 0.75)',
-            'horizon-blend': 0.12,
-            'space-color': '#02040a',
-            'star-intensity': 0.35,
-          })
-        } catch { /* keep the map usable on runtimes without fog support */ }
+        try { map.setFog({ color: 'rgba(4, 8, 16, 0.88)', 'high-color': 'rgba(10, 18, 35, 0.75)', 'horizon-blend': 0.12, 'space-color': '#02040a', 'star-intensity': 0.35 }) } catch { /* optional */ }
       })
-
       map.on('load', () => {
         if (!map) return
         if (!map.getLayer('nexus-3d-buildings')) {
           try {
-            map.addSource('nexus-buildings', {
-              type: 'vector',
-              url: 'https://tiles.openfreemap.org/planet',
-            })
-            const layers = map.getStyle().layers ?? []
-            const firstSymbol = layers.find((layer) => layer.type === 'symbol')?.id
+            map.addSource('nexus-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' })
+            const firstSymbol = (map.getStyle().layers ?? []).find((layer) => layer.type === 'symbol')?.id
             map.addLayer({
-              id: 'nexus-3d-buildings',
-              source: 'nexus-buildings',
-              'source-layer': 'building',
-              type: 'fill-extrusion',
-              minzoom: 14,
+              id: 'nexus-3d-buildings', source: 'nexus-buildings', 'source-layer': 'building', type: 'fill-extrusion', minzoom: 14,
               filter: ['!=', ['get', 'hide_3d'], true],
               paint: {
-                'fill-extrusion-color': '#182335',
-                'fill-extrusion-opacity': 0.92,
+                'fill-extrusion-color': '#182335', 'fill-extrusion-opacity': 0.92,
                 'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 16, ['coalesce', ['get', 'render_height'], 8]],
-                'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-                'fill-extrusion-vertical-gradient': true,
+                'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-vertical-gradient': true,
               },
             }, firstSymbol)
-          } catch (err) {
-            console.info('[NEXUS MAP] 3D building layer unavailable', err)
-          }
+          } catch (err) { console.info('[NEXUS MAP] 3D building layer unavailable', err) }
         }
         setMapReady(true)
         void loadVenues(locationRef.current.lat, locationRef.current.lng, vibe)
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              locationRef.current = { lat: position.coords.latitude, lng: position.coords.longitude }
-              void loadVenues(position.coords.latitude, position.coords.longitude, vibe)
-            },
-            () => undefined,
-            { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 },
-          )
-        }
+        navigator.geolocation?.getCurrentPosition((position) => {
+          locationRef.current = { lat: position.coords.latitude, lng: position.coords.longitude }
+          void loadVenues(position.coords.latitude, position.coords.longitude, vibe)
+        }, () => undefined, { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 })
       })
-
       map.on('error', (event) => console.info('[NEXUS MAP]', event.error?.message ?? event))
     })
-
     return () => {
-      cancelled = true
-      markersRef.current.forEach(({ marker }) => marker.remove())
-      markersRef.current = []
-      map?.remove()
-      mapRef.current = null
-      libRef.current = null
+      cancelled = true; markersRef.current.forEach(({ marker }) => marker.remove()); markersRef.current = []
+      map?.remove(); mapRef.current = null; libRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    if (!mapReady) return
-    void loadVenues(locationRef.current.lat, locationRef.current.lng, vibe)
-  }, [vibe, mapReady, loadVenues])
+  useEffect(() => { if (mapReady) void loadVenues(locationRef.current.lat, locationRef.current.lng, vibe) }, [vibe, mapReady, loadVenues])
 
   useEffect(() => {
     let cancelled = false
     const { lat, lng } = locationRef.current
-    fetch(`/nx/weather?lat=${lat}&lng=${lng}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled) return
-        const text = data?.current?.condition ?? data?.condition ?? data?.current?.weather ?? ''
-        if (typeof text === 'string' && text) setWeatherLabel(text)
-      })
-      .catch(() => undefined)
+    fetch(`/nx/weather?lat=${lat}&lng=${lng}`).then((r) => r.ok ? r.json() : null).then((data) => {
+      if (cancelled) return
+      const text = data?.current?.condition ?? data?.condition ?? data?.current?.weather ?? ''
+      if (typeof text === 'string' && text) setWeatherLabel(text)
+    }).catch(() => undefined)
     return () => { cancelled = true }
   }, [selectedVenue])
 
   useEffect(() => {
-    const map = mapRef.current
-    const lib = libRef.current
+    const map = mapRef.current, lib = libRef.current
     if (!map || !lib) return
-
-    markersRef.current.forEach(({ marker }) => marker.remove())
-    markersRef.current = []
-
+    markersRef.current.forEach(({ marker }) => marker.remove()); markersRef.current = []
     venues.forEach((venue) => {
       if (venue.lat == null || venue.lng == null) return
       const tone = VIBE_TONE[vibe]
-      const el = document.createElement('button')
-      el.type = 'button'
-      el.setAttribute('aria-label', `Open ${venue.name}`)
-      el.className = 'nexus-venue-marker'
-      el.innerHTML = `
-        <span class="nexus-marker-pulse"></span>
-        <span class="nexus-marker-core" style="--marker-tone:${tone}">${VIBE_ICON[vibe]}</span>
-        <span class="nexus-marker-label">${escapeHtml(venue.name)}</span>
-      `
+      const el = document.createElement('button'); el.type = 'button'; el.setAttribute('aria-label', `Open ${venue.name}`); el.className = 'nexus-venue-marker'
+      el.innerHTML = `<span class="nexus-marker-pulse"></span><span class="nexus-marker-core" style="--marker-tone:${tone}">${VIBE_ICON[vibe]}</span><span class="nexus-marker-label">${escapeHtml(venue.name)}</span>`
       el.onclick = (event) => {
-        event.stopPropagation()
-        const target = { lat: venue.lat as number, lng: venue.lng as number }
-        setTransitioning(true)
-        setSelectedVenue(null)
-        map.stop()
-        map.flyTo({ center: [target.lng, target.lat], zoom: 17.1, pitch: 66, bearing: -18, duration: 1850, essential: true })
-        map.once('moveend', () => {
-          setTransitioning(false)
-          setVote(0)
-          setSelectedVenue(venue)
-        })
+        event.stopPropagation(); setTransitioning(true); setSelectedVenue(null); map.stop()
+        map.flyTo({ center: [venue.lng as number, venue.lat as number], zoom: 17.1, pitch: 66, bearing: -18, duration: 1850, essential: true })
+        map.once('moveend', () => { setTransitioning(false); setVote(0); setSelectedVenue(venue) })
       }
       const marker = new lib.Marker({ element: el, anchor: 'bottom' }).setLngLat([venue.lng, venue.lat]).addTo(map)
       markersRef.current.push({ marker, venue })
     })
-
-    return () => {
-      markersRef.current.forEach(({ marker }) => marker.remove())
-      markersRef.current = []
-    }
+    return () => { markersRef.current.forEach(({ marker }) => marker.remove()); markersRef.current = [] }
   }, [venues, vibe])
 
   const focusOut = useCallback(() => {
-    const map = mapRef.current
-    if (!map) return
-    setSelectedVenue(null)
-    setTransitioning(true)
+    const map = mapRef.current; if (!map) return
+    setSelectedVenue(null); setTransitioning(true)
     map.flyTo({ center: [locationRef.current.lng, locationRef.current.lat], zoom: 12.4, pitch: 32, bearing: 0, duration: 1300, essential: true })
     map.once('moveend', () => setTransitioning(false))
   }, [])
-
   const countLabel = useMemo(() => `${venues.length} ${VIBE_LABEL[vibe].toLowerCase()} ${venues.length === 1 ? 'spot' : 'spots'}`, [venues.length, vibe])
 
   return (
@@ -262,63 +158,29 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
         @keyframes nexusPulse{0%{transform:scale(.45);opacity:.42}70%{transform:scale(1.25);opacity:0}100%{transform:scale(1.25);opacity:0}}
         @keyframes nexusCloud{0%{transform:translate3d(-10%,0,0)}50%{transform:translate3d(5%,4px,0)}100%{transform:translate3d(110%,0,0)}}
       `}</style>
-
       <div ref={containerRef} className="absolute inset-0" />
-
       <div className="pointer-events-none absolute inset-0 overflow-hidden mix-blend-screen opacity-60">
         <div className="absolute -left-1/4 top-[18%] h-24 w-[58%] rounded-full bg-white/[0.055] blur-2xl" style={{ animation: 'nexusCloud 28s linear infinite' }} />
         <div className="absolute -left-1/3 top-[35%] h-32 w-[70%] rounded-full bg-slate-200/[0.045] blur-3xl" style={{ animation: 'nexusCloud 38s linear 4s infinite' }} />
         <div className="absolute -left-1/4 top-[52%] h-20 w-[55%] rounded-full bg-amber-100/[0.025] blur-2xl" style={{ animation: 'nexusCloud 31s linear 9s infinite' }} />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,transparent_0%,rgba(2,4,10,.05)_45%,rgba(2,4,10,.7)_100%)]" />
       </div>
-
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#02040a] via-[#02040a]/65 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#02040a] via-[#02040a]/70 to-transparent" />
 
       <div className="absolute left-4 right-4 top-4 z-20 flex items-start justify-between gap-3">
-        <div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/45 p-3 shadow-2xl backdrop-blur-xl">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-300" />
-            <div>
-              <p className="text-[10px] font-semibold tracking-[.28em] text-amber-200/90">NEXUS WORLD</p>
-              <p className="mt-0.5 text-[11px] text-white/55">{loading ? 'Finding nearby places…' : `${countLabel} · ${weatherLabel}`}</p>
-            </div>
-          </div>
-        </div>
-        <button type="button" onClick={getUserLocation} disabled={locating} className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-xl transition hover:border-amber-300/40 hover:text-amber-200 disabled:opacity-50" aria-label="Use my location">
-          <LocateFixed className={`h-4 w-4 ${locating ? 'animate-pulse' : ''}`} />
-        </button>
+        <div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/45 p-3 shadow-2xl backdrop-blur-xl"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-amber-300" /><div><p className="text-[10px] font-semibold tracking-[.28em] text-amber-200/90">NEXUS WORLD</p><p className="mt-0.5 text-[11px] text-white/55">{loading ? 'Finding nearby places…' : `${countLabel} · ${weatherLabel}`}</p></div></div></div>
+        <button type="button" onClick={getUserLocation} disabled={locating} className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-xl transition hover:border-amber-300/40 hover:text-amber-200 disabled:opacity-50" aria-label="Use my location"><LocateFixed className={`h-4 w-4 ${locating ? 'animate-pulse' : ''}`} /></button>
       </div>
 
-      <div className="absolute left-4 right-4 top-[92px] z-20 pointer-events-auto overflow-x-auto pb-1 [scrollbar-width:none]">
-        <div className="flex w-max gap-2">
-          {VIBES.map((item) => {
-            const active = item === vibe
-            return (
-              <button key={item} type="button" onClick={() => setVibe(item)} className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-[11px] font-semibold backdrop-blur-xl transition-all ${active ? 'border-amber-300/60 bg-amber-300/15 text-amber-100 shadow-[0_0_22px_rgba(251,191,36,.16)]' : 'border-white/10 bg-black/40 text-white/65 hover:border-white/20 hover:text-white'}`}>
-                <span>{VIBE_ICON[item]}</span>{VIBE_LABEL[item]}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
+      <div className="absolute left-4 right-4 top-[92px] z-20 pointer-events-auto overflow-x-auto pb-1 [scrollbar-width:none]"><div className="flex w-max gap-2">{VIBES.map((item) => { const active = item === vibe; return <button key={item} type="button" onClick={() => setVibe(item)} className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-[11px] font-semibold backdrop-blur-xl transition-all ${active ? 'border-amber-300/60 bg-amber-300/15 text-amber-100 shadow-[0_0_22px_rgba(251,191,36,.16)]' : 'border-white/10 bg-black/40 text-white/65 hover:border-white/20 hover:text-white'}`}><span>{VIBE_ICON[item]}</span>{VIBE_LABEL[item]}</button> })}</div></div>
       {loading && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-300/20 bg-black/55 px-4 py-2 text-[11px] text-amber-100/80 backdrop-blur-xl"><span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-amber-300" />Scanning the area</div>}
-
       {transitioning && <div className="absolute left-1/2 top-[46%] z-30 -translate-x-1/2 rounded-full border border-amber-300/25 bg-black/55 px-4 py-2 text-[11px] font-medium tracking-wide text-amber-100 backdrop-blur-xl shadow-[0_0_35px_rgba(251,191,36,.18)]"><Rotate3D className="mr-2 inline-block h-3.5 w-3.5 animate-pulse" />Entering street level…</div>}
-
       {error && !loading && <div className="absolute left-4 right-4 top-[145px] z-20 rounded-xl border border-rose-300/15 bg-black/55 px-3 py-2 text-[10px] text-white/60 backdrop-blur-xl">{error}</div>}
-
-      <div className="absolute bottom-24 left-4 right-4 z-20 flex items-end justify-between gap-3 pointer-events-none">
-        <div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/45 px-3 py-2.5 backdrop-blur-xl"><div className="flex items-center gap-2 text-[10px] text-white/55"><span className="h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_#fbbf24]" />Live venues<span className="text-white/20">·</span><span className="inline-flex items-center gap-1"><Navigation className="h-3 w-3" /> 3D view</span></div></div>
-        <button type="button" onClick={focusOut} className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3.5 py-2.5 text-[10px] font-medium text-white/75 backdrop-blur-xl hover:border-amber-300/30 hover:text-amber-100"><X className="h-3.5 w-3.5" /> Overview</button>
-      </div>
-
+      <div className="absolute bottom-24 left-4 right-4 z-20 flex items-end justify-between gap-3 pointer-events-none"><div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/45 px-3 py-2.5 backdrop-blur-xl"><div className="flex items-center gap-2 text-[10px] text-white/55"><span className="h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_#fbbf24]" />Live venues<span className="text-white/20">·</span><span className="inline-flex items-center gap-1"><Navigation className="h-3 w-3" /> 3D view</span></div></div><button type="button" onClick={focusOut} className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3.5 py-2.5 text-[10px] font-medium text-white/75 backdrop-blur-xl hover:border-amber-300/30 hover:text-amber-100"><X className="h-3.5 w-3.5" /> Overview</button></div>
       <VenueDetailSheet venue={selectedVenue} vibe={vibe} midpointFallback={false} vote={vote} onVote={(direction) => setVote((current) => current === direction ? 0 : direction)} onClose={() => setSelectedVenue(null)} />
     </div>
   )
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char] ?? char))
-}
+function escapeHtml(value: string) { return value.replace(/[&<>\'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char] ?? char)) }
