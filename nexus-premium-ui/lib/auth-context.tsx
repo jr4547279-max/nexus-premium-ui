@@ -5,15 +5,21 @@ import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
-const PRODUCTION_SITE_URL = 'https://nexus-premium-website-business.vercel.app'
+// The callback URL must belong to the site the user is actually visiting.
+// This is especially important with Netlify, where the production hostname
+// is different from the old Vercel deployment. Using window.location.origin
+// also makes deploy previews work without another code change.
+const FALLBACK_SITE_URL = 'https://silver-conkies-eee2c9.netlify.app'
 
 function getCallbackUrl(): string {
-  const pinned = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
-  if (pinned) return `${pinned}/auth/callback`
-  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.endsWith('.local'))) {
+  if (typeof window !== 'undefined') {
     return `${window.location.origin}/auth/callback`
   }
-  return `${PRODUCTION_SITE_URL}/auth/callback`
+
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
+  if (configured) return `${configured}/auth/callback`
+
+  return `${FALLBACK_SITE_URL}/auth/callback`
 }
 
 function authError(message: string, code: string): AuthError {
@@ -125,73 +131,89 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const cleanEmail = email.trim().toLowerCase()
     if (!cleanEmail || !password) return { error: authError('Enter your email and password.', 'missing_credentials') }
 
-    const request = supabase.auth.signInWithPassword({ email: cleanEmail, password })
-    const result = await Promise.race([
-      request,
-      new Promise<{ data: { session: Session | null; user: User | null }; error: AuthError }>((resolve) => {
-        window.setTimeout(() => resolve({
-          data: { session: null, user: null },
-          error: authError('Sign-in is taking too long. Please check your connection and try again.', 'auth_timeout'),
-        }), 15000)
-      }),
-    ])
+    try {
+      const result = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
 
-    if (!result.error && result.data.session?.user) {
-      setSession(result.data.session)
-      void loadProfile(result.data.session.user.id, result.data.session.user.email ?? cleanEmail)
+      if (!result.error && result.data.session?.user) {
+        setSession(result.data.session)
+        void loadProfile(result.data.session.user.id, result.data.session.user.email ?? cleanEmail)
+      }
+
+      return { error: result.error }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to reach the sign-in service. Please try again.',
+          'auth_request_failed',
+        ),
+      }
     }
-
-    return { error: result.error }
   }, [loadProfile])
 
   const signUp = useCallback(async (email: string, password: string) => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
     const cleanEmail = email.trim().toLowerCase()
-    const { data, error } = await supabase.auth.signUp({
-      email: cleanEmail,
-      password,
-      options: { emailRedirectTo: getCallbackUrl() },
-    })
-    if (!error && data.user) await ensureProfile(data.user.id, cleanEmail)
-    return { error, needsEmailConfirm: !error && !data.session }
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: { emailRedirectTo: getCallbackUrl() },
+      })
+      if (!error && data.user) await ensureProfile(data.user.id, cleanEmail)
+      return { error, needsEmailConfirm: !error && !data.session }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to create your account. Please try again.',
+          'signup_request_failed',
+        ),
+      }
+    }
   }, [])
 
   const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
-    // Ask Supabase for the provider URL without letting the SDK perform the
-    // navigation itself. Explicitly assigning the URL is more reliable on
-    // mobile browsers and prevents the login button from appearing stuck.
-    const request = supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: getCallbackUrl(),
-        scopes: 'openid email profile',
-        skipBrowserRedirect: true,
-      },
-    })
+    try {
+      // Ask Supabase for the provider URL first so failures are surfaced to the
+      // UI instead of leaving the button permanently stuck in a loading state.
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: getCallbackUrl(),
+          scopes: 'openid email profile',
+          skipBrowserRedirect: true,
+        },
+      })
 
-    const result = await Promise.race([
-      request,
-      new Promise<{ data: { provider: null; url: null }; error: AuthError }>((resolve) => {
-        window.setTimeout(() => resolve({
-          data: { provider: null, url: null },
-          error: authError('Google sign-in is taking too long. Please try again.', 'oauth_timeout'),
-        }), 10000)
-      }),
-    ])
+      if (error) return { error }
+      if (!data.url) return { error: authError('Google sign-in did not return a login URL. Please try again.', 'oauth_no_url') }
 
-    if (result.error) return { error: result.error }
-    if (!result.data.url) return { error: authError('Google sign-in did not return a login URL. Please try again.', 'oauth_no_url') }
-
-    window.location.assign(result.data.url)
-    return { error: null }
+      window.location.assign(data.url)
+      return { error: null }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to start Google sign-in. Please try again.',
+          'oauth_request_failed',
+        ),
+      }
+    }
   }, [])
 
   const resetPassword = useCallback(async (email: string) => {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: getCallbackUrl() })
-    return { error }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: getCallbackUrl() })
+      return { error }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to send the password reset email. Please try again.',
+          'reset_request_failed',
+        ),
+      }
+    }
   }, [])
 
   const signOut = useCallback(async () => {
