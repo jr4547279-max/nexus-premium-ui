@@ -64,7 +64,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
         container: containerRef.current,
         style: 'https://tiles.openfreemap.org/styles/dark',
         center: [START.lng, START.lat], zoom: 3.4, pitch: 18, bearing: 0,
-        attributionControl: false, maxPitch: 72, canvasContextAttributes: { antialias: true },
+        attributionControl: true, maxPitch: 72, canvasContextAttributes: { antialias: true },
       })
       mapRef.current = map
       try { map.setProjection({ type: 'globe' }) } catch { /* globe is progressive enhancement */ }
