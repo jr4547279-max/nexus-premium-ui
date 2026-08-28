@@ -110,70 +110,127 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [loadProfile])
 
-  const signIn = async (email: string, password: string) => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error }
-  }
-
-  const signUp = async (email: string, password: string) => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: getCallbackUrl() },
-    })
-    return { error, needsEmailConfirm: !error && !data.session }
-  }
-
-  const signInWithGoogle = async () => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: getCallbackUrl() },
-    })
-    return { error }
-  }
-
-  const resetPassword = async (email: string) => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: getCallbackUrl(),
-    })
-    return { error }
-  }
-
-  const signOut = async () => {
-    if (!isSupabaseConfigured) return
-    await supabase.auth.signOut()
-  }
-
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     if (!session?.user) return
     await loadProfile(session.user.id, session.user.email ?? '')
-  }
+  }, [session, loadProfile])
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+
+    const cleanEmail = email.trim().toLowerCase()
+    if (!cleanEmail || !password) return { error: authError('Enter your email and password.', 'missing_credentials') }
+
+    try {
+      const request = supabase.auth.signInWithPassword({ email: cleanEmail, password })
+      const result = await Promise.race([
+        request,
+        new Promise<{
+          data: { session: Session | null; user: User | null }
+          error: AuthError
+        }>((resolve) => {
+          window.setTimeout(() => resolve({
+            data: { session: null, user: null },
+            error: authError('Sign-in timed out. Please try again.', 'auth_timeout'),
+          }), 12000)
+        }),
+      ])
+
+      if (!result.error && result.data.session?.user) {
+        setSession(result.data.session)
+        void loadProfile(result.data.session.user.id, result.data.session.user.email ?? cleanEmail)
+      }
+
+      return { error: result.error }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to reach the sign-in service. Please try again.',
+          'auth_request_failed',
+        ),
+      }
+    }
+  }, [loadProfile])
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+    const cleanEmail = email.trim().toLowerCase()
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: { emailRedirectTo: getCallbackUrl() },
+      })
+      if (!error && data.user) await ensureProfile(data.user.id, cleanEmail)
+      return { error, needsEmailConfirm: !error && !data.session }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to create your account. Please try again.',
+          'signup_request_failed',
+        ),
+      }
+    }
+  }, [])
+
+  const signInWithGoogle = useCallback(async () => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: getCallbackUrl(),
+          scopes: 'openid email profile',
+          skipBrowserRedirect: true,
+        },
+      })
+
+      if (error) return { error }
+      if (!data.url) return { error: authError('Google sign-in did not return a login URL. Please try again.', 'oauth_no_url') }
+
+      window.location.assign(data.url)
+      return { error: null }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to start Google sign-in. Please try again.',
+          'oauth_request_failed',
+        ),
+      }
+    }
+  }, [])
+
+  const resetPassword = useCallback(async (email: string) => {
+    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: getCallbackUrl() })
+      return { error }
+    } catch (error) {
+      return {
+        error: authError(
+          error instanceof Error ? error.message : 'Unable to send the password reset email. Please try again.',
+          'reset_request_failed',
+        ),
+      }
+    }
+  }, [])
+
+  const signOut = useCallback(async () => {
+    if (isSupabaseConfigured) await supabase.auth.signOut()
+    setSession(null)
+    setProfile(null)
+  }, [])
 
   return (
-    <AuthContext.Provider value={{
-      session,
-      user: session?.user ?? null,
-      profile,
-      loading,
-      profileLoading,
-      signIn,
-      signUp,
-      signInWithGoogle,
-      resetPassword,
-      signOut,
-      refreshProfile,
-    }}>
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, profile, loading, profileLoading, signIn, signUp, signInWithGoogle, resetPassword, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
 }
 
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext)
-  if (!context) throw new Error('useAuth must be used within AuthProvider')
-  return context
+export function useAuth() {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>')
+  return ctx
 }
