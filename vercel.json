@@ -1,6 +1,12 @@
 {
   "framework": "nextjs",
-  "installCommand": "corepack enable && corepack pnpm install --no-frozen-lockfile",
-  "buildCommand": "corepack pnpm build",
-  "outputDirectory": ".next"
+  "installCommand": "pnpm install --frozen-lockfile --prefer-offline",
+  "buildCommand": "pnpm run build",
+  "outputDirectory": ".next",
+  "rewrites": [
+    {
+      "source": "/maplibre/:path*",
+      "destination": "/_next/static/maplibre/:path*"
+    }
+  ]
 }
