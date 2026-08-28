@@ -13,9 +13,8 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./scripts\" --if-present run typecheck"
   },
   "dependencies": {
-    "next": "16.2.6",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "@types/leaflet": "^1.9.22",
+    "leaflet": "^1.9.4"
   },
   "devDependencies": {
     "prettier": "^3.8.3",
