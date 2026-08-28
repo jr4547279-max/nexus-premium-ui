@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
+
   images: {
     unoptimized: true,
   },
@@ -14,10 +16,9 @@ const nextConfig = {
     '127.0.0.1',
     'localhost',
     ...(process.env.REPLIT_DEV_DOMAIN ? [process.env.REPLIT_DEV_DOMAIN] : []),
-    // Wildcard patterns for Replit preview proxy — covers all clusters
     '*.replit.dev',
-    '*.kirk.replit.dev',    // current cluster
-    '*.janeway.replit.dev', // previous cluster (kept for safety)
+    '*.kirk.replit.dev',
+    '*.janeway.replit.dev',
   ],
 }
 
