@@ -2,11 +2,5 @@
   "framework": "nextjs",
   "installCommand": "pnpm install --no-frozen-lockfile",
   "buildCommand": "pnpm run build",
-  "outputDirectory": ".next",
-  "rewrites": [
-    {
-      "source": "/maplibre/:path*",
-      "destination": "/_next/static/maplibre/:path*"
-    }
-  ]
+  "outputDirectory": ".next"
 }
