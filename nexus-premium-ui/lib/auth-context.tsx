@@ -5,20 +5,12 @@ import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
-// The callback URL must belong to the site the user is actually visiting.
-// This is especially important with Netlify, where the production hostname
-// is different from the old Vercel deployment. Using window.location.origin
-// also makes deploy previews work without another code change.
 const FALLBACK_SITE_URL = 'https://silver-conkies-eee2c9.netlify.app'
 
 function getCallbackUrl(): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/auth/callback`
-  }
-
+  if (typeof window !== 'undefined') return `${window.location.origin}/auth/callback`
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
   if (configured) return `${configured}/auth/callback`
-
   return `${FALLBACK_SITE_URL}/auth/callback`
 }
 
@@ -132,7 +124,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!cleanEmail || !password) return { error: authError('Enter your email and password.', 'missing_credentials') }
 
     try {
-      const result = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
+      const request = supabase.auth.signInWithPassword({ email: cleanEmail, password })
+      const result = await Promise.race([
+        request,
+        new Promise<{
+          data: { session: Session | null; user: User | null }
+          error: AuthError
+        }>((resolve) => {
+          window.setTimeout(() => resolve({
+            data: { session: null, user: null },
+            error: authError('Sign-in timed out. Please try again.', 'auth_timeout'),
+          }), 12000)
+        }),
+      ])
 
       if (!result.error && result.data.session?.user) {
         setSession(result.data.session)
@@ -175,8 +179,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
     try {
-      // Ask Supabase for the provider URL first so failures are surfaced to the
-      // UI instead of leaving the button permanently stuck in a loading state.
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
