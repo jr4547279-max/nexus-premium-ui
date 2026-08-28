@@ -5,13 +5,11 @@ import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
-const FALLBACK_SITE_URL = 'https://silver-conkies-eee2c9.netlify.app'
+// Netlify is the canonical production host for now.
+export const CANONICAL_SITE_URL = 'https://silver-conkies-eee2c9.netlify.app'
 
 function getCallbackUrl(): string {
-  if (typeof window !== 'undefined') return `${window.location.origin}/auth/callback`
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
-  if (configured) return `${configured}/auth/callback`
-  return `${FALLBACK_SITE_URL}/auth/callback`
+  return `${CANONICAL_SITE_URL}/auth/callback`
 }
 
 function authError(message: string, code: string): AuthError {
