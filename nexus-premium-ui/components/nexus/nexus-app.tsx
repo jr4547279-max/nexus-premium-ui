@@ -51,8 +51,8 @@ export function NexusApp() {
   const [activeRunPlan, setActiveRunPlan] = useState<PlannerResult | null>(null)
   const initializedRef = useRef(false)
 
-  // Netlify is the canonical production deployment. If an old Vercel deployment
-  // is ever reached (including after an auth flow), immediately return to Netlify.
+  // Vercel is the canonical production deployment. If an old deployment host
+  // is reached (including after an auth flow), immediately return to Vercel.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const host = window.location.hostname
@@ -121,85 +121,48 @@ export function NexusApp() {
       setCurrentScreen(onboardingReturnTo)
       return
     }
-    setCurrentScreen(session ? 'home' : 'auth')
+    setCurrentScreen('home')
   }
 
-  const handleOnboardingBack = () => {
-    if (isEditingPreferences) {
-      setCurrentScreen(onboardingReturnTo)
-      return
-    }
-    setCurrentScreen(session ? 'home' : 'landing')
+  const handleInviteCode = (code: string) => {
+    try { localStorage.setItem(PENDING_INVITE_KEY, code) } catch {}
+    setCurrentScreen('auth')
   }
 
-  if (currentScreen === 'resolving') {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <GoldenRing size="md" intensity="subtle" />
-          <p className="text-muted-foreground text-xs tracking-widest animate-pulse">NEXUS</p>
-        </div>
-      </div>
-    )
+  if (loading || currentScreen === 'resolving') {
+    return <div className="min-h-screen bg-[#070b18]" aria-hidden="true" />
   }
 
-  if (currentScreen === 'landing') {
-    return <LandingPage onGetStarted={() => setCurrentScreen('onboarding')} onLogin={() => setCurrentScreen('auth')} />
-  }
-
-  if (currentScreen === 'auth') {
-    return <AuthScreen onBack={() => setCurrentScreen('landing')} onSuccess={() => setCurrentScreen('resolving')} />
+  if (!session) {
+    if (currentScreen === 'auth') return <AuthScreen onBack={() => setCurrentScreen('landing')} />
+    return <LandingPage onGetStarted={() => setCurrentScreen('auth')} onInviteCode={handleInviteCode} />
   }
 
   if (currentScreen === 'onboarding') {
-    return <OnboardingFlow editMode={isEditingPreferences} onComplete={handleOnboardingComplete} onBack={handleOnboardingBack} />
+    return <OnboardingFlow profile={profile} onComplete={handleOnboardingComplete} />
   }
 
-  let screenContent: React.ReactNode
-  switch (currentScreen) {
-    case 'home':
-      screenContent = (
-        <>
-          <Dashboard key={`dashboard-${groupsVersion}`} onGroupClick={(id) => handleGroupClick(id, 'home')} onNavigate={handleNavigate} onCreateGroup={handleCreateGroup} />
-          <CreateGroupModal open={createGroupOpen} onOpenChange={setCreateGroupOpen} onCreated={handleGroupCreated} />
-        </>
-      )
-      break
-    case 'groups':
-      screenContent = (
-        <>
-          <GroupsScreen key={`groups-${groupsVersion}`} onGroupClick={(id) => handleGroupClick(id, 'groups')} onNavigate={handleNavigate} onCreateGroup={handleCreateGroup} />
-          <CreateGroupModal open={createGroupOpen} onOpenChange={setCreateGroupOpen} onCreated={handleGroupCreated} />
-        </>
-      )
-      break
-    case 'group-detail':
-      screenContent = <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen(prevGroupScreen)} onViewGoldenWindow={() => setCurrentScreen('golden-window')} onNavigate={handleNavigate} onGroupDeleted={() => { setGroupsVersion((v) => v + 1); setCurrentScreen(prevGroupScreen) }} onStartRun={(plan) => { setActiveRunPlan(plan); setCurrentScreen('run-tracker') }} />
-      break
-    case 'run-tracker':
-      screenContent = activeRunPlan ? <RunTracker plan={activeRunPlan} onBack={() => setCurrentScreen('group-detail')} /> : null
-      break
-    case 'golden-window':
-      screenContent = <GoldenWindowReveal groupId={selectedGroupId} onBack={() => setCurrentScreen('group-detail')} onConfirm={() => setCurrentScreen('home')} />
-      break
-    case 'activity':
-      screenContent = <ActivityScreen onBack={() => setCurrentScreen('home')} onNavigate={handleNavigate} />
-      break
-    case 'world':
-      screenContent = <WorldScreen onNavigate={handleNavigate} />
-      break
-    case 'profile':
-      screenContent = <ProfileScreen onBack={() => setCurrentScreen('home')} onNavigate={handleNavigate} onLogout={handleLogout} />
-      break
-    case 'social':
-      screenContent = <SocialPeopleScreen onNavigate={handleNavigate} />
-      break
-    case 'dev-test':
-      screenContent = process.env.NEXT_PUBLIC_DEV_TOOLS === 'true' ? <DevTestPanel onBack={() => setCurrentScreen('groups')} /> : null
-      break
-    default:
-      screenContent = <LandingPage onGetStarted={() => setCurrentScreen('onboarding')} onLogin={() => setCurrentScreen('auth')} />
+  const commonProps = {
+    onNavigate: handleNavigate,
+    onGroupClick: handleGroupClick,
+    onCreateGroup: handleCreateGroup,
+    groupsVersion,
   }
 
-  return <>{screenContent}</>
+  return (
+    <>
+      {currentScreen === 'home' && <Dashboard {...commonProps} />}
+      {currentScreen === 'groups' && <GroupsScreen {...commonProps} />}
+      {currentScreen === 'group-detail' && <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen(prevGroupScreen)} onNavigate={handleNavigate} />}
+      {currentScreen === 'golden-window' && <GoldenWindowReveal onBack={() => setCurrentScreen('home')} onNavigate={handleNavigate} />}
+      {currentScreen === 'activity' && <ActivityScreen {...commonProps} />}
+      {currentScreen === 'world' && <WorldScreen {...commonProps} />}
+      {currentScreen === 'profile' && <ProfileScreen {...commonProps} onLogout={handleLogout} />}
+      {currentScreen === 'social' && <SocialPeopleScreen {...commonProps} />}
+      {currentScreen === 'run-tracker' && <RunTracker plan={activeRunPlan} onBack={() => setCurrentScreen('home')} />}
+      {currentScreen === 'dev-test' && <DevTestPanel onBack={() => setCurrentScreen('home')} />}
+      <GoldenRing onClick={() => setCurrentScreen('golden-window')} />
+      <CreateGroupModal open={createGroupOpen} onOpenChange={setCreateGroupOpen} onCreated={handleGroupCreated} />
+    </>
+  )
 }
