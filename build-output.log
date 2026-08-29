@@ -17,21 +17,20 @@ https://nextjs.org/telemetry
 - Environments: .env.production
 
   Creating an optimized production build ...
-✓ Compiled successfully in 6.4s
+✓ Compiled successfully in 6.3s
   Running TypeScript ...
 Failed to type check.
 
-./components/nexus/group-detail.tsx:839:15
-Type error: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
-  Type 'null' is not assignable to type 'string | undefined'.
+./components/nexus/venue-detail-sheet.tsx:14:3
+Type error: Duplicate identifier 'groupId'.
 
-  [90m837 |[0m               groupName={realGroup?.name ?? [36mnull[0m}
-  [90m838 |[0m               groupId={groupId}
-[31m[1m>[0m [90m839 |[0m               activityId={rawActivityId}
-  [90m    |[0m               [31m[1m^[0m
-  [90m840 |[0m               goldenWindow={activeWindow ? {
-  [90m841 |[0m                 day_of_week: activeWindow.day_of_week,
-  [90m842 |[0m                 start_time: activeWindow.start_time,
+  [90m12 |[0m [36minterface[0m [33mProps[0m {
+  [90m13 |[0m   venue: [33mVenue[0m | [36mnull[0m
+[31m[1m>[0m [90m14 |[0m   groupId?: string
+  [90m   |[0m   [31m[1m^[0m
+  [90m15 |[0m   activityId?: string
+  [90m16 |[0m   groupId?: string
+  [90m17 |[0m   activityId?: string
 Next.js build worker exited with code: 1 and signal: null
 /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui:
  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  my-project@0.1.0 build: `next build`
