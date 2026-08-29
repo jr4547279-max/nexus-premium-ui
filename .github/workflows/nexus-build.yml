@@ -5,11 +5,34 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply activity fixes
+        if: "!contains(github.event.head_commit.message, '[nexus-fix]')"
+        run: python3 scripts/apply-activity-fixes.py
+
+      - name: Commit activity fixes
+        if: "!contains(github.event.head_commit.message, '[nexus-fix]')"
+        run: |
+          if git diff --quiet -- nexus-premium-ui; then
+            echo "No activity source changes needed."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add nexus-premium-ui
+            git commit -m "fix: make venue planning independent of Golden Window [nexus-fix]"
+            git push origin main
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
