@@ -1,0 +1,47 @@
+name: Patch Nearby Fits Crawl Integration
+on:
+  push:
+    branches: [feature/group-crawl-integration]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch venue recommendations and crawl integration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          venue = Path('nexus-premium-ui/components/nexus/venue-recommendations.tsx')
+          s = venue.read_text()
+          s = s.replace("import { VenueDetailSheet } from './venue-detail-sheet'", "import { VenueDetailSheet } from './venue-detail-sheet'\nimport { saveVenueToGroup } from '@/lib/saved-venue-service'")
+          s = s.replace("  const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)", "  const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)\n  const [savingVenue, setSavingVenue] = useState<string | null>(null)")
+          s = s.replace("  const topPick = rankedResults[0]?.venue ?? null", "  const topPick = rankedResults[0]?.venue ?? null\n\n  const handleUseInCrawl = (venue: Venue) => {\n    if (venue.lat == null || venue.lng == null) return\n    const detail = {\n      id: venue.id,\n      name: venue.name,\n      lat: venue.lat,\n      lng: venue.lng,\n      category: venue.category ?? null,\n      maps_url: venue.maps_url ?? null,\n      address: venue.address ?? null,\n      rating: venue.rating ?? null,\n      photo_url: venue.photo_url ?? null,\n    }\n    window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', { detail }))\n    try { window.localStorage.setItem('nexus:crawl-candidate', JSON.stringify(detail)) } catch { /* non-fatal */ }\n  }\n\n  const handleSaveToGroup = async (venue: Venue) => {\n    // Group detail supplies its id through the page-level crawl integration;\n    // this action is intentionally kept as a crawl action here rather than\n    // silently guessing a group.\n    handleUseInCrawl(venue)\n  }")
+          marker = "              <VoteButton\n                active={vote === 1}"
+          replacement = "              {venue.lat != null && venue.lng != null && (\n                <button\n                  type=\"button\"\n                  onClick={(e) => { e.stopPropagation(); handleUseInCrawl(venue) }}\n                  className=\"flex items-center gap-1 px-2 py-1 rounded-md border border-primary/30 text-[11px] text-primary hover:bg-primary/10 transition-all\"\n                  aria-label={`Add ${venue.name} to pub crawl`}\n                >\n                  <Sparkles className=\"w-3 h-3\" aria-hidden=\"true\" />\n                  Add to crawl\n                </button>\n              )}\n              <VoteButton\n                active={vote === 1}"
+          if marker not in s:
+              raise SystemExit('venue card insertion marker not found')
+          s = s.replace(marker, replacement, 1)
+          venue.write_text(s)
+
+          crawl = Path('nexus-premium-ui/components/nexus/pub-crawl-plan-integrated.tsx')
+          c = crawl.read_text()
+          old = "  useEffect(() => {\n    const handler = (event: Event) => {"
+          new = "  useEffect(() => {\n    try {\n      const stored = window.localStorage.getItem('nexus:crawl-candidate')\n      if (stored) {\n        const parsed = JSON.parse(stored) as CrawlCandidate\n        if (parsed?.name && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng)) setCandidate(parsed)\n      }\n    } catch { /* non-fatal */ }\n\n    const handler = (event: Event) => {"
+          if old not in c:
+              raise SystemExit('crawl effect marker not found')
+          c = c.replace(old, new, 1)
+          c = c.replace("    setCandidate(null)\n    setReplaceOpen(false)", "    setCandidate(null)\n    try { window.localStorage.removeItem('nexus:crawl-candidate') } catch { /* non-fatal */ }\n    setReplaceOpen(false)")
+          crawl.write_text(c)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nexus-premium-ui/components/nexus/venue-recommendations.tsx nexus-premium-ui/components/nexus/pub-crawl-plan-integrated.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: connect nearby fits to pub crawl"
+          git push
