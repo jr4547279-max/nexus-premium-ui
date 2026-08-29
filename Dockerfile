@@ -7,9 +7,7 @@ ENV NODE_OPTIONS=--max-old-space-size=6144
 
 RUN corepack enable
 
-# Keep dependency installation cacheable. The repository currently has a
-# workspace lockfile that can be out of sync with the nested app manifest,
-# so allow pnpm to reconcile it during the container build.
+# Install from the workspace root, then build the nested Next.js app.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY nexus-premium-ui/package.json ./nexus-premium-ui/package.json
 COPY lib ./lib
@@ -18,6 +16,14 @@ COPY nexus-premium-ui ./nexus-premium-ui
 
 RUN corepack pnpm install --no-frozen-lockfile
 RUN corepack pnpm --dir nexus-premium-ui run build
+
+# Next.js standalone output can preserve the workspace/app directory when
+# tracing is performed from a nested workspace. Render expects server.js at
+# the standalone root, so flatten that directory if Next created it there.
+RUN if [ -f nexus-premium-ui/.next/standalone/nexus-premium-ui/server.js ]; then \
+      cp -a nexus-premium-ui/.next/standalone/nexus-premium-ui/. nexus-premium-ui/.next/standalone/; \
+    fi \
+    && test -f nexus-premium-ui/.next/standalone/server.js
 
 FROM node:22.22.0-bookworm-slim AS runner
 
