@@ -42,7 +42,6 @@ export function isVenueOpenAt(venue: PlannerVenue, time: string): boolean {
 }
 
 // ── Activity-specific signal tags ─────────────────────────────────────────────
-// Tags in a venue's atmosphere/tags arrays that indicate a strong fit.
 
 const ACTIVITY_MATCH_TAGS: Record<string, string[]> = {
   'pub-crawl':    ['lively', 'social', 'vibrant', 'modern', 'classic', 'welcoming', 'eclectic'],
@@ -59,34 +58,21 @@ const ACTIVITY_MATCH_TAGS: Record<string, string[]> = {
 
 const BUDGET_PRICE_MAP: Record<BudgetPreference, number> = { low: 1, medium: 2, high: 3 }
 
-// ── Scorer ────────────────────────────────────────────────────────────────────
-
 export interface ScoredVenue extends PlannerScore {
   reasons: string[]
 }
 
-// Default scoring radius when no planning intelligence radius is available.
-// Matches the pub-crawl planner's DEFAULT_RADIUS_METRES (1500m) in km.
-// Do NOT duplicate the Location Intelligence radius table here — the planning
-// radius is always passed in via PlannerRequest.groupLocation.radiusMetres.
 const DEFAULT_SCORING_RADIUS_KM = 1.5
 
 export function scoreVenueForActivity(
   venue: PlannerVenue,
   activityId: string,
   budget: BudgetPreference,
-  startTime: string,
-  /**
-   * Planning radius in km derived from PlannerRequest.groupLocation.radiusMetres.
-   * Defaults to 1.5 km (1500 m) for backward compatibility when no radius is
-   * available. Adaptive values come from Location Intelligence:
-   *   urban-core → 0.8 km  |  suburban → 2 km  |  town → 3.5 km  |  rural → 8 km
-   */
+  startTime: string | undefined,
   planningRadiusKm: number = DEFAULT_SCORING_RADIUS_KM,
 ): ScoredVenue {
   const reasons: string[] = []
 
-  // ── Rating (0–20) — skip if unknown, give neutral 10 ─────────────────────
   const ratingScore =
     venue.ratingKnown === false
       ? 10
@@ -95,13 +81,6 @@ export function scoreVenueForActivity(
     reasons.push(`Rated ${venue.rating.toFixed(1)}/5`)
   }
 
-  // ── Distance (0–20) ───────────────────────────────────────────────────────
-  // Score degrades linearly from 20 (at 0 km) to 0 (at planningRadiusKm).
-  // Venues beyond the planning radius score 0 (heavily penalised).
-  // The radius adapts to the group's planning context via groupLocation.radiusMetres:
-  //   urban-core (0.8 km) → tight cluster preferred
-  //   town (3.5 km) → 2 km venue scores ~9, not 0
-  //   rural (8 km) → 5 km venue scores ~8, not 0
   const distScore = Math.max(
     0,
     Math.round(
@@ -111,27 +90,30 @@ export function scoreVenueForActivity(
     ),
   )
   const distKm = Math.round(venue.distanceFromCentre * 10) / 10
-  // Reason-text thresholds scale with the radius so "very close" and "nearby"
-  // mean the same relative thing regardless of area type.
   const veryCloseThreshold = planningRadiusKm * 0.15
   const nearbyThreshold    = planningRadiusKm * 0.50
   if (distKm <= veryCloseThreshold) reasons.push(`${distKm} km from your group — very close`)
   else if (distKm <= nearbyThreshold) reasons.push(`${distKm} km from your group`)
 
-  // ── Opening hours (0–17) ──────────────────────────────────────────────────
-  let openingScore = 0
-  const openNow = isVenueOpenAt(venue, startTime)
-  const openSoon = isVenueOpenAt(venue, addMinutesToTime(startTime, 30))
-  if (!venue.openingHoursKnown) {
-    openingScore = 9 // unknown — optimistic partial credit
-  } else if (openNow) {
-    openingScore = 17
-    reasons.push('Open during your Golden Window')
-  } else if (openSoon) {
-    openingScore = 8
+  // Time is optional: without a Golden Window we deliberately do not score or
+  // claim anything about opening hours. The venue can be selected first and
+  // timing can be calculated later around that venue.
+  let openingScore = 9
+  if (startTime) {
+    const openNow = isVenueOpenAt(venue, startTime)
+    const openSoon = isVenueOpenAt(venue, addMinutesToTime(startTime, 30))
+    if (!venue.openingHoursKnown) {
+      openingScore = 9
+    } else if (openNow) {
+      openingScore = 17
+      reasons.push('Open during your Golden Window')
+    } else if (openSoon) {
+      openingScore = 8
+    } else {
+      openingScore = 0
+    }
   }
 
-  // ── Activity match (0–17) ─────────────────────────────────────────────────
   const matchTags = new Set(ACTIVITY_MATCH_TAGS[activityId] ?? [])
   const allVenueTags = [...venue.atmosphere, ...venue.tags, ...venue.features]
   const matchCount = allVenueTags.filter((t) => matchTags.has(t)).length
@@ -139,8 +121,7 @@ export function scoreVenueForActivity(
   if (activityMatchScore >= 12) reasons.push(`Great match for ${activityId.replace(/-/g, ' ')}`)
   else if (activityMatchScore >= 6) reasons.push('Suitable venue type')
 
-  // ── Price match (0–15) ───────────────────────────────────────────────────
-  let priceScore = 8 // default neutral when price unknown
+  let priceScore = 8
   if (venue.priceLevelKnown !== false) {
     const target = BUDGET_PRICE_MAP[budget]
     const diff = Math.abs(venue.priceLevel - target)
@@ -148,7 +129,6 @@ export function scoreVenueForActivity(
     if (diff === 0) reasons.push('Matches your budget')
   }
 
-  // ── Capacity (0–11) ───────────────────────────────────────────────────────
   const capScore = venue.capacity === 'large' ? 11 : venue.capacity === 'medium' ? 7 : 3
 
   const breakdown: PlannerScoreBreakdown = {
