@@ -41,6 +41,29 @@ export async function listVenueGroups(): Promise<{ groups: GroupChoice[]; error:
   return { groups: (data ?? []) as GroupChoice[], error: null }
 }
 
+/** Return the group IDs where this venue is already saved for the signed-in user. */
+export async function listSavedVenueGroupIds(venue: Venue): Promise<string[]> {
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData.user?.id
+  if (!userId) return []
+
+  const placeId = placeIdFor(venue)
+  const { data, error } = await supabase
+    .from('saved_venues')
+    .select('group_id')
+    .eq('user_id', userId)
+    .eq('place_id', placeId)
+
+  if (error) {
+    console.error('[saved-venue-service] listSavedVenueGroupIds failed', error)
+    return []
+  }
+
+  return (data ?? [])
+    .map((row) => row.group_id)
+    .filter((id): id is string => typeof id === 'string')
+}
+
 /** Save a real venue to a specific group, retaining enough location data for route planning. */
 export async function saveVenueToGroup(
   groupId: string,
@@ -76,6 +99,27 @@ export async function saveVenueToGroup(
   }
 
   return { ok: true, error: null }
+}
+
+/** Remove a saved venue using the same user/group/place identity used by the upsert. */
+export async function removeVenueFromGroupByPlace(groupId: string, venue: Venue): Promise<boolean> {
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData.user?.id
+  if (!userId) return false
+
+  const placeId = placeIdFor(venue)
+  const { error } = await supabase
+    .from('saved_venues')
+    .delete()
+    .eq('user_id', userId)
+    .eq('group_id', groupId)
+    .eq('place_id', placeId)
+
+  if (error) {
+    console.error('[saved-venue-service] removeVenueFromGroupByPlace failed', error)
+    return false
+  }
+  return true
 }
 
 export async function listGroupSavedVenues(groupId: string): Promise<SavedVenue[]> {
