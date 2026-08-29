@@ -14,21 +14,19 @@ function targetFromWindow(daysUntil: number, time: string): number {
   const target = new Date()
   target.setSeconds(0, 0)
   target.setDate(target.getDate() + Math.max(0, daysUntil))
-  target.setHours(hours || 0, minutes || 0, 0, 0)
+  target.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0)
   return target.getTime()
 }
 
 function formatRemaining(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
-  const days = Math.floor(totalSeconds / 86400)
-  const hours = Math.floor((totalSeconds % 86400) / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
+  const totalMinutes = Math.max(0, Math.floor(ms / 60000))
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
 
-  if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
-  if (minutes > 0) return `${minutes}m ${seconds}s`
-  return `${seconds}s`
+  if (days > 0) return `${days} ${days === 1 ? 'day' : 'days'} ${hours} ${hours === 1 ? 'hour' : 'hours'}`
+  if (hours > 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
 export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenWindowCountdownProps) {
@@ -51,9 +49,7 @@ export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenW
           <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
           <span className="text-xs font-medium text-emerald-400">Your Golden Window is happening now</span>
         </div>
-        <p className="mt-1 text-center text-xs text-muted-foreground tabular-nums">
-          {formatRemaining(endMs - now)} remaining
-        </p>
+        <p className="mt-1 text-center text-xs text-muted-foreground tabular-nums">{formatRemaining(endMs - now)} remaining</p>
       </div>
     )
   }
@@ -73,9 +69,7 @@ export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenW
         <Clock className="w-3.5 h-3.5 text-primary" />
         <span className="text-xs text-muted-foreground">Golden Window in</span>
       </div>
-      <p className="mt-1 text-center text-sm font-semibold text-primary tabular-nums">
-        {formatRemaining(startMs - now)}
-      </p>
+      <p className="mt-1 text-center text-sm font-semibold text-primary tabular-nums">{formatRemaining(startMs - now)}</p>
     </div>
   )
 }
