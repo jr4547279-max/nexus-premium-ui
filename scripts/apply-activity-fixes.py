@@ -39,7 +39,7 @@ def keep_one(path: str, block: str) -> None:
         print("DEDUPED", path, "copies=", count)
 
 
-# Repair any duplicate output left by an earlier non-idempotent patch run.
+# First clean up duplicate fragments from the earlier patch attempts.
 keep_one("components/nexus/group-detail.tsx", "import { GoldenWindowCountdown } from './golden-window-countdown'\n")
 keep_one("components/nexus/venue-detail-sheet.tsx", "  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n")
 keep_one("components/nexus/venue-detail-sheet.tsx", "    setAddingToCrawl(false)\n    setCrawlAdded(false)\n")
@@ -79,7 +79,14 @@ keep_one("components/nexus/venue-detail-sheet.tsx", """        {activityId === '
 """)
 
 # Golden Window is optional for venue discovery; it remains the shared timing layer.
-replace("components/nexus/group-detail.tsx", "import { WeatherChip } from './weather-chip'\n", "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n")
+group_detail = ROOT / "components/nexus/group-detail.tsx"
+gd = group_detail.read_text()
+if "import { GoldenWindowCountdown }" not in gd:
+    gd = gd.replace("import { WeatherChip } from './weather-chip'\n", "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n", 1)
+    group_detail.write_text(gd)
+    changed = True
+    print("PATCH OK group-detail countdown import")
+
 replace("components/nexus/group-detail.tsx", "{showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (", "{realMode && planningLocation && !venuesRevealed && !isRouteActivity && (")
 replace("components/nexus/group-detail.tsx", "{showRevealedContent && venuesRevealed && !isRouteActivity && (", "{realMode && venuesRevealed && !isRouteActivity && (")
 replace("components/nexus/group-detail.tsx", """              groupName={realGroup?.name ?? null}
@@ -108,9 +115,7 @@ replace("components/nexus/group-detail.tsx", """disabled={!activeWindow}
                           : 'opacity-40 cursor-not-allowed',""")
 replace("components/nexus/group-detail.tsx", "Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.", "Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
 replace("components/nexus/group-detail.tsx", "Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.", "Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
-
-# Only add the countdown if it is not already present.
-if "<GoldenWindowCountdown daysUntil={activeWindow.days_until}" not in (ROOT / "components/nexus/group-detail.tsx").read_text():
+if "<GoldenWindowCountdown daysUntil={activeWindow.days_until}" not in group_detail.read_text():
     regex("components/nexus/group-detail.tsx", r"(\{\(weatherLoading \|\| \(weather && !weather\.error\)\) && \(.*?\n\s*\)\})(\n\s*</GlassCard>)", r"\1\n\n            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />\2")
 
 # Nearby Fits refreshes when recalibration changes the Golden Window and carries group context.
@@ -119,12 +124,23 @@ replace("components/nexus/venue-recommendations.tsx", "export function VenueReco
 replace("components/nexus/venue-recommendations.tsx", "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])", "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])")
 replace("components/nexus/venue-recommendations.tsx", "        venue={selectedVenue}\n        vibe={vibe}", "        venue={selectedVenue}\n        groupId={groupId}\n        activityId={activityId}\n        vibe={vibe}")
 
-# One-tap Pub Crawl save from a venue opened in a Pub Crawl group.
-replace("components/nexus/venue-detail-sheet.tsx", "interface Props {\n  venue: Venue | null", "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string")
-replace("components/nexus/venue-detail-sheet.tsx", "export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)", "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)")
-replace("components/nexus/venue-detail-sheet.tsx", "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n", "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n")
-replace("components/nexus/venue-detail-sheet.tsx", "    setSavedGroupIds([])\n    setSavingGroupId(null)\n", "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n")
-replace("components/nexus/venue-detail-sheet.tsx", "  const handleToggleGroup = async (groupId: string) => {", """  const handleAddToPubCrawl = async () => {
+# Pub Crawl direct save. All injected blocks are conditional so repeated CI runs are harmless.
+vd = ROOT / "components/nexus/venue-detail-sheet.tsx"
+vdt = vd.read_text()
+if "  groupId?: string" not in vdt:
+    vdt = vdt.replace("interface Props {\n  venue: Venue | null", "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string", 1)
+    changed = True
+if "export function VenueDetailSheet({ venue, groupId, activityId," not in vdt:
+    vdt = vdt.replace("export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)", "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)", 1)
+    changed = True
+if "const [addingToCrawl, setAddingToCrawl]" not in vdt:
+    vdt = vdt.replace("  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n", "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n", 1)
+    changed = True
+if "    setAddingToCrawl(false)\n    setCrawlAdded(false)" not in vdt:
+    vdt = vdt.replace("    setSavedGroupIds([])\n    setSavingGroupId(null)\n", "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n", 1)
+    changed = True
+if "  const handleAddToPubCrawl = async () => {" not in vdt:
+    handler = """  const handleAddToPubCrawl = async () => {
     if (!venue || !groupId || activityId !== 'pub-crawl' || addingToCrawl) return
     setAddingToCrawl(true)
     const result = await saveVenueToGroup(groupId, venue)
@@ -148,8 +164,11 @@ replace("components/nexus/venue-detail-sheet.tsx", "  const handleToggleGroup = 
     setAddingToCrawl(false)
   }
 
-  const handleToggleGroup = async (groupId: string) => {""")
-replace("components/nexus/venue-detail-sheet.tsx", "        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}", """        {activityId === 'pub-crawl' && groupId && (
+"""
+    vdt = vdt.replace("  const handleToggleGroup = async (groupId: string) => {", handler + "  const handleToggleGroup = async (groupId: string) => {", 1)
+    changed = True
+if "<span className=\"block text-[12px] font-semibold\">{crawlAdded ? 'Added to Pub Crawl'" not in vdt:
+    button = """        {activityId === 'pub-crawl' && groupId && (
           <section className="mx-4 mt-4">
             <button type="button" onClick={handleAddToPubCrawl} disabled={addingToCrawl || crawlAdded} className={cn('w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors', crawlAdded ? 'border-emerald-400/30 bg-emerald-400/[0.06]' : 'border-primary/30 bg-primary/[0.06] hover:bg-primary/[0.10]')}>
               <span className="flex items-center gap-3"><span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 border border-primary/20">{crawlAdded ? <Check className="w-4 h-4 text-emerald-300" /> : <Plus className="w-4 h-4 text-primary" />}</span><span><span className="block text-[12px] font-semibold">{crawlAdded ? 'Added to Pub Crawl' : 'Add to Pub Crawl'}</span><span className="block text-[11px] text-muted-foreground mt-0.5">{crawlAdded ? 'Saved to this group and ready for the crawl.' : 'Use this venue as one of your crawl stops.'}</span></span></span><span className="text-[11px] font-medium text-primary">{addingToCrawl ? 'Saving…' : crawlAdded ? 'Added' : 'Add'}</span>
@@ -157,7 +176,9 @@ replace("components/nexus/venue-detail-sheet.tsx", "        <section className=\
           </section>
         )}
 
-        <section className="mx-4 mt-4">
-          <button type="button" onClick={openGroupPicker}""")
+"""
+    vdt = vdt.replace("        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}", button + "        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}", 1)
+    changed = True
+vd.write_text(vdt)
 
 print("Activity fixes applied successfully" if changed else "Activity fixes already applied; no changes needed")
