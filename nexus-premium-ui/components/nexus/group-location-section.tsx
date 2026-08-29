@@ -36,7 +36,7 @@ async function fetchLocationIntelligence(lat: number, lng: number): Promise<Loca
   }
 }
 
-function dispatchCrawlVenue(venue: SavedVenue) {
+function dispatchSavedVenue(venue: SavedVenue, activityId: string | null) {
   const detail = {
     id: venue.place_id,
     name: venue.venue_name,
@@ -47,10 +47,19 @@ function dispatchCrawlVenue(venue: SavedVenue) {
     rating: venue.venue_rating,
     lat: venue.venue_lat,
     lng: venue.venue_lng,
+    activityId,
   }
-  window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', { detail }))
-  try { window.localStorage.setItem('nexus:crawl-candidate', JSON.stringify(detail)) } catch { /* non-fatal */ }
-  toast.success('Venue ready for the crawl', { description: `${venue.venue_name} can now be added or used to replace a stop.`, icon: '🍻' })
+  const eventName = activityId === 'pub-crawl' ? 'nexus:add-crawl-venue' : 'nexus:use-group-venue'
+  window.dispatchEvent(new CustomEvent(eventName, { detail }))
+  try {
+    window.localStorage.setItem('nexus:group-venue-candidate', JSON.stringify(detail))
+  } catch { /* non-fatal */ }
+  const activity = activityId ? getActivityById(activityId as never) : undefined
+  const label = activity?.label ?? 'activity'
+  toast.success('Venue ready for your plan', {
+    description: `${venue.venue_name} is ready to use in your ${label.toLowerCase()} plan.`,
+    icon: activityId === 'pub-crawl' ? '🍻' : '📍',
+  })
 }
 
 function SavedVenuesSection({ groupId }: { groupId: string }) {
@@ -92,6 +101,7 @@ function SavedVenuesSection({ groupId }: { groupId: string }) {
 
   const activity = activityId ? getActivityById(activityId as never) : undefined
   const isPubCrawl = activityId === 'pub-crawl'
+  const actionLabel = isPubCrawl ? 'Use in Pub Crawl' : `Use in ${activity?.label ?? 'Plan'}`
 
   return (
     <GlassCard className="mb-4 overflow-hidden p-0">
@@ -123,7 +133,7 @@ function SavedVenuesSection({ groupId }: { groupId: string }) {
               </button>
             </div>
             <div className="mt-2.5 flex gap-2 pl-[60px]">
-              {isPubCrawl && <button type="button" onClick={() => dispatchCrawlVenue(venue)} disabled={venue.venue_lat == null || venue.venue_lng == null} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 text-[10px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-40"><Route className="h-3 w-3" />Use in Pub Crawl</button>}
+              {activityId && <button type="button" onClick={() => dispatchSavedVenue(venue, activityId)} disabled={venue.venue_lat == null || venue.venue_lng == null} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 text-[10px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-40"><Route className="h-3 w-3" />{actionLabel}</button>}
               {venue.map_url && <a href={venue.map_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-border/40 px-2.5 py-1.5 text-[10px] text-muted-foreground hover:text-foreground"><ExternalLink className="h-3 w-3" />Maps</a>}
             </div>
           </div>
