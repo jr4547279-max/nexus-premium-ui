@@ -5,10 +5,12 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey
 
-// Supabase Auth can deadlock on mobile browsers when its Navigator Locks
-// integration is contended by the initial getSession() call. Nexus does not
-// need cross-tab auth locking, so use a simple in-process no-op lock instead.
-// This keeps sign-in/getSession independent of navigator.locks.
+// Nexus currently uses a browser-managed Supabase session rather than SSR
+// cookies. Use the implicit OAuth flow so Google returns the session directly
+// to the browser instead of requiring a one-time PKCE code exchange on a
+// callback page. This is deliberately paired with detectSessionInUrl=true.
+// Keep the lightweight lock override because Nexus has experienced mobile
+// Navigator Locks contention during auth initialisation.
 const nexusAuthLock = async <T>(
   _name: string,
   _acquireTimeout: number,
@@ -20,8 +22,8 @@ export const supabase = createClient(
   supabaseAnonKey ?? 'placeholder-anon-key',
   {
     auth: {
-      flowType: 'pkce',
-      detectSessionInUrl: false,
+      flowType: 'implicit',
+      detectSessionInUrl: true,
       autoRefreshToken: true,
       persistSession: true,
       lock: nexusAuthLock,
