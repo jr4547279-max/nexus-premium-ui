@@ -1,10 +1,6 @@
 /**
  * Golden Window persistence — save/load a group's computed Golden Window
  * through membership-checked SECURITY DEFINER RPCs.
- *
- * Direct updates to `groups` are intentionally avoided: the normal groups RLS
- * policy only lets the owner update the row, but any authenticated group member
- * is allowed to calculate and refresh the shared Golden Window.
  */
 
 import { supabase } from './supabase'
@@ -14,6 +10,16 @@ export interface SavedGoldenWindowResult {
   window: GoldenWindow | null
   isStale: boolean
   computedAt: string | null
+}
+
+function cacheForCountdown(window: GoldenWindow | null) {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return
+  try {
+    if (window) localStorage.setItem('nexus:last-golden-window', JSON.stringify(window))
+    else localStorage.removeItem('nexus:last-golden-window')
+  } catch {
+    // Countdown is progressive enhancement; persistence remains the source of truth.
+  }
 }
 
 /** Persist a computed window for any authenticated member of the group. */
@@ -30,18 +36,11 @@ export async function saveGoldenWindow(
     console.error('[golden-window-persistence] saveGoldenWindow failed', error)
     return false
   }
+  cacheForCountdown(window)
   return data === true
 }
 
-/**
- * Loads the persisted Golden Window for a group.
- *
- * If availability exists but the group has never had a saved window (for
- * example, availability was entered before Golden Window persistence was
- * deployed), compute the result immediately and return it. This prevents the
- * UI from getting stuck behind "Find Golden Window first" when all required
- * data is already present.
- */
+/** Loads the persisted Golden Window for a group. */
 export async function loadSavedGoldenWindow(
   groupId: string,
 ): Promise<SavedGoldenWindowResult> {
@@ -52,7 +51,6 @@ export async function loadSavedGoldenWindow(
     .single()
 
   if (error) {
-    // PGRST116 = no rows — not an error condition, just no saved window yet.
     if (error.code !== 'PGRST116') {
       console.error('[golden-window-persistence] loadSavedGoldenWindow failed', error)
     }
@@ -60,21 +58,21 @@ export async function loadSavedGoldenWindow(
   }
 
   const raw = data as {
-    golden_window_data:        Record<string, unknown> | null
+    golden_window_data: Record<string, unknown> | null
     golden_window_computed_at: string | null
-    golden_window_stale:       boolean | null
+    golden_window_stale: boolean | null
   }
 
   if (raw.golden_window_data) {
+    const savedWindow = raw.golden_window_data as unknown as GoldenWindow
+    cacheForCountdown(savedWindow)
     return {
-      window:     raw.golden_window_data as unknown as GoldenWindow,
-      isStale:    raw.golden_window_stale ?? false,
+      window: savedWindow,
+      isStale: raw.golden_window_stale ?? false,
       computedAt: raw.golden_window_computed_at,
     }
   }
 
-  // No persisted result yet. Build one from the actual group membership and
-  // availability so existing groups become immediately usable.
   try {
     const [{ data: memberRows, error: memberError }, { data: availabilityRows, error: availabilityError }] =
       await Promise.all([
@@ -93,10 +91,7 @@ export async function loadSavedGoldenWindow(
       return { window: null, isStale: false, computedAt: null }
     }
 
-    const members = [...new Set((memberRows ?? []).map((row) => row.user_id))].map((id) => ({
-      id,
-      name: null,
-    }))
+    const members = [...new Set((memberRows ?? []).map((row) => row.user_id))].map((id) => ({ id, name: null }))
     const rows = (availabilityRows ?? []).map((row) => ({
       user_id: row.user_id,
       day_of_week: row.day_of_week,
@@ -108,6 +103,7 @@ export async function loadSavedGoldenWindow(
     if (!best) return { window: null, isStale: false, computedAt: null }
 
     const saved = await saveGoldenWindow(groupId, best)
+    if (!saved) cacheForCountdown(best)
     return {
       window: best,
       isStale: !saved,
