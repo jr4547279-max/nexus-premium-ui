@@ -13,6 +13,8 @@ interface Props {
   venue: Venue | null
   groupId?: string
   activityId?: string
+  groupId?: string
+  activityId?: string
   vibe: Vibe
   goldenWindow?: { day_of_week: number; start_time: string; end_time: string } | null
   midpointFallback: boolean
@@ -30,6 +32,8 @@ export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindo
   const [groupsLoading, setGroupsLoading] = useState(false)
   const [savingGroupId, setSavingGroupId] = useState<string | null>(null)
   const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])
+  const [addingToCrawl, setAddingToCrawl] = useState(false)
+  const [crawlAdded, setCrawlAdded] = useState(false)
   const [addingToCrawl, setAddingToCrawl] = useState(false)
   const [crawlAdded, setCrawlAdded] = useState(false)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -63,6 +67,8 @@ export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindo
     setSavingGroupId(null)
     setAddingToCrawl(false)
     setCrawlAdded(false)
+    setAddingToCrawl(false)
+    setCrawlAdded(false)
   }, [venue?.id, venue?.name])
 
   const openGroupPicker = async () => {
@@ -76,6 +82,30 @@ export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindo
     setGroups(groupResult.groups)
     setSavedGroupIds(savedIds)
     setGroupsLoading(false)
+  }
+
+  const handleAddToPubCrawl = async () => {
+    if (!venue || !groupId || activityId !== 'pub-crawl' || addingToCrawl) return
+    setAddingToCrawl(true)
+    const result = await saveVenueToGroup(groupId, venue)
+    if (result.ok) {
+      setCrawlAdded(true)
+      window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', {
+        detail: {
+          id: venue.id || venue.maps_url || `${venue.name}|${venue.address || ''}`,
+          name: venue.name,
+          category: venue.category,
+          photo_url: venue.photo_url,
+          maps_url: venue.maps_url,
+          address: venue.address,
+          rating: venue.rating,
+          lat: venue.lat,
+          lng: venue.lng,
+          activityId: 'pub-crawl',
+        },
+      }))
+    }
+    setAddingToCrawl(false)
   }
 
   const handleAddToPubCrawl = async () => {
@@ -146,6 +176,14 @@ export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindo
           </div>
           {(distanceLabel || venue.address) && <div className="flex items-start gap-1.5 text-[12px] text-muted-foreground"><Navigation className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{distanceLabel && <span>{distanceLabel} from midpoint</span>}{distanceLabel && venue.address && <span className="text-muted-foreground/40"> · </span>}{venue.address && <span>{venue.address}</span>}</span></div>}
         </div>
+
+        {activityId === 'pub-crawl' && groupId && (
+          <section className="mx-4 mt-4">
+            <button type="button" onClick={handleAddToPubCrawl} disabled={addingToCrawl || crawlAdded} className={cn('w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors', crawlAdded ? 'border-emerald-400/30 bg-emerald-400/[0.06]' : 'border-primary/30 bg-primary/[0.06] hover:bg-primary/[0.10]')}>
+              <span className="flex items-center gap-3"><span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 border border-primary/20">{crawlAdded ? <Check className="w-4 h-4 text-emerald-300" /> : <Plus className="w-4 h-4 text-primary" />}</span><span><span className="block text-[12px] font-semibold">{crawlAdded ? 'Added to Pub Crawl' : 'Add to Pub Crawl'}</span><span className="block text-[11px] text-muted-foreground mt-0.5">{crawlAdded ? 'Saved to this group and ready for the crawl.' : 'Use this venue as one of your crawl stops.'}</span></span></span><span className="text-[11px] font-medium text-primary">{addingToCrawl ? 'Saving…' : crawlAdded ? 'Added' : 'Add'}</span>
+            </button>
+          </section>
+        )}
 
         {activityId === 'pub-crawl' && groupId && (
           <section className="mx-4 mt-4">
