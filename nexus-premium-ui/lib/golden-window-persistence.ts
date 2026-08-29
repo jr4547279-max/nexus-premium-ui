@@ -26,6 +26,11 @@ export async function saveGoldenWindow(
   groupId: string,
   goldenWindow: GoldenWindow,
 ): Promise<boolean> {
+  // Cache immediately so the live countdown is available even if the network
+  // request is slow or the persistence RPC temporarily fails. Supabase remains
+  // the source of truth; this is only the UI's countdown cache.
+  cacheForCountdown(goldenWindow)
+
   const { data, error } = await supabase.rpc('save_golden_window', {
     p_group_id: groupId,
     p_window: goldenWindow as unknown as Record<string, unknown>,
@@ -35,7 +40,6 @@ export async function saveGoldenWindow(
     console.error('[golden-window-persistence] saveGoldenWindow failed', error)
     return false
   }
-  cacheForCountdown(goldenWindow)
   return data === true
 }
 
