@@ -1,0 +1,24 @@
+name: Nexus Final Verification
+on:
+  push:
+    branches: [feature/group-crawl-integration]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          cd nexus-premium-ui
+          corepack enable
+          pnpm install --no-frozen-lockfile
+      - name: Typecheck
+        run: |
+          cd nexus-premium-ui
+          pnpm exec tsc --noEmit
+      - name: Production build
+        run: |
+          cd nexus-premium-ui
+          pnpm run build
