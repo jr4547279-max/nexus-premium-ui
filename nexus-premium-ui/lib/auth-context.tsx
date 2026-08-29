@@ -67,11 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // OAuth callback must get exclusive access to the Supabase client while it
-    // exchanges the PKCE code. Starting getSession() here at the same time can
-    // race the one-time code exchange on mobile browsers. The callback page
-    // performs the exchange first; when it redirects to '/', this effect runs
-    // again and picks up the newly-created session.
+    // Email confirmation and password-reset links still use the dedicated
+    // callback page. Google sign-in now returns directly to the current origin
+    // and is handled automatically by Supabase's implicit browser flow.
     if (pathname === '/auth/callback') {
       setLoading(true)
       return
@@ -191,10 +189,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
     try {
+      // Google uses the browser-native implicit flow. Returning to the current
+      // origin lets supabase-js consume the access/refresh tokens from the URL
+      // fragment before Nexus initialises its normal session state. This avoids
+      // the one-time PKCE callback exchange that was repeatedly losing the
+      // session on mobile.
+      const redirectTo = typeof window !== 'undefined'
+        ? window.location.origin
+        : CANONICAL_SITE_URL
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: getCallbackUrl(),
+          redirectTo,
           scopes: 'openid email profile',
         },
       })
