@@ -1,6 +1,16 @@
 /** @type {import('next').NextConfig} */
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
 const nextConfig = {
   output: 'standalone',
+
+  // The Next.js app lives inside a pnpm workspace. Its node_modules are
+  // symlinked through the workspace root, so standalone tracing must include
+  // the repository root or the generated server can miss `next` at runtime.
+  outputFileTracingRoot: path.join(__dirname, '..'),
 
   images: {
     unoptimized: true,
