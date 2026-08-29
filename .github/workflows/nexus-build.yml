@@ -17,11 +17,11 @@ jobs:
           fetch-depth: 0
 
       - name: Apply activity fixes
-        if: "!contains(github.event.head_commit.message, '[nexus-fix]')"
+        if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
         run: python3 scripts/apply-activity-fixes.py
 
       - name: Commit activity fixes
-        if: "!contains(github.event.head_commit.message, '[nexus-fix]')"
+        if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
         run: |
           if git diff --quiet -- nexus-premium-ui; then
             echo "No activity source changes needed."
@@ -38,4 +38,16 @@ jobs:
           node-version: 22
       - run: npm install -g pnpm@10.17.1
       - run: pnpm install --no-frozen-lockfile
-      - run: pnpm --filter my-project build
+      - name: Build and capture output
+        run: |
+          set -o pipefail
+          pnpm --filter my-project build 2>&1 | tee build-output.log
+
+      - name: Commit build output on failure
+        if: ${{ failure() && !contains(github.event.head_commit.message, '[build-log]') }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-output.log
+          git commit -m "chore: capture build output [build-log]"
+          git push origin main
