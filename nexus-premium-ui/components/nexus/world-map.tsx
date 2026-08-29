@@ -16,6 +16,7 @@ const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
 const VIBE_ICON: Record<Vibe, string> = { pub: '🍺', drinks: '✦', food: '🍴', coffee: '☕', activity: '◆' }
 const VIBE_TONE: Record<Vibe, string> = { pub: '#f59e0b', drinks: '#fbbf24', food: '#fb7185', coffee: '#c084fc', activity: '#34d399' }
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark'
+const VENUE_MARKER_MIN_ZOOM = 11.5
 
 export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -164,6 +165,20 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   }, [vibe, mapReady, loadVenues])
 
   useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    const updateVenueVisibility = () => {
+      const visible = map.getZoom() >= VENUE_MARKER_MIN_ZOOM
+      markersRef.current.forEach(({ marker }) => {
+        marker.getElement()?.classList.toggle('nexus-marker-hidden', !visible)
+      })
+    }
+    map.on('zoom', updateVenueVisibility)
+    updateVenueVisibility()
+    return () => { map.off('zoom', updateVenueVisibility) }
+  }, [mapReady])
+
+  useEffect(() => {
     let cancelled = false
     const { lat, lng } = locationRef.current
     fetch(`/nx/weather?lat=${lat}&lng=${lng}`)
@@ -184,13 +199,14 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     markersRef.current.forEach(({ marker }) => marker.remove())
     markersRef.current = []
 
+    const markersVisible = map.getZoom() >= VENUE_MARKER_MIN_ZOOM
     venues.forEach((venue) => {
       if (venue.lat == null || venue.lng == null) return
       const tone = VIBE_TONE[vibe]
       const el = document.createElement('button')
       el.type = 'button'
       el.setAttribute('aria-label', `Open ${venue.name}`)
-      el.className = 'nexus-venue-marker'
+      el.className = `nexus-venue-marker${markersVisible ? '' : ' nexus-marker-hidden'}`
       el.innerHTML = `<span class="nexus-marker-pulse"></span><span class="nexus-marker-core" style="--marker-tone:${tone}">${VIBE_ICON[vibe]}</span><span class="nexus-marker-label">${escapeHtml(venue.name)}</span>`
       el.onclick = (event) => {
         event.stopPropagation()
@@ -229,6 +245,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     <div className="nexus-world relative h-full w-full overflow-hidden bg-[#02040a]">
       <style jsx global>{`
         .nexus-venue-marker{position:relative;width:34px;height:48px;border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:flex-end;justify-content:center;filter:drop-shadow(0 0 10px rgba(251,191,36,.55));}
+        .nexus-marker-hidden{display:none!important;}
         .nexus-marker-core{position:relative;width:28px;height:28px;border-radius:999px;background:radial-gradient(circle at 35% 30%,#fff 0 8%,var(--marker-tone) 25%,rgba(0,0,0,.88) 72%);border:1px solid color-mix(in srgb,var(--marker-tone) 80%,white 20%);box-shadow:0 0 10px var(--marker-tone),0 0 28px color-mix(in srgb,var(--marker-tone) 55%,transparent),inset 0 0 10px rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:12px;color:white;z-index:2;}
         .nexus-marker-pulse{position:absolute;bottom:0;width:38px;height:38px;border-radius:999px;background:var(--marker-tone);opacity:.2;animation:nexusPulse 1.9s ease-out infinite;}
         .nexus-marker-label{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;padding:4px 8px;border-radius:999px;background:rgba(3,7,14,.78);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px);color:rgba(255,255,255,.88);font-size:9px;font-weight:600;opacity:0;transition:opacity .18s;pointer-events:none;}
