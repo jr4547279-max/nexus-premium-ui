@@ -14,14 +14,19 @@ const VIBE_ICON: Record<Vibe, string> = { pub: '🍺', drinks: '✦', food: '�
 const VIBE_TONE: Record<Vibe, string> = { pub: '#f59e0b', drinks: '#fbbf24', food: '#fb7185', coffee: '#c084fc', activity: '#34d399' }
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark'
 const VENUE_SOURCE = 'nexus-venues'
+const VENUE_HIT = 'nexus-venue-hit'
 const VENUE_CIRCLE = 'nexus-venue-circles'
 const VENUE_ICON = 'nexus-venue-icons'
 const VENUE_LABEL = 'nexus-venue-labels'
 
+function venueKey(venue: Venue) {
+  return venue.id ?? `${venue.name}|${venue.lat}|${venue.lng}`
+}
+
 function venueGeoJson(venues: Venue[]) {
   return { type: 'FeatureCollection' as const, features: venues.flatMap((venue) => {
     if (!Number.isFinite(venue.lat) || !Number.isFinite(venue.lng)) return []
-    return [{ type: 'Feature' as const, properties: { id: String(venue.id ?? ''), name: venue.name }, geometry: { type: 'Point' as const, coordinates: [Number(venue.lng), Number(venue.lat)] as [number, number] } }]
+    return [{ type: 'Feature' as const, properties: { key: venueKey(venue), name: venue.name }, geometry: { type: 'Point' as const, coordinates: [Number(venue.lng), Number(venue.lat)] as [number, number] } }]
   }) }
 }
 
@@ -60,6 +65,14 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     mapRef.current?.flyTo({ center: [lng, lat], zoom, pitch: is3D ? 42 : 0, bearing: 0, duration: 1000, essential: true })
   }, [is3D])
 
+  const selectVenue = useCallback((venue: Venue) => {
+    const map = mapRef.current
+    if (!map) return
+    setTransitioning(true)
+    map.flyTo({ center: [Number(venue.lng), Number(venue.lat)], zoom: 16.8, pitch: is3D ? 42 : 0, bearing: 0, duration: 700, essential: true })
+    map.once('moveend', () => { setTransitioning(false); setVote(0); setSelectedVenue(venue) })
+  }, [is3D])
+
   const getUserLocation = useCallback(() => {
     if (!navigator.geolocation) return
     setLocating(true)
@@ -86,18 +99,28 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
         map.on('load', () => {
           if (!map) return
           window.clearTimeout(initTimeout); resize()
-          if (!map.getSource(VENUE_SOURCE)) map.addSource(VENUE_SOURCE, { type: 'geojson', data: venueGeoJson([]) })
+          map.addSource(VENUE_SOURCE, { type: 'geojson', data: venueGeoJson([]) })
+          map.addLayer({ id: VENUE_HIT, type: 'circle', source: VENUE_SOURCE, paint: { 'circle-radius': 22, 'circle-color': '#000000', 'circle-opacity': 0 } })
           map.addLayer({ id: VENUE_CIRCLE, type: 'circle', source: VENUE_SOURCE, paint: { 'circle-radius': 9, 'circle-color': VIBE_TONE[vibe], 'circle-stroke-color': '#fff7d6', 'circle-stroke-width': 2, 'circle-opacity': 0.98, 'circle-blur': 0.05 } })
           map.addLayer({ id: VENUE_ICON, type: 'symbol', source: VENUE_SOURCE, layout: { 'text-field': VIBE_ICON[vibe], 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': true, 'text-ignore-placement': true } })
           map.addLayer({ id: VENUE_LABEL, type: 'symbol', source: VENUE_SOURCE, layout: { 'text-field': ['get', 'name'], 'text-size': 10, 'text-anchor': 'top', 'text-offset': [0, 1.15], 'text-max-width': 12, 'text-allow-overlap': false }, paint: { 'text-color': '#f8fafc', 'text-halo-color': '#02040a', 'text-halo-width': 1.5, 'text-opacity': 0.88 }, minzoom: 13 })
-          map.on('mouseenter', VENUE_CIRCLE, () => { map?.getCanvas().style.setProperty('cursor', 'pointer') })
-          map.on('mouseleave', VENUE_CIRCLE, () => { map?.getCanvas().style.setProperty('cursor', '') })
-          map.on('click', VENUE_CIRCLE, (event) => {
-            const id = event.features?.[0]?.properties?.id; if (!id) return
-            const venue = venuesRef.current.find((item) => String(item.id ?? '') === String(id)); if (!venue) return
-            setTransitioning(true); map?.flyTo({ center: [Number(venue.lng), Number(venue.lat)], zoom: 16.8, pitch: is3D ? 42 : 0, bearing: 0, duration: 900, essential: true })
-            map?.once('moveend', () => { setTransitioning(false); setVote(0); setSelectedVenue(venue) })
-          })
+
+          const handleVenueClick = (event: import('maplibre-gl').MapMouseEvent) => {
+            const features = map?.queryRenderedFeatures(event.point, { layers: [VENUE_HIT, VENUE_CIRCLE, VENUE_ICON, VENUE_LABEL] }) ?? []
+            const feature = features[0]
+            const key = feature?.properties?.key
+            if (!key) return
+            const venue = venuesRef.current.find((item) => String(venueKey(item)) === String(key))
+            if (venue) selectVenue(venue)
+          }
+          const setPointer = () => { if (map) map.getCanvas().style.cursor = 'pointer' }
+          const clearPointer = () => { if (map) map.getCanvas().style.cursor = '' }
+          map.on('click', handleVenueClick)
+          map.on('mouseenter', VENUE_HIT, setPointer); map.on('mouseleave', VENUE_HIT, clearPointer)
+          map.on('mouseenter', VENUE_CIRCLE, setPointer); map.on('mouseleave', VENUE_CIRCLE, clearPointer)
+          map.on('mouseenter', VENUE_ICON, setPointer); map.on('mouseleave', VENUE_ICON, clearPointer)
+          map.on('mouseenter', VENUE_LABEL, setPointer); map.on('mouseleave', VENUE_LABEL, clearPointer)
+
           setMapReady(true); setMapError(null); void loadVenues(locationRef.current.lat, locationRef.current.lng, vibe)
           navigator.geolocation?.getCurrentPosition((position) => { const next = { lat: position.coords.latitude, lng: position.coords.longitude }; flyToLocation(next.lat, next.lng); void loadVenues(next.lat, next.lng, vibe) }, () => undefined, { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 })
         })
@@ -112,7 +135,9 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapReady) return
     const source = map.getSource(VENUE_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined
-    source?.setData(venueGeoJson(venues)); if (map.getLayer(VENUE_CIRCLE)) map.setPaintProperty(VENUE_CIRCLE, 'circle-color', VIBE_TONE[vibe]); if (map.getLayer(VENUE_ICON)) map.setLayoutProperty(VENUE_ICON, 'text-field', VIBE_ICON[vibe])
+    source?.setData(venueGeoJson(venues))
+    if (map.getLayer(VENUE_CIRCLE)) map.setPaintProperty(VENUE_CIRCLE, 'circle-color', VIBE_TONE[vibe])
+    if (map.getLayer(VENUE_ICON)) map.setLayoutProperty(VENUE_ICON, 'text-field', VIBE_ICON[vibe])
   }, [venues, vibe, mapReady])
   useEffect(() => { const map = mapRef.current; if (map && mapReady) { map.setPitch(is3D ? 42 : 0); map.setBearing(0); map.resize() } }, [is3D, mapReady])
   useEffect(() => { let cancelled = false; const { lat, lng } = locationRef.current; fetch(`/nx/weather?lat=${lat}&lng=${lng}`).then((r) => r.ok ? r.json() : null).then((data) => { if (cancelled) return; const text = data?.current?.condition ?? data?.condition ?? data?.current?.weather ?? ''; if (typeof text === 'string' && text) setWeatherLabel(text) }).catch(() => undefined); return () => { cancelled = true } }, [selectedVenue])
