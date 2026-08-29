@@ -1,0 +1,85 @@
+name: Nexus one-shot optional Golden Window UI fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-ui:
+    if: contains(github.event.head_commit.message, '[nexus-ui-fix]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Remove Golden Window gate from venue planner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('nexus-premium-ui/components/nexus/group-detail.tsx')
+          s = p.read_text()
+          old = '''                    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                      {realMembers.length === 1
+                        ? 'Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.'
+                        : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.'}
+                    </p>
+                    {!activeWindow && (
+                      <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+                        {realMembers.length === 1
+                          ? 'Find your Golden Window first so Nexus can plan around your available time.'
+                          : 'Find a Golden Window first so Nexus can plan around your group\\u2019s available time.'}
+                      </p>
+                    )}
+'''
+          new = '''                    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                      {realMembers.length === 1
+                        ? 'Nexus will find the best venues near you, score them, and build a plan. A Golden Window can optimise the timing, but it is optional.'
+                        : 'Nexus will find the best venues near your group, score them, and build a plan. A Golden Window can optimise the timing, but it is optional.'}
+                    </p>
+                    {activeWindow ? (
+                      <p className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+                        ✨ Golden Window active — Nexus will optimise the plan around this time.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground bg-muted/20 border border-border/30 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+                        Timing is flexible. You can find a Golden Window after choosing a venue.
+                      </p>
+                    )}
+'''
+          if old not in s:
+              raise SystemExit('Expected Golden Window gate block was not found')
+          s = s.replace(old, new, 1)
+          old2 = '''                      onClick={handlePlanActivity}
+                      disabled={!activeWindow}
+                      className={cn(
+                        'w-full h-11 rounded-xl',
+                        activeWindow
+                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'
+                          : 'opacity-40 cursor-not-allowed',
+                      )}
+'''
+          new2 = '''                      onClick={handlePlanActivity}
+                      disabled={!planningLocation}
+                      className={cn(
+                        'w-full h-11 rounded-xl',
+                        planningLocation
+                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'
+                          : 'opacity-40 cursor-not-allowed',
+                      )}
+'''
+          if old2 not in s:
+              raise SystemExit('Expected Plan button gate was not found')
+          s = s.replace(old2, new2, 1)
+          p.write_text(s)
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add nexus-premium-ui/components/nexus/group-detail.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: make Golden Window optional for venue planning'
+          git push
