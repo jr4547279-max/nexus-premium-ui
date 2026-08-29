@@ -17,20 +17,20 @@ https://nextjs.org/telemetry
 - Environments: .env.production
 
   Creating an optimized production build ...
-✓ Compiled successfully in 4.2s
+✓ Compiled successfully in 5.9s
   Running TypeScript ...
 Failed to type check.
 
-./components/nexus/venue-detail-sheet.tsx:14:3
+./components/nexus/venue-recommendations.tsx:27:3
 Type error: Duplicate identifier 'groupId'.
 
-  [90m12 |[0m [36minterface[0m [33mProps[0m {
-  [90m13 |[0m   venue: [33mVenue[0m | [36mnull[0m
-[31m[1m>[0m [90m14 |[0m   groupId?: string
+  [90m25 |[0m [36minterface[0m [33mProps[0m {
+  [90m26 |[0m   groupName: string | [36mnull[0m
+[31m[1m>[0m [90m27 |[0m   groupId?: string
   [90m   |[0m   [31m[1m^[0m
-  [90m15 |[0m   activityId?: string
-  [90m16 |[0m   groupId?: string
-  [90m17 |[0m   activityId?: string
+  [90m28 |[0m   activityId?: string
+  [90m29 |[0m   groupId?: string
+  [90m30 |[0m   activityId?: string
 Next.js build worker exited with code: 1 and signal: null
 /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui:
  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  my-project@0.1.0 build: `next build`
