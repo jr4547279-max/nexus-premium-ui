@@ -13,24 +13,20 @@ import { hasValidProviderLocation, venueDistanceKm } from '@/lib/venue-location'
  *   lng        — search center longitude                   (default: Eastbourne midpoint)
  *   radius     — search radius in meters                   (default: 5000)
  *   limit      — venues to return                          (default: 8, max: 12)
- *
- * Response:
- *   { venues: Venue[], cached: boolean, vibe, fallback?: string }
  */
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Eastbourne town centre — sensible UK fallback until we have member locations.
 export const FALLBACK_LAT = 50.7686
 export const FALLBACK_LNG = 0.2906
 
 const VIBE_QUERIES: Record<string, string> = {
-  // Keep the pub query deliberately literal. Google Places (New) has a real
-  // `pub` place type, so we can combine the human query with strict type
-  // filtering instead of hoping relevance ranking discovers pubs.
   pub: 'pubs',
-  drinks: 'cocktail bars',
+  // "cocktail bars" was too narrow for the World map and could return only one
+  // result in smaller towns. Drinks means the broader real-world bar universe;
+  // users can still switch to the dedicated Pub chip when they want pubs only.
+  drinks: 'bars',
   food: 'restaurants',
   coffee: 'cafes and coffee shops',
   activity: 'things to do',
@@ -115,9 +111,6 @@ export async function GET(req: Request) {
       rankPreference: 'DISTANCE',
     }
 
-    // Google Places (New) explicitly supports `pub` as a requestable place
-    // type. Strict filtering prevents a generic "drinks" result from crowding
-    // out genuine pubs — the exact failure mode this planner was seeing.
     if (vibe === 'pub') {
       body.includedType = 'pub'
       body.strictTypeFiltering = true
@@ -169,9 +162,6 @@ export async function GET(req: Request) {
     if (!res.ok) {
       const upstreamCode = upstream?.error?.status ?? ''
       const upstreamMsg = upstream?.error?.message ?? `Google Places returned ${res.status}`
-
-      // PERMISSION_DENIED almost always means billing is not enabled or the
-      // specific API is not activated for this key's project.
       const billingHint =
         upstreamCode === 'PERMISSION_DENIED'
           ? ' — Enable billing at https://console.cloud.google.com/project/_/billing/enable and enable "Places API (New)" at https://console.cloud.google.com/apis/library'
@@ -214,15 +204,9 @@ export async function GET(req: Request) {
       return []
     }
 
-    // Do not replace, swap, jitter or otherwise transform provider coordinates.
     const providerLat = placeLat as number
     const providerLng = placeLng as number
     const distance_km = venueDistanceKm({ lat, lng }, { lat: providerLat, lng: providerLng })
-
-    // Lightweight composite score:
-    //   rating × log10(reviews+10)  → quality + popularity
-    //   + 0.4 if open now           → fits the Golden Window right now
-    //   – 0.05 × distance_km        → mild distance penalty from midpoint
     const rating = p.rating ?? 0
     const ratingCount = p.userRatingCount ?? 0
     const openNow = p.regularOpeningHours?.openNow ?? null
