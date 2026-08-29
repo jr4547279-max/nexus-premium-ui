@@ -61,15 +61,6 @@ function role(index: number, total: number): string {
   return index <= Math.ceil((total - 1) / 2) ? 'Building' : 'Peak'
 }
 
-function distanceKm(a: PlannerVenue, b: PlannerVenue): number {
-  const R = 6371
-  const rad = (n: number) => n * Math.PI / 180
-  const dLat = rad(b.lat - a.lat)
-  const dLng = rad(b.lng - a.lng)
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2
-  return 2 * R * Math.asin(Math.sqrt(x))
-}
-
 async function fetchRealPubs(lat: number, lng: number, radius: number): Promise<PlacesVenue[]> {
   const params = new URLSearchParams({
     vibe: 'pub',
@@ -82,9 +73,7 @@ async function fetchRealPubs(lat: number, lng: number, radius: number): Promise<
   const response = await fetch(`/nx/places?${params.toString()}`, { cache: 'no-store' })
   if (!response.ok) throw new Error(`Google Places proxy returned ${response.status}`)
   const payload = await response.json() as { venues?: PlacesVenue[]; error?: string }
-  if (payload.error && (!payload.venues || payload.venues.length === 0)) {
-    throw new Error(payload.error)
-  }
+  if (payload.error && (!payload.venues || payload.venues.length === 0)) throw new Error(payload.error)
   return payload.venues ?? []
 }
 
@@ -140,13 +129,13 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
   activityId: 'pub-crawl',
   kind: 'venue',
   name: 'Pub Crawl Planner',
-  description: 'Plans a pub crawl using real Google Places venues around the Golden Window.',
+  description: 'Plans a pub crawl using real Google Places venues, with Golden Window as an optional timing layer.',
 
   async plan(request): Promise<PlannerResult> {
     const { goldenWindow, groupLocation, locationName, desiredStops = 4, budgetPreference = 'medium' } = request
-    if (!goldenWindow) throw new Error('No Golden Window has been created yet. Find a Golden Window before planning this pub crawl.')
     if (!groupLocation) throw new Error('Set a planning location first so Nexus can find real pubs near your group.')
 
+    const startTime = goldenWindow?.start_time ?? '18:00'
     const radii = [...new Set([
       groupLocation.radiusMetres ?? 2000,
       3500,
@@ -159,8 +148,7 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
     for (const radius of radii) {
       try {
         places = await fetchRealPubs(groupLocation.lat, groupLocation.lng, radius)
-        if (places.length >= Math.max(2, desiredStops)) break
-        if (places.length >= 2) break
+        if (places.length >= Math.max(2, desiredStops) || places.length >= 2) break
       } catch {
         places = []
       }
@@ -183,7 +171,13 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
     }
 
     mapped.sort((a, b) => scoreVenue(b.venue, b.openNow).total - scoreVenue(a.venue, a.openNow).total)
-    const selected = mapped.slice(0, Math.min(Math.max(2, desiredStops), mapped.length))
+
+    // Keep the strongest candidates, but rotate the starting pick slightly on
+    // each recalculation so the same crawl is not returned forever.
+    const candidateCount = Math.min(5, mapped.length)
+    const offset = Math.floor(Math.random() * candidateCount)
+    const rotated = [...mapped.slice(offset), ...mapped.slice(0, offset)]
+    const selected = rotated.slice(0, Math.min(Math.max(2, desiredStops), rotated.length))
 
     const ordered: typeof selected = []
     const remaining = [...selected]
@@ -196,10 +190,10 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
         const d = distanceKm(last, candidate.venue)
         if (d < bestDistance) { bestDistance = d; bestIndex = index }
       })
-      ordered.push(remaining.splice(bestIndex, 1)[0])
+      ordered.push(remaining.splice(bestIndex, 1)[0]!)
     }
 
-    let currentTime = goldenWindow.start_time
+    let currentTime = startTime
     const stops = ordered.map((item, index) => {
       const previous = index > 0 ? ordered[index - 1].venue : null
       const walking = previous ? Math.max(1, Math.round(distanceKm(previous, item.venue) / 0.083)) : 0
@@ -225,15 +219,17 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
     const totalDistanceKm = Math.round(stops.reduce((sum, stop) => sum + stop.distanceFromPrevious, 0) * 10) / 10
     const durationMinutes = stops.length * 42 + totalWalkingMinutes
     const overallScore = Math.round(stops.reduce((sum, stop) => sum + stop.score.total, 0) / stops.length)
-    const matchQuality = (goldenWindow.match_quality ?? 'partial') as 'perfect' | 'strong' | 'partial' | 'compromise'
-    const groupMatchPercent = goldenWindow.available_member_count != null && goldenWindow.total_member_count
+    const matchQuality = (goldenWindow?.match_quality ?? 'partial') as 'perfect' | 'strong' | 'partial' | 'compromise'
+    const groupMatchPercent = goldenWindow?.available_member_count != null && goldenWindow.total_member_count
       ? Math.round(goldenWindow.available_member_count / goldenWindow.total_member_count * 100)
       : undefined
 
     return {
       kind: 'venue',
       title: locationName ? `🍺 ${locationName} Pub Crawl` : '🍺 Nexus Pub Crawl',
-      subtitle: `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][goldenWindow.day_of_week] ?? 'Saturday'} · ${format12h(goldenWindow.start_time)}`,
+      subtitle: goldenWindow
+        ? `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][goldenWindow.day_of_week] ?? 'Saturday'} · ${format12h(goldenWindow.start_time)}`
+        : 'Venues selected · timing flexible',
       activityId: 'pub-crawl',
       durationMinutes,
       estimatedCostLabel: budgetPreference === 'low' ? '£' : budgetPreference === 'high' ? '£££' : '££',
@@ -241,10 +237,15 @@ export const googlePubCrawlPlanner: PlannerDefinition = {
       walkingMinutes: totalWalkingMinutes,
       stops,
       overallScore,
-      explanation: `Nexus selected ${stops.length} real ${source} pubs, scored for proximity, rating, budget and the Golden Window, then ordered to minimise backtracking across ${totalDistanceKm} km.`,
-      warnings: source === 'OpenStreetMap' ? ['Google Places was unavailable, so Nexus used real OpenStreetMap pub data instead.'] : [],
+      explanation: goldenWindow
+        ? `Nexus selected ${stops.length} real ${source} pubs, scored for proximity, rating, budget and the Golden Window, then ordered to minimise backtracking across ${totalDistanceKm} km.`
+        : `Nexus selected ${stops.length} real ${source} pubs, scored for proximity, rating and budget, then ordered to minimise backtracking across ${totalDistanceKm} km. You can add a Golden Window afterwards.`,
+      warnings: [
+        ...(source === 'OpenStreetMap' ? ['Google Places was unavailable, so Nexus used real OpenStreetMap pub data instead.'] : []),
+        ...(!goldenWindow ? ['Timing is flexible. Add a Golden Window later if you want Nexus to lock the crawl to the group\'s shared time.'] : []),
+      ],
       generatedAt: new Date().toISOString(),
-      goldenWindowQuality: matchQuality,
+      goldenWindowQuality: goldenWindow ? matchQuality : undefined,
       groupMatchPercent,
       dataSource: 'real',
       providerName: source,
