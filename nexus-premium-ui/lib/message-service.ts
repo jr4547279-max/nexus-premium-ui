@@ -4,84 +4,71 @@
 
 import { supabase } from './supabase'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 export type MessageType = 'text' | 'system' | 'route' | 'location' | 'poll' | 'image'
 
 export interface PollOption {
-  id:    string       // stable identifier, e.g. "opt-1234567890-0"
-  text:  string
-  votes: string[]     // array of user IDs who selected this option
+  id: string
+  text: string
+  votes: string[]
 }
 
 export interface PollMetadata {
-  event:    'poll'
+  event: 'poll'
   question: string
-  options:  PollOption[]
+  options: PollOption[]
 }
 
 export interface GroupMessage {
-  id:                string
-  group_id:          string
-  user_id:           string | null
-  message:           string
-  message_type:      MessageType
-  /** Structured payload — poll data, system event keys, future features. */
-  metadata:          Record<string, unknown> | null
-  created_at:        string
-  updated_at:        string
-  // ── Joined from profiles ───────────────────────────────────────────────────
-  sender_name:       string | null
-  sender_username:   string | null
+  id: string
+  group_id: string
+  user_id: string | null
+  message: string
+  message_type: MessageType
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  sender_name: string | null
+  sender_username: string | null
   sender_avatar_url: string | null
 }
 
-// ── Internal row shape ────────────────────────────────────────────────────────
-
 interface RawMessageRow {
-  id:           string
-  group_id:     string
-  user_id:      string | null
-  message:      string
+  id: string
+  group_id: string
+  user_id: string | null
+  message: string
   message_type: string
-  metadata:     Record<string, unknown> | null
-  created_at:   string
-  updated_at:   string
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
   profiles: {
     display_name: string | null
-    username:     string | null
-    avatar_url:   string | null
+    username: string | null
+    avatar_url: string | null
   } | null
 }
-
-// ── Column projection ─────────────────────────────────────────────────────────
 
 const COLS = `
   id, group_id, user_id, message, message_type, metadata, created_at, updated_at,
   profiles:user_id ( display_name, username, avatar_url )
 `
 
-// ── Row → domain model ────────────────────────────────────────────────────────
-
 function toMessage(row: RawMessageRow): GroupMessage {
   return {
-    id:                row.id,
-    group_id:          row.group_id,
-    user_id:           row.user_id,
-    message:           row.message,
-    message_type:      row.message_type as MessageType,
-    metadata:          row.metadata,
-    created_at:        row.created_at,
-    updated_at:        row.updated_at,
-    sender_name:       row.profiles?.display_name  ?? null,
-    sender_username:   row.profiles?.username      ?? null,
-    sender_avatar_url: row.profiles?.avatar_url    ?? null,
+    id: row.id,
+    group_id: row.group_id,
+    user_id: row.user_id,
+    message: row.message,
+    message_type: row.message_type as MessageType,
+    metadata: row.metadata,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    sender_name: row.profiles?.display_name ?? null,
+    sender_username: row.profiles?.username ?? null,
+    sender_avatar_url: row.profiles?.avatar_url ?? null,
   }
 }
 
-// ── Queries ───────────────────────────────────────────────────────────────────
-
-/** Fetch the most recent `limit` messages for a group, oldest-first. */
 export async function fetchMessages(groupId: string, limit = 80): Promise<GroupMessage[]> {
   const { data, error } = await supabase
     .from('group_messages')
@@ -97,7 +84,6 @@ export async function fetchMessages(groupId: string, limit = 80): Promise<GroupM
   return (data ?? []).map(r => toMessage(r as unknown as RawMessageRow))
 }
 
-/** Fetch a single message with profile join (used after real-time events). */
 async function fetchMessageById(id: string): Promise<GroupMessage | null> {
   const { data, error } = await supabase
     .from('group_messages')
@@ -109,20 +95,20 @@ async function fetchMessageById(id: string): Promise<GroupMessage | null> {
   return toMessage(data as unknown as RawMessageRow)
 }
 
-// ── Mutations ─────────────────────────────────────────────────────────────────
-
-/** Send a plain text message. */
 export async function sendMessage(
   groupId: string,
-  userId:  string,
-  text:    string,
+  userId: string,
+  text: string,
 ): Promise<GroupMessage | null> {
+  const cleanText = text.trim()
+  if (!cleanText) return null
+
   const { data, error } = await supabase
     .from('group_messages')
     .insert({
-      group_id:     groupId,
-      user_id:      userId,
-      message:      text.trim(),
+      group_id: groupId,
+      user_id: userId,
+      message: cleanText,
       message_type: 'text',
     })
     .select(COLS)
@@ -135,58 +121,54 @@ export async function sendMessage(
   return toMessage(data as unknown as RawMessageRow)
 }
 
-/**
- * Send a system event message attributed to the triggering user.
- * Non-blocking — failures are logged but never surface to the UI.
- */
 export async function sendSystemMessage(
-  groupId:   string,
-  userId:    string,
-  text:      string,
+  groupId: string,
+  userId: string,
+  text: string,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   const { error } = await supabase
     .from('group_messages')
     .insert({
-      group_id:     groupId,
-      user_id:      userId,
-      message:      text,
+      group_id: groupId,
+      user_id: userId,
+      message: text,
       message_type: 'system',
-      metadata:     metadata ?? null,
+      metadata: metadata ?? null,
     })
 
   if (error) console.warn('[message-service] sendSystemMessage:', error.message)
 }
 
-/**
- * Create a new poll in the group chat.
- * `optTexts` must contain at least 2 non-empty strings.
- */
 export async function sendPoll(
-  groupId:  string,
-  userId:   string,
+  groupId: string,
+  userId: string,
   question: string,
   optTexts: string[],
 ): Promise<GroupMessage | null> {
-  const ts      = Date.now()
-  const options: PollOption[] = optTexts.map((text, i) => ({
-    id:    `opt-${ts}-${i}`,
-    text:  text.trim(),
+  const cleanQuestion = question.trim()
+  const cleanOptions = optTexts.map(text => text.trim()).filter(Boolean)
+  if (!cleanQuestion || cleanOptions.length < 2) return null
+
+  const ts = Date.now()
+  const options: PollOption[] = cleanOptions.map((text, i) => ({
+    id: `opt-${ts}-${i}`,
+    text,
     votes: [],
   }))
 
   const metadata: PollMetadata = {
-    event:    'poll',
-    question: question.trim(),
+    event: 'poll',
+    question: cleanQuestion,
     options,
   }
 
   const { data, error } = await supabase
     .from('group_messages')
     .insert({
-      group_id:     groupId,
-      user_id:      userId,
-      message:      question.trim(),   // human-readable fallback text
+      group_id: groupId,
+      user_id: userId,
+      message: cleanQuestion,
       message_type: 'poll',
       metadata,
     })
@@ -200,23 +182,11 @@ export async function sendPoll(
   return toMessage(data as unknown as RawMessageRow)
 }
 
-/**
- * Cast (or change) a vote on a poll.
- *
- * Strategy: read-modify-write on the metadata JSONB.
- * - Removes the user from every option's votes array.
- * - Adds the user to the target option's votes array.
- * This enforces one-vote-per-user client-side. The voting RLS policy
- * ("group_members_can_vote_on_polls") ensures only members can update polls.
- *
- * Returns true on success.
- */
 export async function castVote(
   messageId: string,
-  optionId:  string,
-  userId:    string,
+  optionId: string,
+  userId: string,
 ): Promise<boolean> {
-  // 1. Fetch current metadata
   const { data: current, error: fetchErr } = await supabase
     .from('group_messages')
     .select('metadata')
@@ -231,7 +201,6 @@ export async function castVote(
   const meta = current.metadata as PollMetadata | null
   if (!meta?.options) return false
 
-  // 2. Build updated options: remove user from all, add to target
   const updatedOptions: PollOption[] = meta.options.map(opt => ({
     ...opt,
     votes: opt.id === optionId
@@ -239,11 +208,10 @@ export async function castVote(
       : opt.votes.filter(v => v !== userId),
   }))
 
-  // 3. Persist
   const { error: updateErr } = await supabase
     .from('group_messages')
     .update({
-      metadata:   { ...meta, options: updatedOptions },
+      metadata: { ...meta, options: updatedOptions },
       updated_at: new Date().toISOString(),
     })
     .eq('id', messageId)
@@ -255,48 +223,108 @@ export async function castVote(
   return true
 }
 
-// ── Real-time subscription ────────────────────────────────────────────────────
-
 /**
- * Subscribe to live message events for a group.
+ * Subscribe to live group messages.
  *
- * - `onInsert` fires when a new message arrives.
- * - `onUpdate` fires when a message is updated (e.g. a vote is cast on a poll).
- *
- * Both callbacks receive a fully hydrated GroupMessage (with profile join).
- * Returns an unsubscribe function — call it in useEffect cleanup.
+ * Mobile browsers were reaching the Realtime websocket with a 401 even though
+ * normal REST reads/writes were authenticated successfully. Explicitly attach
+ * the current access token before subscribing. A lightweight REST poll remains
+ * as a safety net: if Realtime is unavailable, new messages and poll updates
+ * still reach the UI without requiring a page refresh.
  */
 export function subscribeToMessages(
-  groupId:   string,
-  onInsert:  (msg: GroupMessage) => void,
+  groupId: string,
+  onInsert: (msg: GroupMessage) => void,
   onUpdate?: (msg: GroupMessage) => void,
 ): () => void {
-  const filter = `group_id=eq.${groupId}`
+  let disposed = false
+  let pollTimer: ReturnType<typeof setInterval> | undefined
+  const seen = new Set<string>()
 
-  let channel = supabase
-    .channel(`group-chat:${groupId}`)
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'group_messages', filter },
-      async (payload) => {
-        const row = payload.new as { id: string }
-        const msg = await fetchMessageById(row.id)
-        if (msg) onInsert(msg)
-      },
-    )
-
-  if (onUpdate) {
-    channel = channel.on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'group_messages', filter },
-      async (payload) => {
-        const row = payload.new as { id: string }
-        const msg = await fetchMessageById(row.id)
-        if (msg) onUpdate(msg)
-      },
-    )
+  const rememberCurrent = async () => {
+    const initial = await fetchMessages(groupId)
+    if (disposed) return
+    for (const message of initial) seen.add(message.id)
   }
 
-  channel.subscribe()
-  return () => { supabase.removeChannel(channel) }
+  const poll = async () => {
+    if (disposed) return
+    const latest = await fetchMessages(groupId)
+    if (disposed) return
+    for (const message of latest) {
+      if (!seen.has(message.id)) {
+        seen.add(message.id)
+        onInsert(message)
+      } else if (onUpdate && message.message_type === 'poll') {
+        onUpdate(message)
+      }
+    }
+  }
+
+  const start = async () => {
+    try {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (accessToken) {
+        supabase.realtime.setAuth(accessToken)
+      }
+    } catch (error) {
+      console.warn('[message-service] realtime auth setup failed:', error)
+    }
+
+    if (disposed) return
+
+    const filter = `group_id=eq.${groupId}`
+    const channel = supabase
+      .channel(`group-chat:${groupId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'group_messages', filter },
+        async (payload) => {
+          const row = payload.new as { id: string }
+          const msg = await fetchMessageById(row.id)
+          if (!msg || disposed) return
+          seen.add(msg.id)
+          onInsert(msg)
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'group_messages', filter },
+        async (payload) => {
+          const row = payload.new as { id: string }
+          const msg = await fetchMessageById(row.id)
+          if (!msg || disposed) return
+          seen.add(msg.id)
+          onUpdate?.(msg)
+        },
+      )
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') {
+          console.warn(`[message-service] realtime status: ${status}; REST fallback remains active`)
+        }
+      })
+
+    await rememberCurrent()
+    if (disposed) {
+      supabase.removeChannel(channel)
+      return
+    }
+
+    // Keep this deliberately slow: it is only a fallback for mobile/network
+    // cases where the websocket cannot authenticate.
+    pollTimer = setInterval(() => { void poll() }, 3000)
+
+    const originalCleanup = () => supabase.removeChannel(channel)
+    cleanupChannel = originalCleanup
+  }
+
+  let cleanupChannel: (() => void) | null = null
+  void start()
+
+  return () => {
+    disposed = true
+    if (pollTimer) clearInterval(pollTimer)
+    cleanupChannel?.()
+  }
 }
