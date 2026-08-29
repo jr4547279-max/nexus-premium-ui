@@ -1,18 +1,13 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './supabase'
 import { type Profile, getProfile, ensureProfile } from './profile-service'
 
-// Vercel is the canonical production host.
 export const CANONICAL_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus-premium-website-business.vercel.app'
 
-// OAuth callbacks must stay on the same browser origin that started the flow.
-// Supabase PKCE stores the verifier in browser storage, so sending a user from
-// a Vercel deployment URL to a different Vercel hostname breaks the exchange.
-// In the browser, always return to the current origin. The server-side fallback
-// is retained for non-browser callers such as email-link configuration.
 function getCallbackUrl(): string {
   if (typeof window !== 'undefined') {
     return `${window.location.origin}/auth/callback`
@@ -45,6 +40,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -68,6 +64,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setLoading(false)
+      return
+    }
+
+    // OAuth callback must get exclusive access to the Supabase client while it
+    // exchanges the PKCE code. Starting getSession() here at the same time can
+    // race the one-time code exchange on mobile browsers. The callback page
+    // performs the exchange first; when it redirects to '/', this effect runs
+    // again and picks up the newly-created session.
+    if (pathname === '/auth/callback') {
+      setLoading(true)
       return
     }
 
@@ -116,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timeout)
       subscription.unsubscribe()
     }
-  }, [loadProfile])
+  }, [loadProfile, pathname])
 
   const refreshProfile = useCallback(async () => {
     if (!session?.user) return
