@@ -25,7 +25,6 @@ const MIN_REAL_RESULTS = 1
 const DEFAULT_RADIUS_METRES = 1500
 const DEFAULT_FLEXIBLE_START = '12:00'
 const DEFAULT_FLEXIBLE_DURATION = 120
-
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 const QUALITY_LABELS: Record<MatchQuality, string> = {
@@ -39,6 +38,19 @@ export interface SingleVenuePlannerConfig {
   activityId: string
   activityEmoji: string
   activityLabel: string
+}
+
+/**
+ * Pick from a small high-quality band instead of always returning the exact
+ * same first result. The first pass is still strongly ranked; recalculations
+ * now have a meaningful chance of surfacing a different real venue.
+ */
+function chooseVenue<T>(candidates: T[], score: (candidate: T) => number): T {
+  if (candidates.length <= 1) return candidates[0]!
+  candidates.sort((a, b) => score(b) - score(a))
+  const band = Math.min(4, candidates.length)
+  const index = Math.floor(Math.random() * band)
+  return candidates[index]!
 }
 
 export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): PlannerDefinition {
@@ -70,9 +82,6 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       const startTime = goldenWindow?.start_time ?? DEFAULT_FLEXIBLE_START
       const durationMinutes = goldenWindow?.duration_minutes ?? DEFAULT_FLEXIBLE_DURATION
 
-      // ── Real venue discovery only ──────────────────────────────────────────
-      // OSM is deliberately the fallback-free production provider here. It
-      // returns named, geographically real-world venues and never invents data.
       const provider = new OpenStreetMapVenueProvider(radiusMetres)
       let venues: PlannerVenue[]
       try {
@@ -90,7 +99,6 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         )
       }
 
-      // ── Score & filter ─────────────────────────────────────────────────────
       const candidates = venues.map((venue) => {
         const scored = scoreVenueForActivity(
           venue,
@@ -100,9 +108,6 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
           planningRadiusKm,
         )
 
-        // Opening hours should influence the result only when the user has
-        // supplied a Golden Window. Without one, we're choosing a venue first
-        // and the user can decide the time afterwards.
         const openDuringWindow = hasGoldenWindow
           ? isVenueOpenAt(venue, startTime) ||
             isVenueOpenAt(venue, addMinutesToTime(startTime, 30)) ||
@@ -114,9 +119,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
 
       const open = candidates.filter((c) => c.openDuringWindow)
       const pool = open.length > 0 ? open : candidates
-      pool.sort((a, b) => b.scored.total - a.scored.total)
-
-      const { venue, scored } = pool[0]!
+      const { venue, scored } = chooseVenue(pool, (candidate) => candidate.scored.total)
 
       const warnings: string[] = []
       if (venue.openingHoursKnown === false) {
