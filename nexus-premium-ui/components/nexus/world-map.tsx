@@ -21,7 +21,7 @@ const VENUE_LABEL = 'nexus-venue-labels'
 function venueGeoJson(venues: Venue[]) {
   return { type: 'FeatureCollection' as const, features: venues.flatMap((venue) => {
     if (!Number.isFinite(venue.lat) || !Number.isFinite(venue.lng)) return []
-    return [{ type: 'Feature' as const, properties: { id: String(venue.id), name: venue.name }, geometry: { type: 'Point' as const, coordinates: [Number(venue.lng), Number(venue.lat)] as [number, number] } }]
+    return [{ type: 'Feature' as const, properties: { id: String(venue.id ?? ''), name: venue.name }, geometry: { type: 'Point' as const, coordinates: [Number(venue.lng), Number(venue.lat)] as [number, number] } }]
   }) }
 }
 
@@ -77,7 +77,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       if (cancelled || !containerRef.current) return
       maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs')
       try {
-        map = new maplibregl.Map({ container: containerRef.current, style: MAP_STYLE, center: [START.lng, START.lat], zoom: 12.4, pitch: 0, bearing: 0, projection: 'mercator', attributionControl: { compact: true }, maxPitch: 55, fadeDuration: 120, cooperativeGestures: false, dragRotate: false, touchPitch: false, touchZoomRotate: true })
+        map = new maplibregl.Map({ container: containerRef.current, style: MAP_STYLE, center: [START.lng, START.lat], zoom: 12.4, pitch: 0, bearing: 0, attributionControl: { compact: true }, maxPitch: 55, fadeDuration: 120, cooperativeGestures: false, dragRotate: false, touchPitch: false, touchZoomRotate: true })
         mapRef.current = map
         const resize = () => { map?.resize() }
         resizeObserver = new ResizeObserver(resize); resizeObserver.observe(containerRef.current); requestAnimationFrame(resize)
@@ -94,7 +94,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           map.on('mouseleave', VENUE_CIRCLE, () => { map?.getCanvas().style.setProperty('cursor', '') })
           map.on('click', VENUE_CIRCLE, (event) => {
             const id = event.features?.[0]?.properties?.id; if (!id) return
-            const venue = venuesRef.current.find((item) => String(item.id) === String(id)); if (!venue) return
+            const venue = venuesRef.current.find((item) => String(item.id ?? '') === String(id)); if (!venue) return
             setTransitioning(true); map?.flyTo({ center: [Number(venue.lng), Number(venue.lat)], zoom: 16.8, pitch: is3D ? 42 : 0, bearing: 0, duration: 900, essential: true })
             map?.once('moveend', () => { setTransitioning(false); setVote(0); setSelectedVenue(venue) })
           })
