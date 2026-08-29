@@ -1,0 +1,43 @@
+name: Fix Crawl Action Scope
+on:
+  push:
+    branches: [feature/group-crawl-integration]
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move crawl helper to module scope
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('nexus-premium-ui/components/nexus/venue-recommendations.tsx')
+          s=p.read_text()
+          helper='''\nfunction emitCrawlCandidate(venue: Venue) {\n  if (venue.lat == null || venue.lng == null) return\n  const detail = {\n    id: venue.id,\n    name: venue.name,\n    lat: venue.lat,\n    lng: venue.lng,\n    category: venue.category ?? null,\n    maps_url: venue.maps_url ?? null,\n    address: venue.address ?? null,\n    rating: venue.rating ?? null,\n    photo_url: venue.photo_url ?? null,\n  }\n  window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', { detail }))\n  try { window.localStorage.setItem('nexus:crawl-candidate', JSON.stringify(detail)) } catch { /* non-fatal */ }\n}\n'''
+          if 'function emitCrawlCandidate' not in s:
+              marker='\ninterface VenueRecommendationsProps'
+              if marker not in s: raise SystemExit('module marker not found')
+              s=s.replace(marker, helper+marker, 1)
+          s=s.replace('handleUseInCrawl(venue)', 'emitCrawlCandidate(venue)')
+          # Remove the now-unused local helper block.
+          start=s.find('\n  const handleUseInCrawl = (venue: Venue) => {')
+          if start != -1:
+              end=s.find('\n\n  const handleSaveToGroup', start)
+              if end == -1: raise SystemExit('local handler end not found')
+              s=s[:start]+s[end:]
+          start=s.find('\n  const handleSaveToGroup = async (venue: Venue) => {')
+          if start != -1:
+              end=s.find('\n  const listResults', start)
+              if end == -1: raise SystemExit('unused handler end not found')
+              s=s[:start]+s[end:]
+          p.write_text(s)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nexus-premium-ui/components/nexus/venue-recommendations.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: scope nearby crawl action"
+          git push
