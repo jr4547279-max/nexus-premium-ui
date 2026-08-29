@@ -9,20 +9,37 @@ import { VenueDetailSheet } from './venue-detail-sheet'
 interface WorldMapProps { onNavigate: (screen: string) => void }
 type MapInstance = import('maplibre-gl').Map
 type MapLibre = typeof import('maplibre-gl')
-type MarkerEntry = { marker: import('maplibre-gl').Marker; venue: Venue }
 
 const START = { lat: 50.7700, lng: 0.2767 }
 const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
 const VIBE_ICON: Record<Vibe, string> = { pub: '🍺', drinks: '✦', food: '🍴', coffee: '☕', activity: '◆' }
 const VIBE_TONE: Record<Vibe, string> = { pub: '#f59e0b', drinks: '#fbbf24', food: '#fb7185', coffee: '#c084fc', activity: '#34d399' }
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark'
-const VENUE_MARKER_MIN_ZOOM = 11.5
+const VENUE_SOURCE = 'nexus-venues'
+const VENUE_CIRCLE = 'nexus-venue-circles'
+const VENUE_ICON = 'nexus-venue-icons'
+const VENUE_LABEL = 'nexus-venue-labels'
+
+function venueGeoJson(venues: Venue[]) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: venues.flatMap((venue) => {
+      if (!Number.isFinite(venue.lat) || !Number.isFinite(venue.lng)) return []
+      return [{
+        type: 'Feature' as const,
+        id: venue.id,
+        properties: { id: venue.id, name: venue.name },
+        geometry: { type: 'Point' as const, coordinates: [venue.lng as number, venue.lat as number] },
+      }]
+    }),
+  }
+}
 
 export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapInstance | null>(null)
   const libRef = useRef<MapLibre | null>(null)
-  const markersRef = useRef<MarkerEntry[]>([])
+  const venuesRef = useRef<Venue[]>([])
   const locationRef = useRef(START)
   const requestIdRef = useRef(0)
   const [vibe, setVibe] = useState<Vibe>('drinks')
@@ -36,6 +53,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
   const [venueError, setVenueError] = useState<string | null>(null)
+  const [is3D, setIs3D] = useState(false)
 
   const loadVenues = useCallback(async (lat: number, lng: number, selectedVibe: Vibe) => {
     const requestId = ++requestIdRef.current
@@ -44,7 +62,9 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     try {
       const result = await fetchVenues({ vibe: selectedVibe, lat, lng, radius: 5000, limit: 18 })
       if (requestId !== requestIdRef.current) return
-      setVenues(result.venues.filter((v) => v.lat != null && v.lng != null))
+      const valid = result.venues.filter((v) => Number.isFinite(v.lat) && Number.isFinite(v.lng))
+      venuesRef.current = valid
+      setVenues(valid)
       setVenueError(result.error ?? null)
     } catch {
       if (requestId === requestIdRef.current) setVenueError('Venue search is temporarily unavailable.')
@@ -53,17 +73,24 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     }
   }, [])
 
+  const flyToLocation = useCallback((lat: number, lng: number, zoom = 13) => {
+    const map = mapRef.current
+    if (!map) return
+    locationRef.current = { lat, lng }
+    map.flyTo({ center: [lng, lat], zoom, pitch: is3D ? 42 : 0, bearing: 0, duration: 1000, essential: true })
+  }, [is3D])
+
   const getUserLocation = useCallback(() => {
     if (!navigator.geolocation) return
     setLocating(true)
     navigator.geolocation.getCurrentPosition((position) => {
       const next = { lat: position.coords.latitude, lng: position.coords.longitude }
       locationRef.current = next
-      mapRef.current?.flyTo({ center: [next.lng, next.lat], zoom: 13, pitch: 42, bearing: 0, duration: 1400, essential: true })
+      flyToLocation(next.lat, next.lng)
       void loadVenues(next.lat, next.lng, vibe)
       setLocating(false)
     }, () => setLocating(false), { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 })
-  }, [loadVenues, vibe])
+  }, [flyToLocation, loadVenues, vibe])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -71,7 +98,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     let map: MapInstance | null = null
     let resizeObserver: ResizeObserver | null = null
     const initTimeout = window.setTimeout(() => {
-      if (!cancelled && !mapReady) setMapError('The world map is taking too long to initialise. Check your connection and try again.')
+      if (!cancelled) setMapError('The world map is taking too long to initialise. Check your connection and try again.')
     }, 12000)
 
     import('maplibre-gl').then((maplibregl) => {
@@ -84,35 +111,30 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           container: containerRef.current,
           style: MAP_STYLE,
           center: [START.lng, START.lat],
-          zoom: 3.4,
-          pitch: 18,
+          zoom: 12.4,
+          pitch: 0,
           bearing: 0,
+          projection: { type: 'mercator' },
           attributionControl: { compact: true },
-          maxPitch: 72,
-          canvasContextAttributes: { antialias: true, powerPreference: 'high-performance' },
-          fadeDuration: 200,
+          maxPitch: 55,
+          fadeDuration: 120,
           cooperativeGestures: false,
+          dragRotate: false,
+          touchPitch: false,
+          touchZoomRotate: true,
         })
         mapRef.current = map
         resizeObserver = new ResizeObserver(() => map?.resize())
         resizeObserver.observe(containerRef.current)
+        map.resize()
         map.setRenderWorldCopies(false)
-        try { map.setProjection({ type: 'globe' }) } catch { /* progressive enhancement */ }
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: true }), 'bottom-right')
-
-        map.on('zoomend', () => {
-          if (!map) return
-          // Keep the globe for the overview, then use Mercator locally so DOM
-          // venue markers and the road/building geometry share one projection.
-          if (map.getZoom() >= 9 && map.getProjection().type === 'globe') {
-            try { map.setProjection({ type: 'mercator' }) } catch { /* progressive enhancement */ }
-          }
-        })
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false, showZoom: true }), 'bottom-right')
 
         map.on('load', () => {
           if (!map) return
           window.clearTimeout(initTimeout)
           map.resize()
+
           const sourceId = 'openmaptiles'
           if (map.getSource(sourceId) && !map.getLayer('nexus-3d-buildings')) {
             const symbolLayer = map.getStyle().layers?.find((layer) => layer.type === 'symbol')?.id
@@ -125,24 +147,88 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
                 minzoom: 14,
                 filter: ['!=', ['get', 'hide_3d'], true],
                 paint: {
-                  'fill-extrusion-color': ['interpolate', ['linear'], ['zoom'], 14, '#111a29', 17, '#1b2a40', 20, '#263a55'],
-                  'fill-extrusion-opacity': 0.94,
-                  'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 16, ['coalesce', ['get', 'render_height'], 9], 20, ['coalesce', ['get', 'render_height'], 12]],
+                  'fill-extrusion-color': '#172235',
+                  'fill-extrusion-opacity': 0.82,
+                  'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 9],
                   'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-                  'fill-extrusion-vertical-gradient': true,
                 },
               }, symbolLayer)
             } catch (error) {
               console.warn('[NEXUS WORLD] 3D building layer unavailable', error)
             }
           }
+
+          map.addSource(VENUE_SOURCE, { type: 'geojson', data: venueGeoJson([]) })
+          map.addLayer({
+            id: VENUE_CIRCLE,
+            type: 'circle',
+            source: VENUE_SOURCE,
+            paint: {
+              'circle-radius': 9,
+              'circle-color': VIBE_TONE[vibe],
+              'circle-stroke-color': '#fff7d6',
+              'circle-stroke-width': 2,
+              'circle-opacity': 0.98,
+              'circle-blur': 0.05,
+            },
+          })
+          map.addLayer({
+            id: VENUE_ICON,
+            type: 'symbol',
+            source: VENUE_SOURCE,
+            layout: {
+              'text-field': VIBE_ICON[vibe],
+              'text-size': 12,
+              'text-anchor': 'center',
+              'text-allow-overlap': true,
+              'text-ignore-placement': true,
+            },
+          })
+          map.addLayer({
+            id: VENUE_LABEL,
+            type: 'symbol',
+            source: VENUE_SOURCE,
+            layout: {
+              'text-field': ['get', 'name'],
+              'text-size': 10,
+              'text-anchor': 'top',
+              'text-offset': [0, 1.15],
+              'text-max-width': 12,
+              'text-allow-overlap': false,
+            },
+            paint: {
+              'text-color': '#f8fafc',
+              'text-halo-color': '#02040a',
+              'text-halo-width': 1.5,
+              'text-opacity': 0.88,
+            },
+            minzoom: 13,
+          })
+
+          map.on('mouseenter', VENUE_CIRCLE, () => { map?.getCanvas().style.setProperty('cursor', 'pointer') })
+          map.on('mouseleave', VENUE_CIRCLE, () => { map?.getCanvas().style.setProperty('cursor', '') })
+          map.on('click', VENUE_CIRCLE, (event) => {
+            const feature = event.features?.[0]
+            const id = feature?.properties?.id
+            if (!id) return
+            const venue = venuesRef.current.find((item) => String(item.id) === String(id))
+            if (!venue) return
+            setTransitioning(true)
+            map?.flyTo({ center: [venue.lng as number, venue.lat as number], zoom: 16.8, pitch: is3D ? 42 : 0, bearing: 0, duration: 900, essential: true })
+            map?.once('moveend', () => {
+              setTransitioning(false)
+              setVote(0)
+              setSelectedVenue(venue)
+            })
+          })
+
           setMapReady(true)
           setMapError(null)
           void loadVenues(locationRef.current.lat, locationRef.current.lng, vibe)
           navigator.geolocation?.getCurrentPosition((position) => {
             const next = { lat: position.coords.latitude, lng: position.coords.longitude }
             locationRef.current = next
-            map?.flyTo({ center: [next.lng, next.lat], zoom: 13, pitch: 42, bearing: 0, duration: 1400, essential: true })
+            flyToLocation(next.lat, next.lng)
             void loadVenues(next.lat, next.lng, vibe)
           }, () => undefined, { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 })
         })
@@ -155,7 +241,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       } catch (error) {
         window.clearTimeout(initTimeout)
         console.error('[NEXUS WORLD] Map initialisation failed', error)
-        setMapError('The 3D world could not initialise on this device.')
+        setMapError('The world map could not initialise on this device.')
       }
     }).catch((error) => {
       window.clearTimeout(initTimeout)
@@ -167,8 +253,6 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
       cancelled = true
       window.clearTimeout(initTimeout)
       resizeObserver?.disconnect()
-      markersRef.current.forEach(({ marker }) => marker.remove())
-      markersRef.current = []
       map?.remove()
       mapRef.current = null
       libRef.current = null
@@ -183,16 +267,18 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
-    const updateVenueVisibility = () => {
-      const visible = map.getZoom() >= VENUE_MARKER_MIN_ZOOM
-      markersRef.current.forEach(({ marker }) => {
-        marker.getElement()?.classList.toggle('nexus-marker-hidden', !visible)
-      })
-    }
-    map.on('zoom', updateVenueVisibility)
-    updateVenueVisibility()
-    return () => { map.off('zoom', updateVenueVisibility) }
-  }, [mapReady])
+    const source = map.getSource(VENUE_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined
+    if (source) source.setData(venueGeoJson(venues))
+    if (map.getLayer(VENUE_CIRCLE)) map.setPaintProperty(VENUE_CIRCLE, 'circle-color', VIBE_TONE[vibe])
+    if (map.getLayer(VENUE_ICON)) map.setLayoutProperty(VENUE_ICON, 'text-field', VIBE_ICON[vibe])
+  }, [venues, vibe, mapReady])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    map.setPitch(is3D ? 42 : 0)
+    map.setBearing(0)
+  }, [is3D, mapReady])
 
   useEffect(() => {
     let cancelled = false
@@ -208,101 +294,53 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     return () => { cancelled = true }
   }, [selectedVenue])
 
-  useEffect(() => {
-    const map = mapRef.current
-    const lib = libRef.current
-    if (!map || !lib || !mapReady) return
-    markersRef.current.forEach(({ marker }) => marker.remove())
-    markersRef.current = []
-
-    const markersVisible = map.getZoom() >= VENUE_MARKER_MIN_ZOOM
-    venues.forEach((venue) => {
-      if (venue.lat == null || venue.lng == null) return
-      const tone = VIBE_TONE[vibe]
-      const el = document.createElement('button')
-      el.type = 'button'
-      el.setAttribute('aria-label', `Open ${venue.name}`)
-      el.className = `nexus-venue-marker${markersVisible ? '' : ' nexus-marker-hidden'}`
-      el.innerHTML = `<span class="nexus-marker-pulse"></span><span class="nexus-marker-core" style="--marker-tone:${tone}">${VIBE_ICON[vibe]}</span><span class="nexus-marker-label">${escapeHtml(venue.name)}</span>`
-      el.onclick = (event) => {
-        event.stopPropagation()
-        setTransitioning(true)
-        setSelectedVenue(null)
-        map.stop()
-        map.flyTo({ center: [venue.lng as number, venue.lat as number], zoom: 17.2, pitch: 66, bearing: -18, duration: 1850, essential: true })
-        map.once('moveend', () => {
-          setTransitioning(false)
-          setVote(0)
-          setSelectedVenue(venue)
-        })
-      }
-      const marker = new lib.Marker({
-        element: el,
-        anchor: 'bottom',
-        pitchAlignment: 'map',
-        rotationAlignment: 'map',
-        subpixelPositioning: true,
-      }).setLngLat([venue.lng, venue.lat]).addTo(map)
-      markersRef.current.push({ marker, venue })
-    })
-
-    return () => {
-      markersRef.current.forEach(({ marker }) => marker.remove())
-      markersRef.current = []
-    }
-  }, [venues, vibe, mapReady])
-
   const focusOut = useCallback(() => {
     const map = mapRef.current
     if (!map) return
     setSelectedVenue(null)
     setTransitioning(true)
-    map.flyTo({ center: [locationRef.current.lng, locationRef.current.lat], zoom: 12.4, pitch: 32, bearing: 0, duration: 1300, essential: true })
+    map.flyTo({ center: [locationRef.current.lng, locationRef.current.lat], zoom: 12.4, pitch: is3D ? 42 : 0, bearing: 0, duration: 800, essential: true })
     map.once('moveend', () => setTransitioning(false))
-  }, [])
+  }, [is3D])
 
   const countLabel = useMemo(() => `${venues.length} ${VIBE_LABEL[vibe].toLowerCase()} ${venues.length === 1 ? 'spot' : 'spots'}`, [venues.length, vibe])
 
   return (
-    <div className="nexus-world fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-[#02040a]">
+    <div className="nexus-world-root">
       <style jsx global>{`
-        .nexus-venue-marker{position:relative;width:34px;height:48px;border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:flex-end;justify-content:center;filter:drop-shadow(0 0 10px rgba(251,191,36,.55));}
-        .nexus-marker-hidden{display:none!important;}
-        .nexus-marker-core{position:relative;width:28px;height:28px;border-radius:999px;background:radial-gradient(circle at 35% 30%,#fff 0 8%,var(--marker-tone) 25%,rgba(0,0,0,.88) 72%);border:1px solid color-mix(in srgb,var(--marker-tone) 80%,white 20%);box-shadow:0 0 10px var(--marker-tone),0 0 28px color-mix(in srgb,var(--marker-tone) 55%,transparent),inset 0 0 10px rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:12px;color:white;z-index:2;}
-        .nexus-marker-pulse{position:absolute;bottom:0;width:38px;height:38px;border-radius:999px;background:var(--marker-tone);opacity:.2;animation:nexusPulse 1.9s ease-out infinite;}
-        .nexus-marker-label{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;padding:4px 8px;border-radius:999px;background:rgba(3,7,14,.78);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px);color:rgba(255,255,255,.88);font-size:9px;font-weight:600;opacity:0;transition:opacity .18s;pointer-events:none;}
-        .nexus-venue-marker:hover .nexus-marker-label,.nexus-venue-marker:focus-visible .nexus-marker-label{opacity:1;}
-        @keyframes nexusPulse{0%{transform:scale(.45);opacity:.42}70%{transform:scale(1.25);opacity:0}100%{transform:scale(1.25);opacity:0}}
-        @keyframes nexusCloud{0%{transform:translate3d(-10%,0,0)}50%{transform:translate3d(5%,4px,0)}100%{transform:translate3d(110%,0,0)}}
+        .nexus-world-root{position:fixed;inset:0;width:100vw;height:100dvh;min-height:100svh;overflow:hidden;background:#02040a;isolation:isolate;z-index:0;}
+        .nexus-map-host{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;min-height:100%!important;overflow:hidden;}
+        .nexus-map-host .maplibregl-map,.nexus-map-host .maplibregl-canvas-container,.nexus-map-host canvas{width:100%!important;height:100%!important;}
+        .nexus-map-host .maplibregl-canvas{position:absolute!important;inset:0!important;}
+        .nexus-map-host .maplibregl-control-container{z-index:20;}
       `}</style>
-      <div ref={containerRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0 overflow-hidden mix-blend-screen opacity-60">
-        <div className="absolute -left-1/4 top-[18%] h-24 w-[58%] rounded-full bg-white/[0.055] blur-2xl" style={{ animation: 'nexusCloud 28s linear infinite' }} />
-        <div className="absolute -left-1/3 top-[35%] h-32 w-[70%] rounded-full bg-slate-200/[0.045] blur-3xl" style={{ animation: 'nexusCloud 38s linear 4s infinite' }} />
-        <div className="absolute -left-1/4 top-[52%] h-20 w-[55%] rounded-full bg-amber-100/[0.025] blur-2xl" style={{ animation: 'nexusCloud 31s linear 9s infinite' }} />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,transparent_0%,rgba(2,4,10,.05)_45%,rgba(2,4,10,.7)_100%)]" />
-      </div>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#02040a] via-[#02040a]/65 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#02040a] via-[#02040a]/70 to-transparent" />
 
-      <div className="absolute left-4 right-4 top-4 z-20 flex items-start justify-between gap-3">
-        <div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/45 p-3 shadow-2xl backdrop-blur-xl"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-amber-300" /><div><p className="text-[10px] font-semibold tracking-[.28em] text-amber-200/90">NEXUS WORLD</p><p className="mt-0.5 text-[11px] text-white/55">{loading ? 'Finding nearby places…' : `${countLabel} · ${weatherLabel}`}</p></div></div></div>
-        <button type="button" onClick={getUserLocation} disabled={locating} className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-xl transition hover:border-amber-300/40 hover:text-amber-200 disabled:opacity-50" aria-label="Use my location"><LocateFixed className={`h-4 w-4 ${locating ? 'animate-pulse' : ''}`} /></button>
+      <div ref={containerRef} className="nexus-map-host" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-[radial-gradient(circle_at_50%_45%,transparent_30%,rgba(2,4,10,.12)_70%,rgba(2,4,10,.5)_100%)]" />
+
+      <div className="absolute left-4 right-4 top-5 z-30 flex items-start justify-between gap-3 pt-[env(safe-area-inset-top)]">
+        <div className="rounded-3xl border border-amber-300/15 bg-[#05080f]/85 px-5 py-4 shadow-[0_18px_60px_rgba(0,0,0,.35)] backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.32em] text-amber-200"><Sparkles className="h-4 w-4" />NEXUS WORLD</div>
+          <div className="mt-1 text-sm text-white/70">{loading ? 'Finding nearby places…' : `${countLabel} · ${weatherLabel}`}</div>
+        </div>
+        <button type="button" onClick={getUserLocation} disabled={locating} aria-label="Use my location" className="pointer-events-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[#05080f]/80 text-white/80 shadow-xl backdrop-blur-xl disabled:opacity-50"><LocateFixed className={`h-5 w-5 ${locating ? 'animate-pulse' : ''}`} /></button>
       </div>
 
-      <div className="absolute left-4 right-4 top-[92px] z-20 pointer-events-auto overflow-x-auto pb-1 [scrollbar-width:none]"><div className="flex w-max gap-2">{VIBES.map((item) => { const active = item === vibe; return <button key={item} type="button" onClick={() => setVibe(item)} className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-[11px] font-semibold backdrop-blur-xl transition-all ${active ? 'border-amber-300/60 bg-amber-300/15 text-amber-100 shadow-[0_0_22px_rgba(251,191,36,.16)]' : 'border-white/10 bg-black/40 text-white/65 hover:border-white/20 hover:text-white'}`}><span>{VIBE_ICON[item]}</span>{VIBE_LABEL[item]}</button> })}</div></div>
+      <div className="pointer-events-auto absolute left-4 right-4 top-36 z-30 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+        {VIBES.map((item) => { const active = item === vibe; return <button key={item} type="button" onClick={() => setVibe(item)} className={`shrink-0 rounded-full border px-4 py-2.5 text-sm font-medium backdrop-blur-xl transition-all ${active ? 'border-amber-300/50 bg-amber-300/15 text-amber-100 shadow-[0_0_24px_rgba(251,191,36,.14)]' : 'border-white/10 bg-[#05080f]/75 text-white/65'}`}><span className="mr-2">{VIBE_ICON[item]}</span>{VIBE_LABEL[item]}</button> })}
+      </div>
 
-      {!mapReady && !mapError && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-300/20 bg-black/60 px-4 py-2 text-[11px] text-amber-100/80 backdrop-blur-xl"><span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-amber-300" />Building the world…</div>}
-      {mapError && <div className="absolute left-4 right-4 top-[145px] z-30 rounded-xl border border-rose-300/20 bg-black/70 px-3 py-2.5 text-[10px] text-white/75 backdrop-blur-xl"><span className="font-semibold text-rose-200">World renderer:</span> {mapError}</div>}
-      {loading && mapReady && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-300/20 bg-black/55 px-4 py-2 text-[11px] text-amber-100/80 backdrop-blur-xl"><span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-amber-300" />Scanning the area</div>}
-      {venueError && !loading && <div className="absolute left-4 right-4 top-[145px] z-20 rounded-xl border border-white/10 bg-black/55 px-3 py-2 text-[10px] text-white/60 backdrop-blur-xl">{venueError}</div>}
-      {transitioning && <div className="absolute left-1/2 top-[46%] z-30 -translate-x-1/2 rounded-full border border-amber-300/25 bg-black/55 px-4 py-2 text-[11px] font-medium tracking-wide text-amber-100 backdrop-blur-xl shadow-[0_0_35px_rgba(251,191,36,.18)]"><Rotate3D className="mr-2 inline-block h-3.5 w-3.5 animate-pulse" />Entering street level…</div>}
+      {venueError && <div className="absolute left-4 right-4 top-52 z-30 rounded-2xl border border-rose-300/20 bg-rose-950/55 px-4 py-3 text-xs text-rose-100 backdrop-blur-xl">{venueError}</div>}
+      {transitioning && <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-300/20 bg-black/60 px-4 py-2 text-[11px] tracking-widest text-amber-100 backdrop-blur-xl">LOCKING LOCATION</div>}
 
-      <div className="absolute bottom-24 left-4 right-4 z-20 flex items-end justify-between gap-3 pointer-events-none"><div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/45 px-3 py-2.5 backdrop-blur-xl"><div className="flex items-center gap-2 text-[10px] text-white/55"><span className="h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_#fbbf24]" />Live venues<span className="text-white/20">·</span><span className="inline-flex items-center gap-1"><Navigation className="h-3 w-3" /> 3D view</span></div></div><button type="button" onClick={focusOut} className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3.5 py-2.5 text-[10px] font-medium text-white/75 backdrop-blur-xl hover:border-amber-300/30 hover:text-amber-100"><X className="h-3.5 w-3.5" /> Overview</button></div>
+      {mapError && !mapReady && <div className="absolute inset-x-5 top-1/2 z-40 -translate-y-1/2 rounded-3xl border border-amber-300/20 bg-[#05080f]/90 p-5 text-center backdrop-blur-xl"><p className="text-sm font-medium text-white">Nexus World could not load</p><p className="mt-2 text-xs text-white/55">{mapError}</p><button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-full border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-xs text-amber-100">Retry</button></div>}
 
-      <VenueDetailSheet venue={selectedVenue} vibe={vibe} midpointFallback={false} vote={vote} onVote={(direction) => setVote((current) => current === direction ? 0 : direction)} onClose={() => setSelectedVenue(null)} />
+      <div className="pointer-events-auto absolute bottom-24 left-4 z-30 flex items-center gap-2 rounded-full border border-white/10 bg-[#05080f]/80 p-1.5 backdrop-blur-xl">
+        <button type="button" onClick={() => setIs3D((value) => !value)} className={`flex items-center gap-2 rounded-full px-4 py-2.5 text-xs font-medium transition-colors ${is3D ? 'bg-amber-300/15 text-amber-100' : 'text-white/60'}`}><Rotate3D className="h-4 w-4" />{is3D ? '2D view' : '3D view'}</button>
+        <button type="button" onClick={focusOut} className="flex items-center gap-2 rounded-full px-4 py-2.5 text-xs font-medium text-white/60"><Navigation className="h-4 w-4" />Overview</button>
+      </div>
+
+      <VenueDetailSheet venue={selectedVenue} vibe={vibe} midpointFallback={false} vote={vote} onVote={(dir) => setVote((current) => current === dir ? 0 : dir)} onClose={() => setSelectedVenue(null)} />
     </div>
   )
 }
-
-function escapeHtml(value: string) { return value.replace(/[&<>\'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char] ?? char)) }
