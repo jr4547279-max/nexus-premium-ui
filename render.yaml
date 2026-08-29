@@ -1,10 +1,13 @@
 services:
   - type: web
-    name: nexus-premium-ui
-    runtime: node
+    name: nexus-premium-ui-3
+    runtime: docker
     plan: free
-    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm build
-    startCommand: pnpm start
+    region: oregon
+    rootDir: nexus-premium-ui
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
