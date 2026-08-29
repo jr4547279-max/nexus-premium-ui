@@ -1,7 +1,7 @@
 name: Nexus Final Verification
 on:
   push:
-    branches: [feature/group-crawl-integration]
+    branches: [main, feature/group-crawl-integration]
 permissions:
   contents: read
 jobs:
