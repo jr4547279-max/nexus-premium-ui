@@ -29,117 +29,49 @@ def regex(path: str, pattern: str, replacement: str) -> None:
 
 
 # Golden Window is optional for venue discovery; it remains the shared timing layer.
-replace(
-    "components/nexus/group-detail.tsx",
-    "import { WeatherChip } from './weather-chip'\n",
-    "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n",
-)
-replace(
-    "components/nexus/group-detail.tsx",
-    "{showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (",
-    "{realMode && planningLocation && !venuesRevealed && !isRouteActivity && (",
-)
-replace(
-    "components/nexus/group-detail.tsx",
-    "{showRevealedContent && venuesRevealed && !isRouteActivity && (",
-    "{realMode && venuesRevealed && !isRouteActivity && (",
-)
-replace(
-    "components/nexus/group-detail.tsx",
-    """              groupName={realGroup?.name ?? null}
+replace("components/nexus/group-detail.tsx", "import { WeatherChip } from './weather-chip'\n", "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n")
+replace("components/nexus/group-detail.tsx", "{showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (", "{realMode && planningLocation && !venuesRevealed && !isRouteActivity && (")
+replace("components/nexus/group-detail.tsx", "{showRevealedContent && venuesRevealed && !isRouteActivity && (", "{realMode && venuesRevealed && !isRouteActivity && (")
+replace("components/nexus/group-detail.tsx", """              groupName={realGroup?.name ?? null}
               goldenWindow={{
                 day_of_week: activeWindow!.day_of_week,
                 start_time:  activeWindow!.start_time,
                 end_time:    activeWindow!.end_time,
-              }}""",
-    """              groupName={realGroup?.name ?? null}
+              }}""", """              groupName={realGroup?.name ?? null}
               groupId={groupId}
               activityId={rawActivityId}
               goldenWindow={activeWindow ? {
                 day_of_week: activeWindow.day_of_week,
                 start_time: activeWindow.start_time,
                 end_time: activeWindow.end_time,
-              } : null}""",
-)
-replace(
-    "components/nexus/group-detail.tsx",
-    """disabled={!activeWindow}
+              } : null}""")
+replace("components/nexus/group-detail.tsx", """disabled={!activeWindow}
                       className={cn(
                         'w-full h-11 rounded-xl',
                         activeWindow
                           ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'
-                          : 'opacity-40 cursor-not-allowed',""",
-    """disabled={!planningLocation}
+                          : 'opacity-40 cursor-not-allowed',""", """disabled={!planningLocation}
                       className={cn(
                         'w-full h-11 rounded-xl',
                         planningLocation
                           ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'
-                          : 'opacity-40 cursor-not-allowed',""",
-)
-replace(
-    "components/nexus/group-detail.tsx",
-    "Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.",
-    "Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.",
-)
-replace(
-    "components/nexus/group-detail.tsx",
-    "Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.",
-    "Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.",
-)
-regex(
-    "components/nexus/group-detail.tsx",
-    r"(\{\(weatherLoading \|\| \(weather && !weather\.error\)\) && \(.*?\n\s*\)\})(\n\s*</GlassCard>)",
-    r"\1\n\n            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />\2",
-)
+                          : 'opacity-40 cursor-not-allowed',""")
+replace("components/nexus/group-detail.tsx", "Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.", "Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
+replace("components/nexus/group-detail.tsx", "Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.", "Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
+regex("components/nexus/group-detail.tsx", r"(\{\(weatherLoading \|\| \(weather && !weather\.error\)\) && \(.*?\n\s*\)\})(\n\s*</GlassCard>)", r"\1\n\n            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />\2")
 
-# Nearby Fits refreshes when recalibration changes the Golden Window and carries
-# enough group context for a direct Pub Crawl save from the venue detail sheet.
-replace(
-    "components/nexus/venue-recommendations.tsx",
-    "interface Props {\n  groupName: string | null",
-    "interface Props {\n  groupName: string | null\n  groupId?: string\n  activityId?: string",
-)
-replace(
-    "components/nexus/venue-recommendations.tsx",
-    "export function VenueRecommendations({\n  groupName,\n  goldenWindow,",
-    "export function VenueRecommendations({\n  groupName,\n  groupId,\n  activityId,\n  goldenWindow,",
-)
-replace(
-    "components/nexus/venue-recommendations.tsx",
-    "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])",
-    "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])",
-)
-replace(
-    "components/nexus/venue-recommendations.tsx",
-    "        venue={selectedVenue}\n        vibe={vibe}",
-    "        venue={selectedVenue}\n        groupId={groupId}\n        activityId={activityId}\n        vibe={vibe}",
-)
+# Nearby Fits refreshes when recalibration changes the Golden Window and carries group context.
+replace("components/nexus/venue-recommendations.tsx", "interface Props {\n  groupName: string | null", "interface Props {\n  groupName: string | null\n  groupId?: string\n  activityId?: string")
+replace("components/nexus/venue-recommendations.tsx", "export function VenueRecommendations({\n  groupName,\n  goldenWindow,", "export function VenueRecommendations({\n  groupName,\n  groupId,\n  activityId,\n  goldenWindow,")
+replace("components/nexus/venue-recommendations.tsx", "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])", "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])")
+replace("components/nexus/venue-recommendations.tsx", "        venue={selectedVenue}\n        vibe={vibe}", "        venue={selectedVenue}\n        groupId={groupId}\n        activityId={activityId}\n        vibe={vibe}")
 
 # One-tap Pub Crawl save from a venue opened in a Pub Crawl group.
-replace(
-    "components/nexus/venue-detail-sheet.tsx",
-    "interface Props {\n  venue: Venue | null",
-    "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string",
-)
-replace(
-    "components/nexus/venue-detail-sheet.tsx",
-    "export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)",
-    "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)",
-)
-replace(
-    "components/nexus/venue-detail-sheet.tsx",
-    "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n",
-    "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n",
-)
-replace(
-    "components/nexus/venue-detail-sheet.tsx",
-    "    setSavedGroupIds([])\n    setSavingGroupId(null)\n",
-    "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n",
-)
-replace(
-    "components/nexus/venue-detail-sheet.tsx",
-    "  const handleToggleGroup = async (groupId: string) => {",
-    """  const handleAddToPubCrawl = async () => {
+replace("components/nexus/venue-detail-sheet.tsx", "interface Props {\n  venue: Venue | null", "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string")
+replace("components/nexus/venue-detail-sheet.tsx", "export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)", "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)")
+replace("components/nexus/venue-detail-sheet.tsx", "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n", "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n")
+replace("components/nexus/venue-detail-sheet.tsx", "    setSavedGroupIds([])\n    setSavingGroupId(null)\n", "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n")
+replace("components/nexus/venue-detail-sheet.tsx", "  const handleToggleGroup = async (groupId: string) => {", """  const handleAddToPubCrawl = async () => {
     if (!venue || !groupId || activityId !== 'pub-crawl' || addingToCrawl) return
     setAddingToCrawl(true)
     const result = await saveVenueToGroup(groupId, venue)
@@ -163,12 +95,8 @@ replace(
     setAddingToCrawl(false)
   }
 
-  const handleToggleGroup = async (groupId: string) => {""",
-)
-replace(
-    "components/nexus/venue-detail-sheet.tsx",
-    "        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}",
-    """        {activityId === 'pub-crawl' && groupId && (
+  const handleToggleGroup = async (groupId: string) => {""")
+replace("components/nexus/venue-detail-sheet.tsx", "        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}", """        {activityId === 'pub-crawl' && groupId && (
           <section className="mx-4 mt-4">
             <button type="button" onClick={handleAddToPubCrawl} disabled={addingToCrawl || crawlAdded} className={cn('w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors', crawlAdded ? 'border-emerald-400/30 bg-emerald-400/[0.06]' : 'border-primary/30 bg-primary/[0.06] hover:bg-primary/[0.10]')}>
               <span className="flex items-center gap-3"><span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 border border-primary/20">{crawlAdded ? <Check className="w-4 h-4 text-emerald-300" /> : <Plus className="w-4 h-4 text-primary" />}</span><span><span className="block text-[12px] font-semibold">{crawlAdded ? 'Added to Pub Crawl' : 'Add to Pub Crawl'}</span><span className="block text-[11px] text-muted-foreground mt-0.5">{crawlAdded ? 'Saved to this group and ready for the crawl.' : 'Use this venue as one of your crawl stops.'}</span></span></span><span className="text-[11px] font-medium text-primary">{addingToCrawl ? 'Saving…' : crawlAdded ? 'Added' : 'Add'}</span>
@@ -177,9 +105,6 @@ replace(
         )}
 
         <section className="mx-4 mt-4">
-          <button type="button" onClick={openGroupPicker}""",
-)
+          <button type="button" onClick={openGroupPicker}""")
 
-if not changed:
-    raise SystemExit("No activity fixes were applied")
-print("Activity fixes applied successfully")
+print("Activity fixes applied successfully" if changed else "Activity fixes already applied; no changes needed")
