@@ -17,7 +17,7 @@ https://nextjs.org/telemetry
 - Environments: .env.production
 
   Creating an optimized production build ...
-✓ Compiled successfully in 6.3s
+✓ Compiled successfully in 4.2s
   Running TypeScript ...
 Failed to type check.
 
