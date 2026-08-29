@@ -69,6 +69,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     if (!containerRef.current) return
     let cancelled = false
     let map: MapInstance | null = null
+    let resizeObserver: ResizeObserver | null = null
     const initTimeout = window.setTimeout(() => {
       if (!cancelled && !mapReady) setMapError('The world map is taking too long to initialise. Check your connection and try again.')
     }, 12000)
@@ -93,13 +94,25 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           cooperativeGestures: false,
         })
         mapRef.current = map
+        resizeObserver = new ResizeObserver(() => map?.resize())
+        resizeObserver.observe(containerRef.current)
         map.setRenderWorldCopies(false)
         try { map.setProjection({ type: 'globe' }) } catch { /* progressive enhancement */ }
         map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: true }), 'bottom-right')
 
+        map.on('zoomend', () => {
+          if (!map) return
+          // Keep the globe for the overview, then use Mercator locally so DOM
+          // venue markers and the road/building geometry share one projection.
+          if (map.getZoom() >= 9 && map.getProjection().type === 'globe') {
+            try { map.setProjection({ type: 'mercator' }) } catch { /* progressive enhancement */ }
+          }
+        })
+
         map.on('load', () => {
           if (!map) return
           window.clearTimeout(initTimeout)
+          map.resize()
           const sourceId = 'openmaptiles'
           if (map.getSource(sourceId) && !map.getLayer('nexus-3d-buildings')) {
             const symbolLayer = map.getStyle().layers?.find((layer) => layer.type === 'symbol')?.id
@@ -153,6 +166,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
     return () => {
       cancelled = true
       window.clearTimeout(initTimeout)
+      resizeObserver?.disconnect()
       markersRef.current.forEach(({ marker }) => marker.remove())
       markersRef.current = []
       map?.remove()
@@ -222,7 +236,13 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           setSelectedVenue(venue)
         })
       }
-      const marker = new lib.Marker({ element: el, anchor: 'bottom' }).setLngLat([venue.lng, venue.lat]).addTo(map)
+      const marker = new lib.Marker({
+        element: el,
+        anchor: 'bottom',
+        pitchAlignment: 'map',
+        rotationAlignment: 'map',
+        subpixelPositioning: true,
+      }).setLngLat([venue.lng, venue.lat]).addTo(map)
       markersRef.current.push({ marker, venue })
     })
 
@@ -244,7 +264,7 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
   const countLabel = useMemo(() => `${venues.length} ${VIBE_LABEL[vibe].toLowerCase()} ${venues.length === 1 ? 'spot' : 'spots'}`, [venues.length, vibe])
 
   return (
-    <div className="nexus-world relative h-full w-full overflow-hidden bg-[#02040a]">
+    <div className="nexus-world fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-[#02040a]">
       <style jsx global>{`
         .nexus-venue-marker{position:relative;width:34px;height:48px;border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:flex-end;justify-content:center;filter:drop-shadow(0 0 10px rgba(251,191,36,.55));}
         .nexus-marker-hidden{display:none!important;}
