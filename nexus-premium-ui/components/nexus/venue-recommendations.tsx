@@ -13,6 +13,7 @@ import {
   type Venue,
 } from '@/lib/venue-service'
 import { VenueDetailSheet } from './venue-detail-sheet'
+import { saveVenueToGroup } from '@/lib/saved-venue-service'
 import type { Weather } from '@/lib/weather-service'
 import {
   detectActivityIntent,
@@ -92,6 +93,7 @@ export function VenueRecommendations({
   const [votes, setVotes] = useState<Record<string, 1 | -1 | 0>>({})
   const [mapFailed, setMapFailed] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
+  const [savingVenue, setSavingVenue] = useState<string | null>(null)
 
   // Weather alternatives state
   const [showAlternatives, setShowAlternatives] = useState(false)
@@ -159,6 +161,30 @@ export function VenueRecommendations({
   )
 
   const topPick = rankedResults[0]?.venue ?? null
+
+  const handleUseInCrawl = (venue: Venue) => {
+    if (venue.lat == null || venue.lng == null) return
+    const detail = {
+      id: venue.id,
+      name: venue.name,
+      lat: venue.lat,
+      lng: venue.lng,
+      category: venue.category ?? null,
+      maps_url: venue.maps_url ?? null,
+      address: venue.address ?? null,
+      rating: venue.rating ?? null,
+      photo_url: venue.photo_url ?? null,
+    }
+    window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', { detail }))
+    try { window.localStorage.setItem('nexus:crawl-candidate', JSON.stringify(detail)) } catch { /* non-fatal */ }
+  }
+
+  const handleSaveToGroup = async (venue: Venue) => {
+    // Group detail supplies its id through the page-level crawl integration;
+    // this action is intentionally kept as a crawl action here rather than
+    // silently guessing a group.
+    handleUseInCrawl(venue)
+  }
   const listResults = rankedResults.slice(0, 5)
 
   // ── Weather alternatives fetch ────────────────────────────────────────────
@@ -599,6 +625,17 @@ function VenueCard({
                   <ExternalLink className="w-3 h-3" aria-hidden="true" />
                   Maps
                 </a>
+              )}
+              {venue.lat != null && venue.lng != null && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleUseInCrawl(venue) }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md border border-primary/30 text-[11px] text-primary hover:bg-primary/10 transition-all"
+                  aria-label={`Add ${venue.name} to pub crawl`}
+                >
+                  <Sparkles className="w-3 h-3" aria-hidden="true" />
+                  Add to crawl
+                </button>
               )}
               <VoteButton
                 active={vote === 1}

@@ -108,6 +108,14 @@ export function PubCrawlPlanIntegrated({ plan, onRecalculate }: { plan: PlannerR
   useEffect(() => setLocalPlan(plan), [plan])
 
   useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('nexus:crawl-candidate')
+      if (stored) {
+        const parsed = JSON.parse(stored) as CrawlCandidate
+        if (parsed?.name && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng)) setCandidate(parsed)
+      }
+    } catch { /* non-fatal */ }
+
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<CrawlCandidate>).detail
       if (detail?.name && Number.isFinite(detail.lat) && Number.isFinite(detail.lng)) setCandidate(detail)
@@ -145,6 +153,7 @@ export function PubCrawlPlanIntegrated({ plan, onRecalculate }: { plan: PlannerR
     }
     setLocalPlan(rebuild(localPlan, next))
     setCandidate(null)
+    try { window.localStorage.removeItem('nexus:crawl-candidate') } catch { /* non-fatal */ }
     setReplaceOpen(false)
   }
 
