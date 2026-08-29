@@ -1,0 +1,92 @@
+name: Apply Nexus activity fixes v2
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fixes:
+    if: "!contains(github.event.head_commit.message, '[nexus-fix]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch sources
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('nexus-premium-ui')
+          changed = False
+          def rep(path, old, new):
+              global changed
+              p = root / path
+              s = p.read_text()
+              if old in s:
+                  p.write_text(s.replace(old, new, 1)); changed = True; print('OK', path)
+              else: print('SKIP', path)
+          def rex(path, pat, new):
+              global changed
+              p = root / path
+              s = p.read_text(); ntext, n = re.subn(pat, new, s, count=1, flags=re.S)
+              print('REGEX', path, n)
+              if n: p.write_text(ntext); changed = True
+
+          # Optional Golden Window venue discovery + visible countdown.
+          rep('components/nexus/group-detail.tsx', "import { WeatherChip } from './weather-chip'\n", "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n")
+          rep('components/nexus/group-detail.tsx', "{showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (", "{realMode && planningLocation && !venuesRevealed && !isRouteActivity && (")
+          rep('components/nexus/group-detail.tsx', "{showRevealedContent && venuesRevealed && !isRouteActivity && (", "{realMode && venuesRevealed && !isRouteActivity && (")
+          rep('components/nexus/group-detail.tsx', "              groupName={realGroup?.name ?? null}\n              goldenWindow={{\n                day_of_week: activeWindow!.day_of_week,\n                start_time:  activeWindow!.start_time,\n                end_time:    activeWindow!.end_time,\n              }}", "              groupName={realGroup?.name ?? null}\n              groupId={groupId}\n              activityId={rawActivityId}\n              goldenWindow={activeWindow ? {\n                day_of_week: activeWindow.day_of_week,\n                start_time: activeWindow.start_time,\n                end_time: activeWindow.end_time,\n              } : null}")
+          rep('components/nexus/group-detail.tsx', "disabled={!activeWindow}\n                      className={cn(\n                        'w-full h-11 rounded-xl',\n                        activeWindow\n                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'\n                          : 'opacity-40 cursor-not-allowed',", "disabled={!planningLocation}\n                      className={cn(\n                        'w-full h-11 rounded-xl',\n                        planningLocation\n                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'\n                          : 'opacity-40 cursor-not-allowed',")
+          rep('components/nexus/group-detail.tsx', "Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.", "Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
+          rex('components/nexus/group-detail.tsx', r"(\{\(weatherLoading \|\| \(weather && !weather\.error\)\) && \(.*?\n\s*\)\})(\n\s*</GlassCard>)", r"\1\n\n            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />\2")
+
+          # Venue recommendations can carry group/activity context and refresh after recalibration.
+          rep('components/nexus/venue-recommendations.tsx', "interface Props {\n  groupName: string | null", "interface Props {\n  groupName: string | null\n  groupId?: string\n  activityId?: string")
+          rep('components/nexus/venue-recommendations.tsx', "export function VenueRecommendations({\n  groupName,\n  goldenWindow,", "export function VenueRecommendations({\n  groupName,\n  groupId,\n  activityId,\n  goldenWindow,")
+          rep('components/nexus/venue-recommendations.tsx', "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])", "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])")
+          rep('components/nexus/venue-recommendations.tsx', "        venue={selectedVenue}\n        vibe={vibe}", "        venue={selectedVenue}\n        groupId={groupId}\n        activityId={activityId}\n        vibe={vibe}")
+
+          # Direct Pub Crawl save from a selected venue.
+          rep('components/nexus/venue-detail-sheet.tsx', "interface Props {\n  venue: Venue | null", "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string")
+          rep('components/nexus/venue-detail-sheet.tsx', "export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)", "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)")
+          rep('components/nexus/venue-detail-sheet.tsx', "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n", "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n")
+          rep('components/nexus/venue-detail-sheet.tsx', "    setSavedGroupIds([])\n    setSavingGroupId(null)\n", "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n")
+          rep('components/nexus/venue-detail-sheet.tsx', "  const handleToggleGroup = async (groupId: string) => {", """  const handleAddToPubCrawl = async () => {
+    if (!venue || !groupId || activityId !== 'pub-crawl' || addingToCrawl) return
+    setAddingToCrawl(true)
+    const result = await saveVenueToGroup(groupId, venue)
+    if (result.ok) {
+      setCrawlAdded(true)
+      window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', { detail: { id: venue.id || venue.maps_url || `${venue.name}|${venue.address || ''}`, name: venue.name, category: venue.category, photo_url: venue.photo_url, maps_url: venue.maps_url, address: venue.address, rating: venue.rating, lat: venue.lat, lng: venue.lng, activityId: 'pub-crawl' } }))
+    }
+    setAddingToCrawl(false)
+  }
+
+  const handleToggleGroup = async (groupId: string) => {""")
+          rep('components/nexus/venue-detail-sheet.tsx', "        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}", """        {activityId === 'pub-crawl' && groupId && (
+          <section className="mx-4 mt-4">
+            <button type="button" onClick={handleAddToPubCrawl} disabled={addingToCrawl || crawlAdded} className={cn('w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors', crawlAdded ? 'border-emerald-400/30 bg-emerald-400/[0.06]' : 'border-primary/30 bg-primary/[0.06] hover:bg-primary/[0.10]')}>
+              <span className="flex items-center gap-3"><span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 border border-primary/20">{crawlAdded ? <Check className="w-4 h-4 text-emerald-300" /> : <Plus className="w-4 h-4 text-primary" />}</span><span><span className="block text-[12px] font-semibold">{crawlAdded ? 'Added to Pub Crawl' : 'Add to Pub Crawl'}</span><span className="block text-[11px] text-muted-foreground mt-0.5">{crawlAdded ? 'Saved to this group and ready for the crawl.' : 'Use this venue as one of your crawl stops.'}</span></span></span><span className="text-[11px] font-medium text-primary">{addingToCrawl ? 'Saving…' : crawlAdded ? 'Added' : 'Add'}</span>
+            </button>
+          </section>
+        )}
+
+        <section className="mx-4 mt-4">
+          <button type="button" onClick={openGroupPicker}""")
+
+          if not changed:
+              raise SystemExit('No source files changed')
+          PY
+      - name: Commit and clean up
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nexus-premium-ui
+          git rm .github/workflows/apply-nexus-activity-fixes-v2.yml .github/workflows/apply-nexus-activity-fixes.yml || true
+          git commit -m "fix: make venue planning independent of Golden Window [nexus-fix]"
+          git push origin main
