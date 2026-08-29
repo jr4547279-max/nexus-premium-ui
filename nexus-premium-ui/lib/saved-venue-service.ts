@@ -15,6 +15,10 @@ export interface SavedVenue {
   venue_category: string | null
   venue_photo_url: string | null
   map_url: string | null
+  venue_lat: number | null
+  venue_lng: number | null
+  venue_address: string | null
+  venue_rating: number | null
   created_at: string
 }
 
@@ -37,7 +41,7 @@ export async function listVenueGroups(): Promise<{ groups: GroupChoice[]; error:
   return { groups: (data ?? []) as GroupChoice[], error: null }
 }
 
-/** Save a real venue to a specific group. */
+/** Save a real venue to a specific group, retaining enough location data for route planning. */
 export async function saveVenueToGroup(
   groupId: string,
   venue: Venue,
@@ -58,6 +62,10 @@ export async function saveVenueToGroup(
         venue_category: venue.category,
         venue_photo_url: venue.photo_url,
         map_url: venue.maps_url,
+        venue_lat: venue.lat ?? null,
+        venue_lng: venue.lng ?? null,
+        venue_address: venue.address ?? null,
+        venue_rating: venue.rating ?? null,
       },
       { onConflict: 'user_id,group_id,place_id' },
     )
@@ -73,7 +81,7 @@ export async function saveVenueToGroup(
 export async function listGroupSavedVenues(groupId: string): Promise<SavedVenue[]> {
   const { data, error } = await supabase
     .from('saved_venues')
-    .select('id, group_id, place_id, venue_name, venue_category, venue_photo_url, map_url, created_at')
+    .select('id, group_id, place_id, venue_name, venue_category, venue_photo_url, map_url, venue_lat, venue_lng, venue_address, venue_rating, created_at')
     .eq('group_id', groupId)
     .order('created_at', { ascending: false })
 
