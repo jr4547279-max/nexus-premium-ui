@@ -3,14 +3,15 @@
 // Group Planning Location Section — Nexus Location Intelligence
 
 import { useEffect, useState } from 'react'
-import { MapPin, ChevronRight, X, Loader2, Plus, Trash2, ExternalLink, Route } from 'lucide-react'
+import { MapPin, ChevronRight, X, Loader2, Trash2, ExternalLink, Route } from 'lucide-react'
 import { GlassCard } from './glass-card'
 import { LocationPicker, type LocationResult } from './location-picker'
 import { extractCity } from '@/lib/profile-service'
-import { saveGroupPlanningLocation, clearGroupPlanningLocation } from '@/lib/group-service'
+import { getGroup, saveGroupPlanningLocation, clearGroupPlanningLocation } from '@/lib/group-service'
 import type { PlanningLocation } from '@/lib/types/planning-location'
 import { AREA_TYPE_LABELS, formatRadius } from '@/lib/location-intelligence'
 import type { LocationIntelligence } from '@/lib/location-intelligence'
+import { getActivityById } from '@/lib/activities/registry'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { listGroupSavedVenues, removeVenueFromGroup, type SavedVenue } from '@/lib/saved-venue-service'
@@ -54,12 +55,18 @@ function dispatchCrawlVenue(venue: SavedVenue) {
 
 function SavedVenuesSection({ groupId }: { groupId: string }) {
   const [venues, setVenues] = useState<SavedVenue[]>([])
+  const [activityId, setActivityId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [removingId, setRemovingId] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
-    setVenues(await listGroupSavedVenues(groupId))
+    const [savedVenues, group] = await Promise.all([
+      listGroupSavedVenues(groupId),
+      getGroup(groupId),
+    ])
+    setVenues(savedVenues)
+    setActivityId(group?.activity_id ?? null)
     setLoading(false)
   }
 
@@ -83,12 +90,15 @@ function SavedVenuesSection({ groupId }: { groupId: string }) {
 
   if (!venues.length) return null
 
+  const activity = activityId ? getActivityById(activityId as never) : undefined
+  const isPubCrawl = activityId === 'pub-crawl'
+
   return (
     <GlassCard className="mb-4 overflow-hidden p-0">
       <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Group Places</p>
-          <p className="mt-0.5 text-xs text-foreground/80">Saved by your group · {venues.length}</p>
+          <p className="mt-0.5 text-xs text-foreground/80">Saved by your group · {venues.length}{activity?.label ? ` · ${activity.label}` : ''}</p>
         </div>
         <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[10px] text-primary">SHORTLIST</span>
       </div>
@@ -113,7 +123,7 @@ function SavedVenuesSection({ groupId }: { groupId: string }) {
               </button>
             </div>
             <div className="mt-2.5 flex gap-2 pl-[60px]">
-              <button type="button" onClick={() => dispatchCrawlVenue(venue)} disabled={venue.venue_lat == null || venue.venue_lng == null} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 text-[10px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-40"><Route className="h-3 w-3" />Use in Pub Crawl</button>
+              {isPubCrawl && <button type="button" onClick={() => dispatchCrawlVenue(venue)} disabled={venue.venue_lat == null || venue.venue_lng == null} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 text-[10px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-40"><Route className="h-3 w-3" />Use in Pub Crawl</button>}
               {venue.map_url && <a href={venue.map_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-border/40 px-2.5 py-1.5 text-[10px] text-muted-foreground hover:text-foreground"><ExternalLink className="h-3 w-3" />Maps</a>}
             </div>
           </div>
