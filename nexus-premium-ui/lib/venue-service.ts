@@ -1,6 +1,8 @@
 export type Vibe = 'pub' | 'drinks' | 'food' | 'coffee' | 'activity'
 
 export interface Venue {
+  /** Stable provider identifier when one is available. */
+  id?: string
   name: string
   rating: number | null
   rating_count: number | null
