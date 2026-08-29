@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { VIBE_LABEL, buildMapUrl, type Venue, type Vibe } from '@/lib/venue-service'
 import { buildWeatherReason, type Weather } from '@/lib/weather-service'
 import type { ActivityIntent } from '@/lib/activity-intelligence'
-import { listVenueGroups, saveVenueToGroup, type GroupChoice } from '@/lib/saved-venue-service'
+import { listVenueGroups, listSavedVenueGroupIds, saveVenueToGroup, removeVenueFromGroupByPlace, type GroupChoice } from '@/lib/saved-venue-service'
 
 interface Props {
   venue: Venue | null
@@ -61,19 +61,33 @@ export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, 
 
   const openGroupPicker = async () => {
     setGroupPickerOpen(true)
-    if (groups.length || groupsLoading) return
+    if (groups.length || groupsLoading || !venue) return
     setGroupsLoading(true)
-    const result = await listVenueGroups()
-    setGroups(result.groups)
+    const [groupResult, savedIds] = await Promise.all([
+      listVenueGroups(),
+      listSavedVenueGroupIds(venue),
+    ])
+    setGroups(groupResult.groups)
+    setSavedGroupIds(savedIds)
     setGroupsLoading(false)
   }
 
-  const handleSaveToGroup = async (groupId: string) => {
+  const handleToggleGroup = async (groupId: string) => {
     if (!venue || savingGroupId) return
+    const saved = savedGroupIds.includes(groupId)
     setSavingGroupId(groupId)
-    const result = await saveVenueToGroup(groupId, venue)
+
+    const ok = saved
+      ? await removeVenueFromGroupByPlace(groupId, venue)
+      : (await saveVenueToGroup(groupId, venue)).ok
+
     setSavingGroupId(null)
-    if (result.ok) setSavedGroupIds((current) => current.includes(groupId) ? current : [...current, groupId])
+
+    if (!ok) return
+
+    setSavedGroupIds((current) => saved
+      ? current.filter((id) => id !== groupId)
+      : current.includes(groupId) ? current : [...current, groupId])
   }
 
   if (!venue || !mounted) return null
@@ -109,7 +123,7 @@ export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, 
           </button>
         </section>
 
-        {groupPickerOpen && <section className="mx-4 mt-3 rounded-xl border border-amber-400/20 bg-white/[0.025] overflow-hidden"><div className="flex items-center justify-between px-4 py-3 border-b border-white/10"><div><h3 className="text-[11px] font-semibold tracking-widest uppercase text-amber-300">Add to group</h3><p className="text-[11px] text-muted-foreground mt-0.5">Choose where Nexus should keep this place.</p></div><button type="button" onClick={() => setGroupPickerOpen(false)} className="text-[11px] text-muted-foreground hover:text-foreground">Close</button></div>{groupsLoading ? <div className="flex items-center gap-2 px-4 py-4 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />Loading your groups…</div> : groups.length === 0 ? <div className="px-4 py-4 text-xs text-muted-foreground">No groups found yet. Create a group first, then come back here.</div> : <div className="p-2">{groups.map((group) => { const saved = savedGroupIds.includes(group.id); return <button key={group.id} type="button" disabled={saved || savingGroupId !== null} onClick={() => handleSaveToGroup(group.id)} className={cn('w-full flex items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors', saved ? 'bg-emerald-400/10' : 'hover:bg-white/[0.04]')}><span className="text-xl w-8 text-center">{group.emoji || '👥'}</span><span className="flex-1 min-w-0"><span className="block text-[13px] font-medium truncate">{group.name}</span><span className="block text-[10px] text-muted-foreground mt-0.5">{saved ? 'Added to this group' : 'Add venue'}</span></span>{saved ? <Check className="w-4 h-4 text-emerald-300" /> : savingGroupId === group.id ? <Loader2 className="w-4 h-4 animate-spin text-amber-300" /> : <Plus className="w-4 h-4 text-muted-foreground" />}</button>})}</div>}</section>}
+        {groupPickerOpen && <section className="mx-4 mt-3 rounded-xl border border-amber-400/20 bg-white/[0.025] overflow-hidden"><div className="flex items-center justify-between px-4 py-3 border-b border-white/10"><div><h3 className="text-[11px] font-semibold tracking-widest uppercase text-amber-300">Add to group</h3><p className="text-[11px] text-muted-foreground mt-0.5">Tap an added group again to remove the place.</p></div><button type="button" onClick={() => setGroupPickerOpen(false)} className="text-[11px] text-muted-foreground hover:text-foreground">Close</button></div>{groupsLoading ? <div className="flex items-center gap-2 px-4 py-4 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />Loading your groups…</div> : groups.length === 0 ? <div className="px-4 py-4 text-xs text-muted-foreground">No groups found yet. Create a group first, then come back here.</div> : <div className="p-2">{groups.map((group) => { const saved = savedGroupIds.includes(group.id); return <button key={group.id} type="button" disabled={savingGroupId !== null} onClick={() => handleToggleGroup(group.id)} className={cn('w-full flex items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors', saved ? 'bg-emerald-400/10' : 'hover:bg-white/[0.04]')}><span className="text-xl w-8 text-center">{group.emoji || '👥'}</span><span className="flex-1 min-w-0"><span className="block text-[13px] font-medium truncate">{group.name}</span><span className="block text-[10px] text-muted-foreground mt-0.5">{saved ? 'Added — tap to remove' : 'Add venue'}</span></span>{saved ? <Check className="w-4 h-4 text-emerald-300" /> : savingGroupId === group.id ? <Loader2 className="w-4 h-4 animate-spin text-amber-300" /> : <Plus className="w-4 h-4 text-muted-foreground" />}</button>})}</div>}</section>}
 
         {reasons.length > 0 && <section className="mx-4 mt-4 p-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.03]"><h3 className="flex items-center gap-2 text-[11px] font-semibold tracking-widest uppercase text-amber-300 mb-2.5"><Sparkles className="w-3.5 h-3.5" />Why this fits your group</h3><ul className="space-y-2">{reasons.map((r, i) => <li key={i} className="flex gap-2 text-[13px] text-foreground/90 leading-snug"><span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-amber-400" /><span>{r}</span></li>)}</ul></section>}
         {venue.description && <section className="mx-4 mt-3 p-4 rounded-xl border border-white/10 bg-white/[0.02]"><h3 className="text-[11px] font-semibold tracking-widest uppercase text-muted-foreground mb-2">About this place</h3><p className="text-[13px] leading-relaxed text-foreground/85">{venue.description}</p></section>}
