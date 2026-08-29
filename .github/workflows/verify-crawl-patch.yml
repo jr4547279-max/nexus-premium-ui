@@ -1,0 +1,35 @@
+name: Verify Nexus crawl patch
+on:
+  push:
+    branches: [feature/group-crawl-integration]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.actor == 'jr4547279-max'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the same source patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          wf = Path('.github/workflows/patch-crawl-integration.yml').read_text()
+          script = wf.split("python3 - <<'PY'", 1)[1].split("\n          PY", 1)[0]
+          exec(textwrap.dedent(script), {'Path': Path})
+          PY
+      - name: Install and validate
+        run: |
+          cd nexus-premium-ui
+          corepack enable
+          pnpm install --no-frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm run build
+      - name: Commit validated source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add nexus-premium-ui/components/nexus/venue-recommendations.tsx nexus-premium-ui/components/nexus/pub-crawl-plan-v2.tsx
+          git diff --cached --quiet || git commit -m 'feat: integrate nearby venues with pub crawl'
+          git push
