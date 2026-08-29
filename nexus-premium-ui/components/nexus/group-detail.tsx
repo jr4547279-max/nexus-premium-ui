@@ -836,7 +836,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
               groupId={groupId}
-              activityId={rawActivityId}
+              activityId={rawActivityId ?? undefined}
               goldenWindow={activeWindow ? {
                 day_of_week: activeWindow.day_of_week,
                 start_time: activeWindow.start_time,
