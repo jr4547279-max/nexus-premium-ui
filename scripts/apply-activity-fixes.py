@@ -86,9 +86,9 @@ if "import { GoldenWindowCountdown }" not in gd:
     group_detail.write_text(gd)
     changed = True
     print("PATCH OK group-detail countdown import")
-
 replace("components/nexus/group-detail.tsx", "{showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (", "{realMode && planningLocation && !venuesRevealed && !isRouteActivity && (")
 replace("components/nexus/group-detail.tsx", "{showRevealedContent && venuesRevealed && !isRouteActivity && (", "{realMode && venuesRevealed && !isRouteActivity && (")
+replace("components/nexus/group-detail.tsx", "              activityId={rawActivityId}", "              activityId={rawActivityId ?? undefined}")
 replace("components/nexus/group-detail.tsx", """              groupName={realGroup?.name ?? null}
               goldenWindow={{
                 day_of_week: activeWindow!.day_of_week,
@@ -96,7 +96,7 @@ replace("components/nexus/group-detail.tsx", """              groupName={realGro
                 end_time:    activeWindow!.end_time,
               }}""", """              groupName={realGroup?.name ?? null}
               groupId={groupId}
-              activityId={rawActivityId}
+              activityId={rawActivityId ?? undefined}
               goldenWindow={activeWindow ? {
                 day_of_week: activeWindow.day_of_week,
                 start_time: activeWindow.start_time,
