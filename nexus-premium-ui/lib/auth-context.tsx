@@ -8,11 +8,15 @@ import { type Profile, getProfile, ensureProfile } from './profile-service'
 // Vercel is the canonical production host.
 export const CANONICAL_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus-premium-website-business.vercel.app'
 
-// OAuth must always return to the canonical origin. Using window.location.origin
-// is unsafe here because Vercel preview/deployment URLs are different browser
-// origins, so the PKCE verifier stored by Supabase on the originating host is
-// not available when the callback lands on another host.
+// OAuth callbacks must stay on the same browser origin that started the flow.
+// Supabase PKCE stores the verifier in browser storage, so sending a user from
+// a Vercel deployment URL to a different Vercel hostname breaks the exchange.
+// In the browser, always return to the current origin. The server-side fallback
+// is retained for non-browser callers such as email-link configuration.
 function getCallbackUrl(): string {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/auth/callback`
+  }
   return `${CANONICAL_SITE_URL}/auth/callback`
 }
 
