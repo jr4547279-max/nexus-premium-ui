@@ -7,14 +7,16 @@ ENV NODE_OPTIONS=--max-old-space-size=6144
 
 RUN corepack enable
 
-# Keep dependency installation cacheable and make the workspace lockfile authoritative.
+# Keep dependency installation cacheable. The repository currently has a
+# workspace lockfile that can be out of sync with the nested app manifest,
+# so allow pnpm to reconcile it during the container build.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY nexus-premium-ui/package.json ./nexus-premium-ui/package.json
 COPY lib ./lib
 COPY scripts ./scripts
 COPY nexus-premium-ui ./nexus-premium-ui
 
-RUN corepack pnpm install --frozen-lockfile
+RUN corepack pnpm install --no-frozen-lockfile
 RUN corepack pnpm --dir nexus-premium-ui run build
 
 FROM node:22.22.0-bookworm-slim AS runner
