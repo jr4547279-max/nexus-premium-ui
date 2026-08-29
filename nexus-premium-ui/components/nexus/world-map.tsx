@@ -127,8 +127,10 @@ export function WorldMap({ onNavigate: _onNavigate }: WorldMapProps) {
           setMapError(null)
           void loadVenues(locationRef.current.lat, locationRef.current.lng, vibe)
           navigator.geolocation?.getCurrentPosition((position) => {
-            locationRef.current = { lat: position.coords.latitude, lng: position.coords.longitude }
-            void loadVenues(position.coords.latitude, position.coords.longitude, vibe)
+            const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+            locationRef.current = next
+            map?.flyTo({ center: [next.lng, next.lat], zoom: 13, pitch: 42, bearing: 0, duration: 1400, essential: true })
+            void loadVenues(next.lat, next.lng, vibe)
           }, () => undefined, { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 })
         })
 
