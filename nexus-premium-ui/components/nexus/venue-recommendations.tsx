@@ -32,6 +32,8 @@ interface Props {
   activityId?: string
   groupId?: string
   activityId?: string
+  groupId?: string
+  activityId?: string
   /** Real Golden Window context, used to drive weather/openness scoring. */
   goldenWindow?: {
     day_of_week: number

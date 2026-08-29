@@ -55,7 +55,6 @@ import {
 import { VenueRecommendations } from './venue-recommendations'
 import { WeatherChip } from './weather-chip'
 import { GoldenWindowCountdown } from './golden-window-countdown'
-import { GoldenWindowCountdown } from './golden-window-countdown'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
 import { GoldenWindowSearching } from './golden-window-searching'
 import { ActivityPlanCard } from './activity-plan-card'
