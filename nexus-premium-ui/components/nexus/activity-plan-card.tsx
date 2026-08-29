@@ -1,7 +1,7 @@
 'use client'
 
 import type { PlannerResult } from '@/lib/planners/planner-engine'
-import { PubCrawlPlanV2 } from './pub-crawl-plan-v2'
+import { PubCrawlPlanIntegrated } from './pub-crawl-plan-integrated'
 import { SingleVenuePlan } from './single-venue-plan'
 import { RoutePlanCard } from './route-plan-card'
 
@@ -17,7 +17,7 @@ export function ActivityPlanCard({ plan, onRecalculate, onStartRun }: ActivityPl
   }
 
   if (plan.activityId === 'pub-crawl') {
-    return <PubCrawlPlanV2 plan={plan} onRecalculate={onRecalculate} />
+    return <PubCrawlPlanIntegrated plan={plan} onRecalculate={onRecalculate} />
   }
 
   return <SingleVenuePlan plan={plan} onRecalculate={onRecalculate} />
