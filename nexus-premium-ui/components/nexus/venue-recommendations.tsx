@@ -24,6 +24,8 @@ import {
 
 interface Props {
   groupName: string | null
+  groupId?: string
+  activityId?: string
   /** Real Golden Window context, used to drive weather/openness scoring. */
   goldenWindow?: {
     day_of_week: number
@@ -50,6 +52,8 @@ const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
 
 export function VenueRecommendations({
   groupName,
+  groupId,
+  activityId,
   goldenWindow,
   planningLocation,
   memberCoords,
@@ -146,7 +150,7 @@ export function VenueRecommendations({
     return () => {
       cancelled = true
     }
-  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])
+  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])
 
   useEffect(() => {
     setMapFailed(false)
@@ -434,6 +438,8 @@ export function VenueRecommendations({
       {/* Venue detail sheet */}
       <VenueDetailSheet
         venue={selectedVenue}
+        groupId={groupId}
+        activityId={activityId}
         vibe={vibe}
         goldenWindow={goldenWindow ?? null}
         midpointFallback={midpoint.fallback}

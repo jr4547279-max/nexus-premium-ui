@@ -54,6 +54,7 @@ import {
 } from '@/lib/golden-window-persistence'
 import { VenueRecommendations } from './venue-recommendations'
 import { WeatherChip } from './weather-chip'
+import { GoldenWindowCountdown } from './golden-window-countdown'
 import { fetchWeather, type Weather } from '@/lib/weather-service'
 import { GoldenWindowSearching } from './golden-window-searching'
 import { ActivityPlanCard } from './activity-plan-card'
@@ -795,6 +796,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                 <WeatherChip weather={weather} loading={weatherLoading} />
               </div>
             )}
+
+            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />
           </GlassCard>
         )}
 
@@ -813,7 +816,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         )}
 
         {/* ── Explore nearby fits CTA ── */}
-        {showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (
+        {realMode && planningLocation && !venuesRevealed && !isRouteActivity && (
           <Button
             onClick={handleRevealVenues}
             className={cn(
@@ -828,15 +831,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         )}
 
         {/* ── Venues section ── */}
-        {showRevealedContent && venuesRevealed && !isRouteActivity && (
+        {realMode && venuesRevealed && !isRouteActivity && (
           <div ref={venuesRef} className="scroll-mt-20">
             <VenueRecommendations
               groupName={realGroup?.name ?? null}
-              goldenWindow={{
-                day_of_week: activeWindow!.day_of_week,
-                start_time:  activeWindow!.start_time,
-                end_time:    activeWindow!.end_time,
-              }}
+              groupId={groupId}
+              activityId={rawActivityId}
+              goldenWindow={activeWindow ? {
+                day_of_week: activeWindow.day_of_week,
+                start_time: activeWindow.start_time,
+                end_time: activeWindow.end_time,
+              } : null}
               weather={weather}
               planningLocation={
                 planningLocation
@@ -891,8 +896,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     </div>
                     <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                       {realMembers.length === 1
-                        ? 'Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.'
-                        : 'Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.'}
+                        ? 'Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.'
+                        : 'Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.'}
                     </p>
                     {!activeWindow && (
                       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
@@ -909,10 +914,10 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     )}
                     <Button
                       onClick={handlePlanActivity}
-                      disabled={!activeWindow}
+                      disabled={!planningLocation}
                       className={cn(
                         'w-full h-11 rounded-xl',
-                        activeWindow
+                        planningLocation
                           ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'
                           : 'opacity-40 cursor-not-allowed',
                       )}
