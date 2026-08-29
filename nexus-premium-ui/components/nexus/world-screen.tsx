@@ -28,7 +28,7 @@ interface WorldScreenProps {
 
 export function WorldScreen({ onNavigate }: WorldScreenProps) {
   return (
-    <div className="fixed inset-0">
+    <div className="fixed inset-0 h-[100dvh] w-screen overflow-hidden">
       <WorldMap onNavigate={onNavigate} />
       <BottomNav
         activeTab="world"
