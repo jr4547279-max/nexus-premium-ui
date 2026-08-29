@@ -863,7 +863,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                   /* ── Route planner — RunRoutePlanner manages its own state ── */
                   <RunRoutePlanner
                     groupId={groupId}
-                    activityId={rawActivityId}
+                    activityId={rawActivityId ?? undefined}
                     goldenWindow={activeWindow ?? null}
                     sharedWindow={sharedRunWindow}
                     timingError={runTimingError}
