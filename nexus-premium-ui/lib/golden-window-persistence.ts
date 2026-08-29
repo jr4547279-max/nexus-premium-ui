@@ -12,35 +12,33 @@ export interface SavedGoldenWindowResult {
   computedAt: string | null
 }
 
-function cacheForCountdown(window: GoldenWindow | null) {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return
+function cacheForCountdown(goldenWindow: GoldenWindow | null) {
+  if (typeof window === 'undefined') return
   try {
-    if (window) localStorage.setItem('nexus:last-golden-window', JSON.stringify(window))
-    else localStorage.removeItem('nexus:last-golden-window')
+    if (goldenWindow) window.localStorage.setItem('nexus:last-golden-window', JSON.stringify(goldenWindow))
+    else window.localStorage.removeItem('nexus:last-golden-window')
   } catch {
     // Countdown is progressive enhancement; persistence remains the source of truth.
   }
 }
 
-/** Persist a computed window for any authenticated member of the group. */
 export async function saveGoldenWindow(
   groupId: string,
-  window: GoldenWindow,
+  goldenWindow: GoldenWindow,
 ): Promise<boolean> {
   const { data, error } = await supabase.rpc('save_golden_window', {
     p_group_id: groupId,
-    p_window: window as unknown as Record<string, unknown>,
+    p_window: goldenWindow as unknown as Record<string, unknown>,
   })
 
   if (error) {
     console.error('[golden-window-persistence] saveGoldenWindow failed', error)
     return false
   }
-  cacheForCountdown(window)
+  cacheForCountdown(goldenWindow)
   return data === true
 }
 
-/** Loads the persisted Golden Window for a group. */
 export async function loadSavedGoldenWindow(
   groupId: string,
 ): Promise<SavedGoldenWindowResult> {
@@ -115,7 +113,6 @@ export async function loadSavedGoldenWindow(
   }
 }
 
-/** Mark the shared result stale after any member changes availability. */
 export async function markGoldenWindowStale(groupId: string): Promise<void> {
   const { error } = await supabase.rpc('mark_golden_window_stale', {
     p_group_id: groupId,
