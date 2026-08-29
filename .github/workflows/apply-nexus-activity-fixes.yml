@@ -16,140 +16,167 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Patch activity planning flow
-        env:
-          PYTHONUNBUFFERED: '1'
+      - name: Apply UI patches
         run: |
           python3 <<'PY'
           from pathlib import Path
           import re
 
           ROOT = Path('nexus-premium-ui')
+          changed = False
 
-          def patch(path, transforms):
+          def replace(path, old, new, count=1):
+              global changed
               p = ROOT / path
               text = p.read_text()
-              original = text
-              for name, fn in transforms:
-                  text2 = fn(text)
-                  if text2 == text:
-                      raise SystemExit(f'PATCH FAILED: {path}: {name}')
-                  text = text2
-              p.write_text(text)
-              print(f'patched {path} ({len(original)} -> {len(text)} bytes)')
+              if old in text:
+                  p.write_text(text.replace(old, new, count))
+                  print('PATCH OK', path, old[:70].replace('\n',' '))
+                  changed = True
+              else:
+                  print('PATCH SKIP', path, old[:70].replace('\n',' '))
 
-          # 1) Group detail: venue discovery is independent of Golden Window;
-          #    venue planners may use a Golden Window later as an optional timing layer.
-          patch('components/nexus/group-detail.tsx', [
-              ('import countdown', lambda s: s.replace(
+          def regex(path, pattern, replacement, count=1):
+              global changed
+              p = ROOT / path
+              text = p.read_text()
+              new_text, n = re.subn(pattern, replacement, text, count=count, flags=re.S)
+              print('PATCH REGEX', path, 'matches=', n)
+              if n:
+                  p.write_text(new_text)
+                  changed = True
+
+          # Group detail: Golden Window becomes an optional timing layer for venue activities.
+          replace('components/nexus/group-detail.tsx',
                   "import { WeatherChip } from './weather-chip'\n",
-                  "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n",
-                  1)),
-
-              ('replace venue discovery block', lambda s: re.sub(
-                  r"        /\* ── Explore nearby fits CTA ── \*/.*?        /\* ── Activity Planner section",
-                  '''        {/* ── Explore nearby fits CTA ── */}\n        {realMode && availabilityLoaded && !isRouteActivity && planningLocation && !venuesRevealed && (\n          <Button\n            onClick={handleRevealVenues}\n            className="w-full h-14 mb-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"\n          >\n            <MapPin className="w-5 h-5 mr-2" />\n            Explore nearby fits\n          </Button>\n        )}\n\n        {/* ── Venues section ── */}\n        {realMode && availabilityLoaded && venuesRevealed && !isRouteActivity && (\n          <div ref={venuesRef} className="scroll-mt-20">\n            <VenueRecommendations\n              groupName={realGroup?.name ?? null}\n              groupId={groupId}\n              activityId={rawActivityId}\n              goldenWindow={activeWindow ? {\n                day_of_week: activeWindow.day_of_week,\n                start_time: activeWindow.start_time,\n                end_time: activeWindow.end_time,\n              } : null}\n              weather={weather}\n              planningLocation={\n                planningLocation\n                  ? { lat: planningLocation.lat, lng: planningLocation.lng }\n                  : null\n              }\n            />\n          </div>\n        )}\n\n        {/* ── Activity Planner section''',
-                  s, count=1, flags=re.S)),
-
-              ('optional golden window planner copy', lambda s: s.replace(
-                  "Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.",
-                  "Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.",
-                  1)),
-
-              ('optional golden window group copy', lambda s: s.replace(
+                  "import { WeatherChip } from './weather-chip'\nimport { GoldenWindowCountdown } from './golden-window-countdown'\n")
+          replace('components/nexus/group-detail.tsx',
+                  "{showRevealedContent && revealPhase === 'revealed' && !venuesRevealed && !isRouteActivity && (",
+                  "{realMode && planningLocation && !venuesRevealed && !isRouteActivity && (")
+          replace('components/nexus/group-detail.tsx',
+                  "{showRevealedContent && venuesRevealed && !isRouteActivity && (",
+                  "{realMode && venuesRevealed && !isRouteActivity && (")
+          replace('components/nexus/group-detail.tsx',
+                  "              groupName={realGroup?.name ?? null}\n              goldenWindow={{\n                day_of_week: activeWindow!.day_of_week,\n                start_time:  activeWindow!.start_time,\n                end_time:    activeWindow!.end_time,\n              }}",
+                  "              groupName={realGroup?.name ?? null}\n              groupId={groupId}\n              activityId={rawActivityId}\n              goldenWindow={activeWindow ? {\n                day_of_week: activeWindow.day_of_week,\n                start_time: activeWindow.start_time,\n                end_time: activeWindow.end_time,\n              } : null}")
+          replace('components/nexus/group-detail.tsx',
+                  "disabled={!activeWindow}\n                      className={cn(\n                        'w-full h-11 rounded-xl',\n                        activeWindow\n                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'\n                          : 'opacity-40 cursor-not-allowed',",
+                  "disabled={!planningLocation}\n                      className={cn(\n                        'w-full h-11 rounded-xl',\n                        planningLocation\n                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'\n                          : 'opacity-40 cursor-not-allowed',")
+          replace('components/nexus/group-detail.tsx',
                   "Nexus will find the best venues near your group, score them, and build a plan — timed to your Golden Window.",
-                  "Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.",
-                  1)),
+                  "Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
+          replace('components/nexus/group-detail.tsx',
+                  "Nexus will find the best venues near you, score them, and build a plan — timed to your Golden Window.",
+                  "Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.")
+          regex('components/nexus/group-detail.tsx',
+                r"(\{\(weatherLoading \|\| \(weather && !weather\.error\)\) && \(.*?\n\s*\)\})(\n\s*</GlassCard>)",
+                r"\1\n\n            <GoldenWindowCountdown\n              daysUntil={activeWindow.days_until}\n              startTime={activeWindow.start_time}\n              endTime={activeWindow.end_time}\n            />\2")
 
-              ('replace required golden window notice', lambda s: re.sub(
-                  r"                    {!activeWindow && \(.*?                    \)}\n                    {!planningLocation &&",
-                  '''                    {!activeWindow && (\n                      <p className="text-xs text-muted-foreground bg-primary/5 border border-primary/15 rounded-xl px-3 py-2 mb-3 leading-relaxed">\n                        Golden Window is optional. You can choose a venue first and add a Golden Window afterwards to lock in the best shared time.\n                      </p>\n                    )}\n                    {!planningLocation &&''',
-                  s, count=1, flags=re.S)),
-
-              ('planner button gate', lambda s: s.replace(
-                  "                      disabled={!activeWindow}\n                      className={cn(\n                        'w-full h-11 rounded-xl',\n                        activeWindow\n                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'\n                          : 'opacity-40 cursor-not-allowed',",
-                  "                      disabled={!planningLocation}\n                      className={cn(\n                        'w-full h-11 rounded-xl',\n                        planningLocation\n                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground glow-gold'\n                          : 'opacity-40 cursor-not-allowed',",
-                  1)),
-
-              ('add countdown', lambda s: re.sub(
-                  r"(            \{\(weatherLoading \|\| \(weather && !weather\.error\)\) && \(.*?\n            \)\}\n)(          </GlassCard>)",
-                  r'''\1\n            <GoldenWindowCountdown\n              daysUntil={activeWindow.days_until}\n              startTime={activeWindow.start_time}\n              endTime={activeWindow.end_time}\n            />\n\2''',
-                  s, count=1, flags=re.S)),
-          ])
-
-          # 2) Nearby venue recommendations: support optional Golden Window,
-          #    direct Pub Crawl saving, and a fresh search when recalibrating.
-          patch('components/nexus/venue-recommendations.tsx', [
-              ('props', lambda s: s.replace(
+          # Nearby fits: accept optional Golden Window context and refresh when it changes.
+          replace('components/nexus/venue-recommendations.tsx',
                   "interface Props {\n  groupName: string | null",
-                  "interface Props {\n  groupName: string | null\n  groupId?: string\n  activityId?: string",
-                  1)),
-              ('destructure props', lambda s: s.replace(
+                  "interface Props {\n  groupName: string | null\n  groupId?: string\n  activityId?: string")
+          replace('components/nexus/venue-recommendations.tsx',
                   "export function VenueRecommendations({\n  groupName,\n  goldenWindow,",
-                  "export function VenueRecommendations({\n  groupName,\n  groupId,\n  activityId,\n  goldenWindow,",
-                  1)),
-              ('fresh venue search', lambda s: s.replace(
+                  "export function VenueRecommendations({\n  groupName,\n  groupId,\n  activityId,\n  goldenWindow,")
+          replace('components/nexus/venue-recommendations.tsx',
                   "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback])",
-                  "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])",
-                  1)),
-              ('sheet props', lambda s: s.replace(
+                  "  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])")
+          replace('components/nexus/venue-recommendations.tsx',
                   "        venue={selectedVenue}\n        vibe={vibe}",
-                  "        venue={selectedVenue}\n        groupId={groupId}\n        activityId={activityId}\n        vibe={vibe}",
-                  1)),
-          ])
+                  "        venue={selectedVenue}\n        groupId={groupId}\n        activityId={activityId}\n        vibe={vibe}")
 
-          # 3) Venue detail: add a one-tap Pub Crawl action when opened from
-          #    a Pub Crawl group. It persists to the group shortlist and also
-          #    notifies an already-mounted crawl plan immediately.
-          patch('components/nexus/venue-detail-sheet.tsx', [
-              ('props', lambda s: s.replace(
+          # Venue detail: direct save into the current Pub Crawl group.
+          replace('components/nexus/venue-detail-sheet.tsx',
                   "interface Props {\n  venue: Venue | null",
-                  "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string",
-                  1)),
-              ('destructure props', lambda s: s.replace(
+                  "interface Props {\n  venue: Venue | null\n  groupId?: string\n  activityId?: string")
+          replace('components/nexus/venue-detail-sheet.tsx',
                   "export function VenueDetailSheet({ venue, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)",
-                  "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)",
-                  1)),
-              ('crawl state', lambda s: s.replace(
+                  "export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindow, midpointFallback, weather, vote, onVote, onClose, intent }: Props)")
+          replace('components/nexus/venue-detail-sheet.tsx',
                   "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n",
-                  "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n",
-                  1)),
-              ('reset crawl state', lambda s: s.replace(
+                  "  const [savedGroupIds, setSavedGroupIds] = useState<string[]>([])\n  const [addingToCrawl, setAddingToCrawl] = useState(false)\n  const [crawlAdded, setCrawlAdded] = useState(false)\n")
+          replace('components/nexus/venue-detail-sheet.tsx',
                   "    setSavedGroupIds([])\n    setSavingGroupId(null)\n",
-                  "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n",
-                  1)),
-              ('crawl handler', lambda s: s.replace(
+                  "    setSavedGroupIds([])\n    setSavingGroupId(null)\n    setAddingToCrawl(false)\n    setCrawlAdded(false)\n")
+          replace('components/nexus/venue-detail-sheet.tsx',
                   "  const handleToggleGroup = async (groupId: string) => {",
-                  '''  const handleAddToPubCrawl = async () => {\n    if (!venue || !groupId || activityId !== 'pub-crawl' || addingToCrawl) return\n    setAddingToCrawl(true)\n    const result = await saveVenueToGroup(groupId, venue)\n    if (result.ok) {\n      setCrawlAdded(true)\n      window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', {\n        detail: {\n          id: venue.id || venue.maps_url || `${venue.name}|${venue.address || ''}`,\n          name: venue.name,\n          category: venue.category,\n          photo_url: venue.photo_url,\n          maps_url: venue.maps_url,\n          address: venue.address,\n          rating: venue.rating,\n          lat: venue.lat,\n          lng: venue.lng,\n          activityId: 'pub-crawl',\n        },\n      }))\n    }\n    setAddingToCrawl(false)\n  }\n\n  const handleToggleGroup = async (groupId: string) => {''',
-                  1)),
-              ('crawl button', lambda s: s.replace(
+                  """  const handleAddToPubCrawl = async () => {
+    if (!venue || !groupId || activityId !== 'pub-crawl' || addingToCrawl) return
+    setAddingToCrawl(true)
+    const result = await saveVenueToGroup(groupId, venue)
+    if (result.ok) {
+      setCrawlAdded(true)
+      window.dispatchEvent(new CustomEvent('nexus:add-crawl-venue', {
+        detail: {
+          id: venue.id || venue.maps_url || `${venue.name}|${venue.address || ''}`,
+          name: venue.name,
+          category: venue.category,
+          photo_url: venue.photo_url,
+          maps_url: venue.maps_url,
+          address: venue.address,
+          rating: venue.rating,
+          lat: venue.lat,
+          lng: venue.lng,
+          activityId: 'pub-crawl',
+        },
+      }))
+    }
+    setAddingToCrawl(false)
+  }
+
+  const handleToggleGroup = async (groupId: string) => {""")
+          replace('components/nexus/venue-detail-sheet.tsx',
                   "        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}",
-                  """        {activityId === 'pub-crawl' && groupId && (\n          <section className=\"mx-4 mt-4\">\n            <button type=\"button\" onClick={handleAddToPubCrawl} disabled={addingToCrawl || crawlAdded} className={cn('w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors', crawlAdded ? 'border-emerald-400/30 bg-emerald-400/[0.06]' : 'border-primary/30 bg-primary/[0.06] hover:bg-primary/[0.10]')}>\n              <span className=\"flex items-center gap-3\"><span className=\"flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 border border-primary/20\">{crawlAdded ? <Check className=\"w-4 h-4 text-emerald-300\" /> : <Plus className=\"w-4 h-4 text-primary\" />}</span><span><span className=\"block text-[12px] font-semibold\">{crawlAdded ? 'Added to Pub Crawl' : 'Add to Pub Crawl'}</span><span className=\"block text-[11px] text-muted-foreground mt-0.5\">{crawlAdded ? 'Saved to this group and ready for the crawl.' : 'Use this venue as one of your crawl stops.'}</span></span></span><span className=\"text-[11px] font-medium text-primary\">{addingToCrawl ? 'Saving…' : crawlAdded ? 'Added' : 'Add'}</span>\n            </button>\n          </section>\n        )}\n\n        <section className=\"mx-4 mt-4\">\n          <button type=\"button\" onClick={openGroupPicker}""",
-                  1)),
-          ])
+                  """        {activityId === 'pub-crawl' && groupId && (
+          <section className="mx-4 mt-4">
+            <button type="button" onClick={handleAddToPubCrawl} disabled={addingToCrawl || crawlAdded} className={cn('w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors', crawlAdded ? 'border-emerald-400/30 bg-emerald-400/[0.06]' : 'border-primary/30 bg-primary/[0.06] hover:bg-primary/[0.10]')}>
+              <span className="flex items-center gap-3"><span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 border border-primary/20">{crawlAdded ? <Check className="w-4 h-4 text-emerald-300" /> : <Plus className="w-4 h-4 text-primary" />}</span><span><span className="block text-[12px] font-semibold">{crawlAdded ? 'Added to Pub Crawl' : 'Add to Pub Crawl'}</span><span className="block text-[11px] text-muted-foreground mt-0.5">{crawlAdded ? 'Saved to this group and ready for the crawl.' : 'Use this venue as one of your crawl stops.'}</span></span></span><span className="text-[11px] font-medium text-primary">{addingToCrawl ? 'Saving…' : crawlAdded ? 'Added' : 'Add'}</span>
+            </button>
+          </section>
+        )}
 
-          # 4) Pub Crawl planner: honour venues explicitly saved to the current group,
-          #    so a venue added from Nearby Fits actually becomes part of the next crawl.
-          patch('lib/planners/google-pub-crawl-planner.ts', [
-              ('saved import', lambda s: s.replace(
+        <section className="mx-4 mt-4">
+          <button type="button" onClick={openGroupPicker}""")
+
+          # Pub Crawl planner: saved group venues are first-class crawl candidates.
+          replace('lib/planners/google-pub-crawl-planner.ts',
                   "import type { PlannerDefinition, PlannerResult, PlannerScore, PlannerVenue } from './types'\n",
-                  "import type { PlannerDefinition, PlannerResult, PlannerScore, PlannerVenue } from './types'\nimport { listGroupSavedVenues } from '../saved-venue-service'\n",
-                  1)),
-              ('saved venue helper', lambda s: s.replace(
+                  "import type { PlannerDefinition, PlannerResult, PlannerScore, PlannerVenue } from './types'\nimport { listGroupSavedVenues } from '../saved-venue-service'\n")
+          replace('lib/planners/google-pub-crawl-planner.ts',
                   "function mapVenue(place: PlacesVenue, index: number): { venue: PlannerVenue; openNow: boolean | null } | null {",
-                  '''function mapSavedVenue(saved: Awaited<ReturnType<typeof listGroupSavedVenues>>[number]): { venue: PlannerVenue; openNow: boolean | null } | null {\n  if (!saved.venue_name || saved.venue_lat == null || saved.venue_lng == null) return null\n  const venue: PlannerVenue = {\n    id: saved.place_id,\n    name: saved.venue_name,\n    lat: saved.venue_lat,\n    lng: saved.venue_lng,\n    rating: saved.venue_rating ?? 0,\n    ratingKnown: saved.venue_rating != null,\n    priceLevel: 2,\n    priceLevelKnown: false,\n    openingTime: '00:00',\n    closingTime: '23:59',\n    openingHoursKnown: false,\n    atmosphere: ['social'],\n    tags: [saved.venue_category || 'pub'],\n    estimatedCostPerPerson: 0,\n    capacity: 'medium',\n    features: [],\n    distanceFromCentre: 0,\n    mapsUrl: saved.map_url ?? null,\n    address: saved.venue_address ?? null,\n    isRealData: true,\n  }\n  return { venue, openNow: null }\n}\n\nfunction mapVenue(place: PlacesVenue, index: number): { venue: PlannerVenue; openNow: boolean | null } | null {''',
-                  1)),
-              ('merge saved venues', lambda s: s.replace(
-                  "    const mapped = places\n      .map(mapVenue)\n      .filter((item): item is { venue: PlannerVenue; openNow: boolean | null } => item !== null)\n",
-                  "    const mappedPlaces = places\n      .map(mapVenue)\n      .filter((item): item is { venue: PlannerVenue; openNow: boolean | null } => item !== null)\n\n    const saved = await listGroupSavedVenues(groupId)\n    const savedMapped = saved\n      .map(mapSavedVenue)\n      .filter((item): item is { venue: PlannerVenue; openNow: boolean | null } => item !== null)\n    const savedIds = new Set(savedMapped.map((item) => item.venue.id))\n    const mapped = [...savedMapped, ...mappedPlaces.filter((item) => !savedIds.has(item.venue.id))]\n",
-                  1)),
-          ])
+                  """function mapSavedVenue(saved: Awaited<ReturnType<typeof listGroupSavedVenues>>[number]): { venue: PlannerVenue; openNow: boolean | null } | null {
+  if (!saved.venue_name || saved.venue_lat == null || saved.venue_lng == null) return null
+  return { venue: { id: saved.place_id, name: saved.venue_name, lat: saved.venue_lat, lng: saved.venue_lng, rating: saved.venue_rating ?? 0, ratingKnown: saved.venue_rating != null, priceLevel: 2, priceLevelKnown: false, openingTime: '00:00', closingTime: '23:59', openingHoursKnown: false, atmosphere: ['social'], tags: [saved.venue_category || 'pub'], estimatedCostPerPerson: 0, capacity: 'medium', features: [], distanceFromCentre: 0, mapsUrl: saved.map_url ?? null, address: saved.venue_address ?? null, isRealData: true }, openNow: null }
+}
 
-          print('All Nexus activity fixes applied.')
+function mapVenue(place: PlacesVenue, index: number): { venue: PlannerVenue; openNow: boolean | null } | null {""")
+          replace('lib/planners/google-pub-crawl-planner.ts',
+                  "    const mapped = places\n      .map(mapVenue)\n      .filter((item): item is { venue: PlannerVenue; openNow: boolean | null } => item !== null)\n",
+                  """    const mappedPlaces = places
+      .map(mapVenue)
+      .filter((item): item is { venue: PlannerVenue; openNow: boolean | null } => item !== null)
+
+    const saved = await listGroupSavedVenues(groupId)
+    const savedMapped = saved
+      .map(mapSavedVenue)
+      .filter((item): item is { venue: PlannerVenue; openNow: boolean | null } => item !== null)
+    const savedIds = new Set(savedMapped.map((item) => item.venue.id))
+    const mapped = [...savedMapped, ...mappedPlaces.filter((item) => !savedIds.has(item.venue.id))]
+""")
+
+          if changed:
+              print('Changes detected; leaving workflow for the commit step.')
+          else:
+              print('No source changes detected.')
           PY
 
       - name: Commit fixes and remove one-shot workflow
         run: |
+          if git diff --quiet -- nexus-premium-ui; then
+            echo 'No source changes; refusing to create an empty fix commit.'
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add nexus-premium-ui
