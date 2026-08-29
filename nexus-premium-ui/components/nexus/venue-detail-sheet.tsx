@@ -13,12 +13,6 @@ interface Props {
   venue: Venue | null
   groupId?: string
   activityId?: string
-  groupId?: string
-  activityId?: string
-  groupId?: string
-  activityId?: string
-  groupId?: string
-  activityId?: string
   vibe: Vibe
   goldenWindow?: { day_of_week: number; start_time: string; end_time: string } | null
   midpointFallback: boolean
