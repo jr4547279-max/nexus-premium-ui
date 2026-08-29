@@ -11,6 +11,8 @@ export interface OsmTagSet {
 
 // ── OSM amenity/leisure tags that map to each activity ───────────────────────
 // Used by OpenStreetMapVenueProvider to build Overpass queries.
+// Keep this registry activity-driven: unknown activities must never silently
+// become pubs.
 
 export const ACTIVITY_OSM_TAGS: Record<string, OsmTagSet[]> = {
   'pub-crawl':    [{ key: 'amenity', value: 'pub' }, { key: 'amenity', value: 'bar' }],
@@ -24,10 +26,12 @@ export const ACTIVITY_OSM_TAGS: Record<string, OsmTagSet[]> = {
   'board-games':  [{ key: 'amenity', value: 'pub' }, { key: 'leisure', value: 'amusement_arcade' }],
   'escape-room':  [{ key: 'leisure', value: 'escape_game' }],
   'gym':          [{ key: 'leisure', value: 'fitness_centre' }, { key: 'leisure', value: 'sports_centre' }],
-  'swimming':     [{ key: 'leisure', value: 'swimming_pool' }],
+  'swimming':     [{ key: 'leisure', value: 'swimming_pool' }, { key: 'sport', value: 'swimming' }],
+  'picnic':       [{ key: 'leisure', value: 'park' }, { key: 'leisure', value: 'garden' }, { key: 'leisure', value: 'picnic_table' }],
+  'beach':        [{ key: 'natural', value: 'beach' }],
 }
 
-/** Returns the OSM tag sets for a given activity, or a pub fallback. */
+/** Returns only explicitly registered tags. Never substitute an unrelated activity. */
 export function getOsmTagsForActivity(activityId: string): OsmTagSet[] {
-  return ACTIVITY_OSM_TAGS[activityId] ?? [{ key: 'amenity', value: 'pub' }]
+  return ACTIVITY_OSM_TAGS[activityId] ?? []
 }
