@@ -1,15 +1,16 @@
 services:
   - type: web
-    name: nexus-premium-ui-3
+    name: nexus-premium-ui-docker
     runtime: docker
     plan: free
     region: oregon
-    rootDir: nexus-premium-ui
     dockerfilePath: ./Dockerfile
     dockerContext: .
     autoDeployTrigger: commit
     healthCheckPath: /
     envVars:
+      - key: PORT
+        value: "10000"
       - key: NODE_VERSION
         value: 22
       - key: NEXT_PUBLIC_SUPABASE_URL
