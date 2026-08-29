@@ -9,6 +9,7 @@ import { type Profile, getProfile, ensureProfile } from './profile-service'
 export const CANONICAL_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus-premium-website-business.vercel.app'
 
 function getCallbackUrl(): string {
+  if (typeof window !== 'undefined') return `${window.location.origin}/auth/callback`
   return `${CANONICAL_SITE_URL}/auth/callback`
 }
 
@@ -177,20 +178,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured) return { error: notConfiguredError() }
 
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: getCallbackUrl(),
           scopes: 'openid email profile',
-          skipBrowserRedirect: true,
         },
       })
-
-      if (error) return { error }
-      if (!data.url) return { error: authError('Google sign-in did not return a login URL. Please try again.', 'oauth_no_url') }
-
-      window.location.assign(data.url)
-      return { error: null }
+      return { error }
     } catch (error) {
       return {
         error: authError(
