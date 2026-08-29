@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Clock } from 'lucide-react'
+import { Clock, Sparkles } from 'lucide-react'
 
 interface GoldenWindowCountdownProps {
   daysUntil: number
@@ -19,13 +19,16 @@ function targetFromWindow(daysUntil: number, time: string): number {
 }
 
 function formatRemaining(ms: number): string {
-  const totalMinutes = Math.max(0, Math.floor(ms / 60_000))
-  const days = Math.floor(totalMinutes / 1440)
-  const hours = Math.floor((totalMinutes % 1440) / 60)
-  const minutes = totalMinutes % 60
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`
-  if (hours > 0) return `${hours}h ${minutes}m`
-  return `${minutes}m`
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
 }
 
 export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenWindowCountdownProps) {
@@ -34,7 +37,7 @@ export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenW
   const endMs = useMemo(() => targetFromWindow(daysUntil, endTime), [daysUntil, endTime])
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -42,10 +45,15 @@ export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenW
 
   if (state === 'live') {
     return (
-      <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
-        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="text-xs font-medium text-emerald-400">Your Golden Window is happening now</span>
-        <span className="text-xs text-muted-foreground">· {formatRemaining(endMs - now)} left</span>
+      <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2.5">
+        <div className="flex items-center justify-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-xs font-medium text-emerald-400">Your Golden Window is happening now</span>
+        </div>
+        <p className="mt-1 text-center text-xs text-muted-foreground tabular-nums">
+          {formatRemaining(endMs - now)} remaining
+        </p>
       </div>
     )
   }
@@ -60,10 +68,14 @@ export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenW
   }
 
   return (
-    <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-3 py-2">
-      <Clock className="w-3.5 h-3.5 text-primary" />
-      <span className="text-xs text-muted-foreground">Golden Window in</span>
-      <span className="text-sm font-semibold text-primary tabular-nums">{formatRemaining(startMs - now)}</span>
+    <div className="mt-4 rounded-xl bg-primary/10 border border-primary/20 px-3 py-2.5">
+      <div className="flex items-center justify-center gap-2">
+        <Clock className="w-3.5 h-3.5 text-primary" />
+        <span className="text-xs text-muted-foreground">Golden Window in</span>
+      </div>
+      <p className="mt-1 text-center text-sm font-semibold text-primary tabular-nums">
+        {formatRemaining(startMs - now)}
+      </p>
     </div>
   )
 }
