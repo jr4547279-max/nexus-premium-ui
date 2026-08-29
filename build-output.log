@@ -1,0 +1,365 @@
+
+> my-project@0.1.0 prebuild /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui
+> node ./scripts/copy-maplibre-worker.mjs
+
+[NEXUS] MapLibre worker assets ready: /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui/public/maplibre, /home/runner/work/nexus-premium-ui/nexus-premium-ui/public/maplibre
+
+> my-project@0.1.0 build /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui
+> next build
+
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+▲ Next.js 16.2.6 (Turbopack)
+- Environments: .env.production
+
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 12 errors:
+./nexus-premium-ui/components/nexus/group-detail.tsx:58:10
+the name `GoldenWindowCountdown` is defined multiple times
+  [90m56 |[0m [36mimport[0m { [33mWeatherChip[0m } [36mfrom[0m [32m'./weather-chip'[0m
+  [90m57 |[0m [36mimport[0m { [33mGoldenWindowCountdown[0m } [36mfrom[0m [32m'./golden-window-countdown'[0m
+[31m[1m>[0m [90m58 |[0m [36mimport[0m { [33mGoldenWindowCountdown[0m } [36mfrom[0m [32m'./golden-window-countdown'[0m
+  [90m   |[0m          [31m[1m^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m59 |[0m [36mimport[0m { [33mGoldenWindowCountdown[0m } [36mfrom[0m [32m'./golden-window-countdown'[0m
+  [90m60 |[0m [36mimport[0m { fetchWeather, [36mtype[0m [33mWeather[0m } [36mfrom[0m [32m'@/lib/weather-service'[0m
+  [90m61 |[0m [36mimport[0m { [33mGoldenWindowSearching[0m } [36mfrom[0m [32m'./golden-window-searching'[0m
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/group-detail.tsx:59:10
+the name `GoldenWindowCountdown` is defined multiple times
+  [90m57 |[0m [36mimport[0m { [33mGoldenWindowCountdown[0m } [36mfrom[0m [32m'./golden-window-countdown'[0m
+  [90m58 |[0m [36mimport[0m { [33mGoldenWindowCountdown[0m } [36mfrom[0m [32m'./golden-window-countdown'[0m
+[31m[1m>[0m [90m59 |[0m [36mimport[0m { [33mGoldenWindowCountdown[0m } [36mfrom[0m [32m'./golden-window-countdown'[0m
+  [90m   |[0m          [31m[1m^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m60 |[0m [36mimport[0m { fetchWeather, [36mtype[0m [33mWeather[0m } [36mfrom[0m [32m'@/lib/weather-service'[0m
+  [90m61 |[0m [36mimport[0m { [33mGoldenWindowSearching[0m } [36mfrom[0m [32m'./golden-window-searching'[0m
+  [90m62 |[0m [36mimport[0m { [33mActivityPlanCard[0m } [36mfrom[0m [32m'./activity-plan-card'[0m
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:39:10
+the name `addingToCrawl` is defined multiple times
+  [90m37 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m38 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+[31m[1m>[0m [90m39 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m   |[0m          [31m[1m^^^^^^^^^^^^^[0m
+  [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:41:10
+the name `addingToCrawl` is defined multiple times
+  [90m39 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+[31m[1m>[0m [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m   |[0m          [31m[1m^^^^^^^^^^^^^[0m
+  [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m43 |[0m   [36mconst[0m closeButtonRef = useRef<[33mHTMLButtonElement[0m>([36mnull[0m)
+  [90m44 |[0m   [36mconst[0m sheetRef = useRef<[33mHTMLDivElement[0m>([36mnull[0m)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:40:10
+the name `crawlAdded` is defined multiple times
+  [90m38 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m39 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+[31m[1m>[0m [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m   |[0m          [31m[1m^^^^^^^^^^[0m
+  [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m43 |[0m   [36mconst[0m closeButtonRef = useRef<[33mHTMLButtonElement[0m>([36mnull[0m)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:42:10
+the name `crawlAdded` is defined multiple times
+  [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+[31m[1m>[0m [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m   |[0m          [31m[1m^^^^^^^^^^[0m
+  [90m43 |[0m   [36mconst[0m closeButtonRef = useRef<[33mHTMLButtonElement[0m>([36mnull[0m)
+  [90m44 |[0m   [36mconst[0m sheetRef = useRef<[33mHTMLDivElement[0m>([36mnull[0m)
+  [90m45 |[0m
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:117:9
+the name `handleAddToPubCrawl` is defined multiple times
+  [90m115 |[0m   }
+  [90m116 |[0m
+[31m[1m>[0m [90m117 |[0m   [36mconst[0m handleAddToPubCrawl = [36masync[0m () => {
+  [90m    |[0m         [31m[1m^^^^^^^^^^^^^^^^^^^[0m
+  [90m118 |[0m     [36mif[0m (!venue || !groupId || activityId !== [32m'pub-crawl'[0m || addingToCrawl) [36mreturn[0m
+  [90m119 |[0m     setAddingToCrawl([36mtrue[0m)
+  [90m120 |[0m     [36mconst[0m result = [36mawait[0m saveVenueToGroup(groupId, venue)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:141:9
+the name `handleAddToPubCrawl` is defined multiple times
+  [90m139 |[0m   }
+  [90m140 |[0m
+[31m[1m>[0m [90m141 |[0m   [36mconst[0m handleAddToPubCrawl = [36masync[0m () => {
+  [90m    |[0m         [31m[1m^^^^^^^^^^^^^^^^^^^[0m
+  [90m142 |[0m     [36mif[0m (!venue || !groupId || activityId !== [32m'pub-crawl'[0m || addingToCrawl) [36mreturn[0m
+  [90m143 |[0m     setAddingToCrawl([36mtrue[0m)
+  [90m144 |[0m     [36mconst[0m result = [36mawait[0m saveVenueToGroup(groupId, venue)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:39:25
+the name `setAddingToCrawl` is defined multiple times
+  [90m37 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m38 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+[31m[1m>[0m [90m39 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m   |[0m                         [31m[1m^^^^^^^^^^^^^^^^[0m
+  [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:41:25
+the name `setAddingToCrawl` is defined multiple times
+  [90m39 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+[31m[1m>[0m [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m   |[0m                         [31m[1m^^^^^^^^^^^^^^^^[0m
+  [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m43 |[0m   [36mconst[0m closeButtonRef = useRef<[33mHTMLButtonElement[0m>([36mnull[0m)
+  [90m44 |[0m   [36mconst[0m sheetRef = useRef<[33mHTMLDivElement[0m>([36mnull[0m)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:40:22
+the name `setCrawlAdded` is defined multiple times
+  [90m38 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m39 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+[31m[1m>[0m [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m   |[0m                      [31m[1m^^^^^^^^^^^^^[0m
+  [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+  [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m43 |[0m   [36mconst[0m closeButtonRef = useRef<[33mHTMLButtonElement[0m>([36mnull[0m)
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:42:22
+the name `setCrawlAdded` is defined multiple times
+  [90m40 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m41 |[0m   [36mconst[0m [addingToCrawl, setAddingToCrawl] = useState([36mfalse[0m)
+[31m[1m>[0m [90m42 |[0m   [36mconst[0m [crawlAdded, setCrawlAdded] = useState([36mfalse[0m)
+  [90m   |[0m                      [31m[1m^^^^^^^^^^^^^[0m
+  [90m43 |[0m   [36mconst[0m closeButtonRef = useRef<[33mHTMLButtonElement[0m>([36mnull[0m)
+  [90m44 |[0m   [36mconst[0m sheetRef = useRef<[33mHTMLDivElement[0m>([36mnull[0m)
+  [90m45 |[0m
+
+Ecmascript file had an error
+
+Import traces:
+  Client Component Browser:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component Browser]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component Browser]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/venue-recommendations.tsx [Client Component SSR]
+    ./nexus-premium-ui/components/nexus/group-detail.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Client Component SSR]
+    ./nexus-premium-ui/app/dev-login/page.tsx [Server Component]
+
+
+    at <unknown> (./nexus-premium-ui/components/nexus/group-detail.tsx:58:10)
+    at <unknown> (./nexus-premium-ui/components/nexus/group-detail.tsx:59:10)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:39:10)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:41:10)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:40:10)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:42:10)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:117:9)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:141:9)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:39:25)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:41:25)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:40:22)
+    at <unknown> (./nexus-premium-ui/components/nexus/venue-detail-sheet.tsx:42:22)
+/home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  my-project@0.1.0 build: `next build`
+Exit status 1
