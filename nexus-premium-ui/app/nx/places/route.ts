@@ -134,15 +134,6 @@ export async function GET(req: Request) {
     if (activitySearch?.type) {
       body.includedType = activitySearch.type
       body.strictTypeFiltering = true
-    } else if (activitySearch?.type) {
-      body.includedType = activitySearch.type
-      body.strictTypeFiltering = true
-    } else if (activitySearch?.type) {
-      body.includedType = activitySearch.type
-      body.strictTypeFiltering = true
-    } else if (activitySearch?.type) {
-      body.includedType = activitySearch.type
-      body.strictTypeFiltering = true
     } else if (vibe === 'pub') {
       body.includedType = 'pub'
       body.strictTypeFiltering = true

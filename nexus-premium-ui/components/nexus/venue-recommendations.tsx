@@ -164,9 +164,6 @@ export function VenueRecommendations({
     fetchVenues({
       vibe,
       activityId,
-      activityId,
-      activityId,
-      activityId,
       lat: midpoint.lat,
       lng: midpoint.lng,
       limit: 8,
