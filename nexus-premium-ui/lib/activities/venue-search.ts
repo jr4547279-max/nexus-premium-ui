@@ -16,7 +16,7 @@ const tags = (pairs: Array<[string, string]>) => pairs.map(([key, value]) => ({ 
 export const ACTIVITY_VENUE_SEARCH: Record<string, ActivityVenueSearch> = {
   cinema: { query: 'cinemas', googleType: 'movie_theater', osmTags: tags([['amenity', 'cinema']]) },
   restaurant: { query: 'restaurants', googleType: 'restaurant', osmTags: tags([['amenity', 'restaurant']]) },
-  brunch: { query: 'brunch restaurants', osmTags: tags([['amenity', 'restaurant'], ['amenity', 'cafe']]) },
+  brunch: { query: 'brunch restaurants', googleType: 'restaurant', osmTags: tags([['amenity', 'restaurant'], ['amenity', 'cafe']]) },
   'vegan-coffee': { query: 'vegan coffee shops', googleType: 'cafe', osmTags: tags([['amenity', 'cafe']]), requiredTags: ['vegan'] },
   coffee: { query: 'cafes and coffee shops', googleType: 'cafe', osmTags: tags([['amenity', 'cafe']]) },
   'pub-crawl': { query: 'pubs', googleType: 'pub', osmTags: tags([['amenity', 'pub'], ['amenity', 'bar']]) },
@@ -28,12 +28,19 @@ export const ACTIVITY_VENUE_SEARCH: Record<string, ActivityVenueSearch> = {
   gallery: { query: 'art galleries', googleType: 'art_gallery', osmTags: tags([['tourism', 'gallery']]) },
   park: { query: 'parks', googleType: 'park', osmTags: tags([['leisure', 'park']]) },
   shopping: { query: 'shopping centres and shops', googleType: 'shopping_mall', osmTags: tags([['shop', 'mall']]) },
-  'mini-golf': { query: 'mini golf courses', osmTags: tags([['leisure', 'miniature_golf']]) },
+  'mini-golf': { query: 'mini golf courses', googleType: 'miniature_golf_course', osmTags: tags([['leisure', 'miniature_golf']]) },
   'escape-room': { query: 'escape rooms', osmTags: tags([['leisure', 'escape_game']]) },
   'board-games': { query: 'board game cafes', osmTags: tags([['amenity', 'cafe'], ['leisure', 'amusement_arcade']]) },
-  'live-music': { query: 'live music venues', osmTags: tags([['amenity', 'music_venue'], ['amenity', 'nightclub']]) },
-  picnic: { query: 'picnic areas and parks', osmTags: tags([['leisure', 'park'], ['leisure', 'picnic_table'], ['leisure', 'garden']]) },
+  'live-music': { query: 'live music venues', googleType: 'live_music_venue', osmTags: tags([['amenity', 'music_venue'], ['amenity', 'nightclub']]) },
+  picnic: { query: 'picnic areas and parks', googleType: 'picnic_ground', osmTags: tags([['leisure', 'park'], ['leisure', 'picnic_table'], ['leisure', 'garden']]) },
   beach: { query: 'beaches', googleType: 'beach', osmTags: tags([['natural', 'beach']]) },
+
+  // Route activities also get activity-specific Nearby fits. Their dedicated
+  // planners still use real route geometry rather than these venue results.
+  jogging: { query: 'running tracks and trails', googleType: 'hiking_area', osmTags: tags([['leisure', 'track'], ['highway', 'path']]) },
+  walking: { query: 'walking trails and paths', googleType: 'hiking_area', osmTags: tags([['highway', 'path'], ['highway', 'footway']]) },
+  hiking: { query: 'hiking trails and areas', googleType: 'hiking_area', osmTags: tags([['highway', 'path'], ['route', 'hiking']]) },
+  cycling: { query: 'cycling paths and trails', osmTags: tags([['highway', 'cycleway'], ['leisure', 'cycling_park']]) },
 }
 
 export function getActivityVenueSearch(activityId: string): ActivityVenueSearch | undefined {
