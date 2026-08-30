@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth-context'
-import { CANONICAL_SITE_URL } from '@/lib/auth-context'
 import { LandingPage } from './landing-page'
 import { AuthScreen } from './auth-screen'
 import { OnboardingFlow } from './onboarding-flow'
@@ -50,18 +49,6 @@ export function NexusApp() {
   const [groupsVersion, setGroupsVersion] = useState(0)
   const [activeRunPlan, setActiveRunPlan] = useState<PlannerResult | null>(null)
   const initializedRef = useRef(false)
-
-  // Vercel is the canonical production deployment. If an old deployment host
-  // is ever reached (including after an auth flow), immediately return to Vercel.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const host = window.location.hostname
-    const isOldVercelHost = host.endsWith('.vercel.app') || host === 'vercel.app'
-    const isCanonicalHost = host === new URL(CANONICAL_SITE_URL).hostname
-    if (isOldVercelHost && !isCanonicalHost) {
-      window.location.replace(`${CANONICAL_SITE_URL}${window.location.pathname}${window.location.search}${window.location.hash}`)
-    }
-  }, [])
 
   useEffect(() => {
     if (loading) return
