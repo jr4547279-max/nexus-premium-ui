@@ -21,8 +21,14 @@ import { GoldenRing } from './golden-ring'
 import { CreateGroupModal } from './create-group-modal'
 import { joinGroupByInvite } from '@/lib/group-service'
 import { DevTestPanel } from './dev-test-panel'
+import { LiveEventScreen } from './live-event-screen'
+import { Radio } from 'lucide-react'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
+
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+}
 
 type Screen =
   | 'resolving'
@@ -38,6 +44,7 @@ type Screen =
   | 'profile'
   | 'social'
   | 'run-tracker'
+  | 'live-event'
   | 'dev-test'
 
 export function NexusApp() {
@@ -51,8 +58,6 @@ export function NexusApp() {
   const [activeRunPlan, setActiveRunPlan] = useState<PlannerResult | null>(null)
   const initializedRef = useRef(false)
 
-  // Vercel is the canonical production deployment. If an old deployment host
-  // is ever reached (including after an auth flow), immediately return to Vercel.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const host = window.location.hostname
@@ -174,7 +179,15 @@ export function NexusApp() {
       )
       break
     case 'group-detail':
-      screenContent = <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen(prevGroupScreen)} onViewGoldenWindow={() => setCurrentScreen('golden-window')} onNavigate={handleNavigate} onGroupDeleted={() => { setGroupsVersion((v) => v + 1); setCurrentScreen(prevGroupScreen) }} onStartRun={(plan) => { setActiveRunPlan(plan); setCurrentScreen('run-tracker') }} />
+      screenContent = (
+        <div className="relative min-h-screen">
+          <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen(prevGroupScreen)} onViewGoldenWindow={() => setCurrentScreen('golden-window')} onNavigate={handleNavigate} onGroupDeleted={() => { setGroupsVersion((v) => v + 1); setCurrentScreen(prevGroupScreen) }} onStartRun={(plan) => { setActiveRunPlan(plan); setCurrentScreen('run-tracker') }} />
+          {isUuid(selectedGroupId) && <button type="button" onClick={() => setCurrentScreen('live-event')} aria-label="Open live meetup" className="fixed bottom-24 right-4 z-30 flex items-center gap-2 rounded-full border border-primary/30 bg-background/95 px-4 py-3 text-sm font-semibold text-primary shadow-[0_0_28px_rgba(201,160,48,0.18)] backdrop-blur-xl transition active:scale-95"><Radio className="h-4 w-4" />Live meetup</button>}
+        </div>
+      )
+      break
+    case 'live-event':
+      screenContent = <LiveEventScreen groupId={selectedGroupId} onBack={() => setCurrentScreen('group-detail')} />
       break
     case 'run-tracker':
       screenContent = activeRunPlan ? <RunTracker plan={activeRunPlan} onBack={() => setCurrentScreen('group-detail')} /> : null
