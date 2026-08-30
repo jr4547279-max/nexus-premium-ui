@@ -20,126 +20,8 @@ jobs:
         if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
         run: python3 scripts/apply-activity-fixes.py
 
-      - name: Normalize activity source and UX
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          def dedupe_props(path):
-              path = Path(path)
-              text = path.read_text()
-              start = text.index('interface Props {')
-              end = text.index('\n}', start)
-              block = text[start:end]
-              seen = set()
-              cleaned = []
-              for line in block.splitlines():
-                  key = line.strip()
-                  if key in {'groupId?: string', 'activityId?: string'}:
-                      if key in seen:
-                          continue
-                      seen.add(key)
-                  cleaned.append(line)
-              new_block = '\n'.join(cleaned)
-              if new_block != block:
-                  path.write_text(text[:start] + new_block + text[end:])
-
-          dedupe_props('nexus-premium-ui/components/nexus/venue-detail-sheet.tsx')
-          dedupe_props('nexus-premium-ui/components/nexus/venue-recommendations.tsx')
-
-          group = Path('nexus-premium-ui/components/nexus/group-detail.tsx')
-          text = group.read_text()
-
-          # Venue discovery must not be gated behind a Golden Window.
-          text = re.sub(
-              r"\n\s*\{!activeWindow && \(\n\s*<p className=\"text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed\">.*?</p>\n\s*\)\}\n",
-              "\n",
-              text,
-              count=1,
-              flags=re.S,
-          )
-
-          # Make recalibration tell Nearby Fits to produce a different set/order.
-          marker = "    const windows = computeGoldenWindows(\n"
-          if marker in text and "nexus:recalibrate-venues" not in text:
-              text = text.replace(
-                  marker,
-                  "    const wasRecalculation = !!activeWindow\n\n" + marker,
-                  1,
-              )
-              text = text.replace(
-                  "    setActiveWindow(best)\n",
-                  "    setActiveWindow(best)\n    if (wasRecalculation && typeof window !== 'undefined') {\n      window.dispatchEvent(new CustomEvent('nexus:recalibrate-venues'))\n    }\n",
-                  1,
-              )
-
-          # Put the countdown directly under the Golden Window time so it is visible on mobile.
-          countdown = "            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />"
-          if countdown in text:
-              text = text.replace("\n" + countdown, "", 1)
-          anchor = "                </p>\n              </div>\n              <ChevronRight"
-          if anchor in text and countdown not in text:
-              text = text.replace(anchor, "                </p>\n" + countdown + "\n              </div>\n              <ChevronRight", 1)
-
-          group.write_text(text)
-
-          venue = Path('nexus-premium-ui/components/nexus/venue-recommendations.tsx')
-          vt = venue.read_text()
-
-          # Recalibration event: rotate the strongest nearby candidates instead of returning the same list forever.
-          state_anchor = "  const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)\n"
-          if state_anchor in vt and "recalibrationSeed" not in vt:
-              vt = vt.replace(
-                  state_anchor,
-                  state_anchor + "  const [recalibrationSeed, setRecalibrationSeed] = useState(0)\n",
-                  1,
-              )
-              listener_anchor = "  // Weather alternatives state\n"
-              listener = """  useEffect(() => {
-    const handleRecalibrate = () => setRecalibrationSeed(Date.now())
-    window.addEventListener('nexus:recalibrate-venues', handleRecalibrate)
-    return () => window.removeEventListener('nexus:recalibrate-venues', handleRecalibrate)
-  }, [])
-
-"""
-              vt = vt.replace(listener_anchor, listener + listener_anchor, 1)
-
-          old_rank = """  const rankedResults: ScoredVenueResult[] = useMemo(
-    () => rankVenues(venues, weather ?? null, intent),
-    [venues, weather, intent],
-  )
-"""
-          new_rank = """  const rankedResults: ScoredVenueResult[] = useMemo(() => {
-    const ranked = rankVenues(venues, weather ?? null, intent)
-    if (!recalibrationSeed || ranked.length < 2) return ranked
-    const headCount = Math.min(5, ranked.length)
-    const head = ranked.slice(0, headCount)
-    const tail = ranked.slice(headCount)
-    const shift = recalibrationSeed % headCount
-    return [...head.slice(shift), ...head.slice(0, shift), ...tail]
-  }, [venues, weather, intent, recalibrationSeed])
-"""
-          if old_rank in vt:
-              vt = vt.replace(old_rank, new_rank, 1)
-
-          venue.write_text(vt)
-
-          # Customised pub-crawl venue cards retain the real Google/OSM photo.
-          types = Path('nexus-premium-ui/lib/planners/types.ts')
-          tt = types.read_text()
-          if '  photoUrl?: string | null\n' not in tt:
-              tt = tt.replace('  address?: string | null\n', '  address?: string | null\n  photoUrl?: string | null\n', 1)
-              types.write_text(tt)
-
-          integrated = Path('nexus-premium-ui/components/nexus/pub-crawl-plan-integrated.tsx')
-          it = integrated.read_text()
-          if '    photoUrl: v.photo_url ?? null,\n' not in it:
-              it = it.replace('    address: v.address ?? null,\n', '    address: v.address ?? null,\n    photoUrl: v.photo_url ?? null,\n', 1)
-              integrated.write_text(it)
-
-          print('Activity planner UX normalization complete.')
-          PY
+      - name: Normalize final activity UX
+        run: python3 scripts/final-activity-normalize.py
 
       - name: Commit source fixes
         run: |
@@ -149,7 +31,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add nexus-premium-ui
-            git commit -m "fix: preserve venue photos in customised pub crawls [nexus-fix]"
+            git commit -m "fix: normalize activity planner source [nexus-fix]"
             git push origin main
           fi
 
