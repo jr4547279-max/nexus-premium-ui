@@ -34,7 +34,8 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
   const isDark = resolvedTheme === 'dark'
   const [notifications, setNotifications] = useState(profile?.preferences?.notifications ?? true)
   const [showLangPicker, setShowLangPicker] = useState(false)
-  const [selectedLang, setSelectedLang] = useState<Language>((profile?.preferences?.language as Language) || 'en')
+  const initialLanguage = profile?.preferences?.language as Language | undefined
+  const [selectedLang, setSelectedLang] = useState<Language>(initialLanguage && initialLanguage in COPY ? initialLanguage : 'en')
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
 
   useEffect(() => {
@@ -43,14 +44,15 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
       document.documentElement.lang = profile.preferences.language
     }
     if (typeof profile?.preferences?.notifications === 'boolean') setNotifications(profile.preferences.notifications)
-    if (profile?.preferences?.theme) setTheme(profile.preferences.theme)
+    if (profile?.preferences?.theme && ['light', 'dark', 'system'].includes(profile.preferences.theme)) setTheme(profile.preferences.theme)
   }, [profile?.preferences?.language, profile?.preferences?.notifications, profile?.preferences?.theme, setTheme])
 
-  const t = COPY[selectedLang]
+  const t = COPY[selectedLang] ?? COPY.en
   const emailPrefix = user?.email?.split('@')[0] ?? ''
   const displayName = profile?.display_name || (emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1))
   const userInitial = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
-  const currentLang = LANGUAGES.find(l => l.code === selectedLang)!
+  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null
+  const currentLang = LANGUAGES.find(l => l.code === selectedLang) ?? LANGUAGES[0]
   const hasLocation = Boolean(profile?.formatted_address)
   const cityDisplay = extractCity(profile?.formatted_address)
 
@@ -66,7 +68,17 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
     <div className="min-h-screen bg-background pb-20">
       <TopHeader title={t.profile} showNotifications={false} />
       <main className="px-4 py-4 max-w-md mx-auto">
-        <div className="flex flex-col items-center mb-6"><div className="relative mb-3"><div className="w-20 h-20 rounded-full border-4 border-primary/30 bg-primary/10 flex items-center justify-center"><span className="text-2xl font-medium text-primary">{userInitial}</span></div><div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary flex items-center justify-center"><User className="w-3.5 h-3.5 text-primary-foreground" /></div></div><h1 className="text-lg font-medium">{displayName || t.account}</h1><p className="text-muted-foreground text-xs">{user?.email ?? ''}</p>{hasLocation && <div className="flex items-center gap-1 mt-1.5"><MapPin className="w-3 h-3 text-primary" /><span className="text-[11px] text-primary font-medium">{cityDisplay}</span></div>}</div>
+        <div className="flex flex-col items-center mb-6">
+          <div className="relative mb-3">
+            <div className="w-20 h-20 rounded-full border-4 border-primary/30 bg-primary/10 flex items-center justify-center overflow-hidden">
+              {avatarUrl ? <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <span className="text-2xl font-medium text-primary">{userInitial}</span>}
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary flex items-center justify-center"><User className="w-3.5 h-3.5 text-primary-foreground" /></div>
+          </div>
+          <h1 className="text-lg font-medium">{displayName || t.account}</h1>
+          <p className="text-muted-foreground text-xs">{user?.email ?? ''}</p>
+          {hasLocation && <div className="flex items-center gap-1 mt-1.5"><MapPin className="w-3 h-3 text-primary" /><span className="text-[11px] text-primary font-medium">{cityDisplay}</span></div>}
+        </div>
 
         <section className="mb-5"><h2 className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">{t.location}</h2><GlassCard className="p-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2.5 min-w-0"><div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', hasLocation ? 'bg-primary/10' : 'bg-muted/60')}><MapPin className={cn('w-4 h-4', hasLocation ? 'text-primary' : 'text-muted-foreground')} /></div><div className="min-w-0">{hasLocation ? <><p className="font-medium text-xs truncate">{cityDisplay}</p><p className="text-[10px] text-muted-foreground">{t.cityOnly}</p></> : <><p className="font-medium text-xs text-muted-foreground">{t.noLocation}</p><p className="text-[10px] text-muted-foreground">{t.locationHelp}</p></>}</div></div><Button size="sm" variant={hasLocation ? 'ghost' : 'outline'} onClick={() => setLocationPickerOpen(true)} className={cn('shrink-0 h-7 px-2.5 rounded-lg text-xs gap-1.5', !hasLocation && 'border-primary/40 text-primary hover:bg-primary/10')}>{hasLocation ? <><Pencil className="w-3 h-3" />{t.update}</> : <><MapPin className="w-3 h-3" />{t.setLocation}</>}</Button></div></GlassCard></section>
 
