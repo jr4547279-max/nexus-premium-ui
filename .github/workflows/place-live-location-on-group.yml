@@ -1,0 +1,63 @@
+name: Place live location on group screen
+
+on:
+  push:
+    branches:
+      - feature/live-location-window
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: feature/live-location-window
+
+      - name: Patch GroupDetail and remove chat duplicate
+        shell: python
+        run: |
+          from pathlib import Path
+
+          detail = Path('nexus-premium-ui/components/nexus/group-detail.tsx')
+          text = detail.read_text()
+
+          import_line = "import { LiveLocationWindow } from './live-location-window'\n"
+          anchor = "import { GroupChat } from './group-chat'\n"
+          if import_line not in text:
+              if anchor not in text:
+                  raise SystemExit('Could not find GroupDetail import anchor')
+              text = text.replace(anchor, anchor + import_line, 1)
+
+          marker = "        {/* ── Section tabs ── */}"
+          render = "        <LiveLocationWindow groupId={groupId} />\n\n" + marker
+          if "<LiveLocationWindow groupId={groupId} />" not in text:
+              if marker not in text:
+                  raise SystemExit('Could not find GroupDetail section-tabs anchor')
+              text = text.replace(marker, render, 1)
+          detail.write_text(text)
+
+          chat = Path('nexus-premium-ui/components/nexus/group-chat.tsx')
+          chat_text = chat.read_text()
+          chat_text = chat_text.replace("import { LiveLocationWindow } from './live-location-window'\n", '', 1)
+          chat_text = chat_text.replace("      <LiveLocationWindow groupId={groupId} />\n", '', 1)
+          chat.write_text(chat_text)
+
+      - name: Verify placement
+        run: |
+          grep -q "import { LiveLocationWindow } from './live-location-window'" nexus-premium-ui/components/nexus/group-detail.tsx
+          grep -q "<LiveLocationWindow groupId={groupId} />" nexus-premium-ui/components/nexus/group-detail.tsx
+          ! grep -q "LiveLocationWindow" nexus-premium-ui/components/nexus/group-chat.tsx
+
+      - name: Commit patch and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nexus-premium-ui/components/nexus/group-detail.tsx nexus-premium-ui/components/nexus/group-chat.tsx .github/workflows/place-live-location-on-group.yml
+          git rm .github/workflows/place-live-location-on-group.yml
+          git commit -m "feat: show live location on group screen"
+          git push origin HEAD:feature/live-location-window
