@@ -17,7 +17,7 @@ https://nextjs.org/telemetry
 - Environments: .env.production
 
   Creating an optimized production build ...
-✓ Compiled successfully in 6.0s
+✓ Compiled successfully in 6.2s
   Running TypeScript ...
 Failed to type check.
 
@@ -28,9 +28,9 @@ Type error: An object literal cannot have multiple properties with the same name
   [90m166 |[0m       activityId,
 [31m[1m>[0m [90m167 |[0m       activityId,
   [90m    |[0m       [31m[1m^[0m
-  [90m168 |[0m       lat: midpoint.lat,
-  [90m169 |[0m       lng: midpoint.lng,
-  [90m170 |[0m       limit: [35m8[0m,
+  [90m168 |[0m       activityId,
+  [90m169 |[0m       lat: midpoint.lat,
+  [90m170 |[0m       lng: midpoint.lng,
 Next.js build worker exited with code: 1 and signal: null
 /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui:
  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  my-project@0.1.0 build: `next build`
