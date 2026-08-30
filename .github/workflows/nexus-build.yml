@@ -124,6 +124,20 @@ jobs:
               vt = vt.replace(old_rank, new_rank, 1)
 
           venue.write_text(vt)
+
+          # Customised pub-crawl venue cards retain the real Google/OSM photo.
+          types = Path('nexus-premium-ui/lib/planners/types.ts')
+          tt = types.read_text()
+          if '  photoUrl?: string | null\n' not in tt:
+              tt = tt.replace('  address?: string | null\n', '  address?: string | null\n  photoUrl?: string | null\n', 1)
+              types.write_text(tt)
+
+          integrated = Path('nexus-premium-ui/components/nexus/pub-crawl-plan-integrated.tsx')
+          it = integrated.read_text()
+          if '    photoUrl: v.photo_url ?? null,\n' not in it:
+              it = it.replace('    address: v.address ?? null,\n', '    address: v.address ?? null,\n    photoUrl: v.photo_url ?? null,\n', 1)
+              integrated.write_text(it)
+
           print('Activity planner UX normalization complete.')
           PY
 
@@ -135,7 +149,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add nexus-premium-ui
-            git commit -m "fix: make venue planner UX fully interactive [nexus-fix]"
+            git commit -m "fix: preserve venue photos in customised pub crawls [nexus-fix]"
             git push origin main
           fi
 
