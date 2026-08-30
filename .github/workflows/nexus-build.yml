@@ -20,6 +20,9 @@ jobs:
         if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
         run: python3 scripts/apply-activity-fixes.py
 
+      - name: Apply activity-specific venue discovery
+        run: python3 scripts/activity-venue-fix.py
+
       - name: Normalize final activity UX
         run: python3 scripts/final-activity-normalize.py
 
