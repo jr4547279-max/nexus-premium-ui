@@ -52,7 +52,6 @@ jobs:
           PY
 
       - name: Commit source fixes
-        if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
         run: |
           if git diff --quiet -- nexus-premium-ui; then
             echo "No source cleanup changes needed."
