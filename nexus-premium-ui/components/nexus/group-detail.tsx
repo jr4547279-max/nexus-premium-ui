@@ -287,6 +287,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     setVenuesRevealed(false)
 
     // Compute immediately — synchronous, no network.
+    const wasRecalculation = !!activeWindow
+
     const windows = computeGoldenWindows(
       realMembers.map((m) => ({ id: m.user_id, name: m.display_name })),
       allAvailability.map((r) => ({
@@ -298,6 +300,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     )
     const best = windows[0] ?? null
     setActiveWindow(best)
+    if (wasRecalculation && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nexus:recalibrate-venues'))
+    }
 
     // Fire-and-forget save to DB in the background.
     if (best) {
@@ -759,6 +764,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                   {' – '}
                   {formatTime12h(activeWindow.end_time)}
                 </p>
+            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />
               </div>
               <ChevronRight className="w-5 h-5 text-muted-foreground" />
             </div>
@@ -797,7 +803,6 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               </div>
             )}
 
-            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />
           </GlassCard>
         )}
 
@@ -899,13 +904,6 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                         ? 'Nexus will find the best venue near you, score it, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.'
                         : 'Nexus will find the best venues near your group, score them, and build a plan. A Golden Window is optional — if you have one, Nexus will time the plan to it; otherwise timing stays flexible.'}
                     </p>
-                    {!activeWindow && (
-                      <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-                        {realMembers.length === 1
-                          ? 'Find your Golden Window first so Nexus can plan around your available time.'
-                          : 'Find a Golden Window first so Nexus can plan around your group\u2019s available time.'}
-                      </p>
-                    )}
                     {!planningLocation && (
                       <p className="text-xs text-muted-foreground bg-muted/20 border border-border/30 rounded-xl px-3 py-2 mb-3 leading-relaxed">
                         <MapPin className="w-3 h-3 inline mr-1 opacity-60" />

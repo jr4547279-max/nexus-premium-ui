@@ -38,6 +38,7 @@ function toPlannerVenue(v: CrawlCandidate): PlannerVenue {
     distanceFromCentre: 0,
     mapsUrl: v.maps_url ?? null,
     address: v.address ?? null,
+    photoUrl: v.photo_url ?? null,
     isRealData: true,
     ratingKnown: v.rating != null,
     priceLevelKnown: !!v.price_level,

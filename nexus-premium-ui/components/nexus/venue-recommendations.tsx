@@ -96,6 +96,13 @@ export function VenueRecommendations({
   const [votes, setVotes] = useState<Record<string, 1 | -1 | 0>>({})
   const [mapFailed, setMapFailed] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
+  const [recalibrationSeed, setRecalibrationSeed] = useState(0)
+
+  useEffect(() => {
+    const handleRecalibrate = () => setRecalibrationSeed(Date.now())
+    window.addEventListener('nexus:recalibrate-venues', handleRecalibrate)
+    return () => window.removeEventListener('nexus:recalibrate-venues', handleRecalibrate)
+  }, [])
 
   // Weather alternatives state
   const [showAlternatives, setShowAlternatives] = useState(false)
@@ -157,10 +164,15 @@ export function VenueRecommendations({
   }, [midpoint.lat, midpoint.lng])
 
   // ── Intelligence-ranked venues ─────────────────────────────────────────────
-  const rankedResults: ScoredVenueResult[] = useMemo(
-    () => rankVenues(venues, weather ?? null, intent),
-    [venues, weather, intent],
-  )
+  const rankedResults: ScoredVenueResult[] = useMemo(() => {
+    const ranked = rankVenues(venues, weather ?? null, intent)
+    if (!recalibrationSeed || ranked.length < 2) return ranked
+    const headCount = Math.min(5, ranked.length)
+    const head = ranked.slice(0, headCount)
+    const tail = ranked.slice(headCount)
+    const shift = recalibrationSeed % headCount
+    return [...head.slice(shift), ...head.slice(0, shift), ...tail]
+  }, [venues, weather, intent, recalibrationSeed])
 
   const topPick = rankedResults[0]?.venue ?? null
   const listResults = rankedResults.slice(0, 5)

@@ -91,6 +91,7 @@ export interface PlannerVenue {
   mapsUrl?: string | null
   /** Human-readable address or district */
   address?: string | null
+  photoUrl?: string | null
   /** Venue website URL */
   website?: string | null
   /** true when sourced from a real-world provider (OSM etc); false/undefined = mock */
