@@ -16,14 +16,16 @@ export interface OsmTagSet {
 
 export const ACTIVITY_OSM_TAGS: Record<string, OsmTagSet[]> = {
   'pub-crawl':    [{ key: 'amenity', value: 'pub' }, { key: 'amenity', value: 'bar' }],
-  'cocktail-bar': [{ key: 'amenity', value: 'bar' }, { key: 'amenity', value: 'pub' }],
+  'cocktail-bar': [{ key: 'amenity', value: 'bar' }],
   'restaurant':   [{ key: 'amenity', value: 'restaurant' }],
   'brunch':       [{ key: 'amenity', value: 'cafe' }, { key: 'amenity', value: 'restaurant' }],
   'coffee':       [{ key: 'amenity', value: 'cafe' }],
   'bowling':      [{ key: 'leisure', value: 'bowling_alley' }],
   'cinema':       [{ key: 'amenity', value: 'cinema' }],
   'live-music':   [{ key: 'amenity', value: 'nightclub' }, { key: 'amenity', value: 'music_venue' }],
-  'board-games':  [{ key: 'amenity', value: 'pub' }, { key: 'leisure', value: 'amusement_arcade' }],
+  // Board-game venues are often cafes or dedicated gaming spaces. Never use
+  // pub as a fallback: a pub can host games, but it is not a board-game venue.
+  'board-games':  [{ key: 'amenity', value: 'cafe' }, { key: 'leisure', value: 'amusement_arcade' }],
   'escape-room':  [{ key: 'leisure', value: 'escape_game' }],
   'gym':          [{ key: 'leisure', value: 'fitness_centre' }, { key: 'leisure', value: 'sports_centre' }],
   'swimming':     [{ key: 'leisure', value: 'swimming_pool' }, { key: 'sport', value: 'swimming' }],
