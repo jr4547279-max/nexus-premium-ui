@@ -166,6 +166,7 @@ export function VenueRecommendations({
       activityId,
       activityId,
       activityId,
+      activityId,
       lat: midpoint.lat,
       lng: midpoint.lng,
       limit: 8,
