@@ -66,6 +66,7 @@ import {
   type PlannerResult,
 } from '@/lib/planners/planner-engine'
 import { GroupChat } from './group-chat'
+import { LiveLocationWindow } from './live-location-window'
 
 interface GroupDetailProps {
   groupId: string
@@ -1079,6 +1080,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             </>
           )}
         </div>
+
+        <LiveLocationWindow groupId={groupId} />
 
         {/* ── Section tabs ── */}
         <div className="flex gap-1.5 mb-6 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">

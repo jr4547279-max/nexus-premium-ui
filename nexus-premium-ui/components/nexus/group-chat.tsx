@@ -15,7 +15,6 @@ import {
   type PollMetadata,
 } from '@/lib/message-service'
 import { supabase } from '@/lib/supabase'
-import { LiveLocationWindow } from './live-location-window'
 
 interface GroupChatProps {
   groupId: string
@@ -205,7 +204,6 @@ export function GroupChat({ groupId, groupName }: GroupChatProps) {
 
   return (
     <>
-      <LiveLocationWindow groupId={groupId} />
       <div className="flex flex-col overflow-hidden rounded-xl border border-border/20 bg-black/20" style={{ height: 'min(520px, 65vh)' }}>
         <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2">
           {loading && (
