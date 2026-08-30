@@ -131,9 +131,8 @@ async function searchGoogleVenues(
         ratingCount,
       } as PlannerVenue & { ratingCount: number; photoUrl: string | null }
     })
-    .filter((venue): venue is PlannerVenue =>
-      venue !== null && hasValidProviderLocation(venue, location, radius),
-    )
+    .filter((venue) => venue !== null)
+    .filter((venue) => hasValidProviderLocation(venue, location, radius))
     .sort((a, b) => {
       const ratingA = a.rating * Math.log10(((a as PlannerVenue & { ratingCount?: number }).ratingCount ?? 0) + 10)
       const ratingB = b.rating * Math.log10(((b as PlannerVenue & { ratingCount?: number }).ratingCount ?? 0) + 10)
