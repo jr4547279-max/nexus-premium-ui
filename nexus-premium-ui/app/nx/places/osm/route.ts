@@ -16,7 +16,6 @@ const VIBE_TO_ACTIVITY: Record<string, string> = {
   drinks: 'cocktail-bar',
   food: 'restaurant',
   coffee: 'coffee',
-  activity: 'pub-crawl',
 }
 
 const DEFAULT_RADIUS = 3500
@@ -25,9 +24,20 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const vibe = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
   const requestedActivity = (url.searchParams.get('activity') ?? '').trim().toLowerCase()
-  // Activity is authoritative when supplied. Never let the generic "activity"
-  // vibe silently turn a gym/cinema/swimming search into a pub search.
-  const activityId = requestedActivity || VIBE_TO_ACTIVITY[vibe] || 'cocktail-bar'
+
+  // Explicit activity is authoritative. Generic "activity" searches have no
+  // safe OSM fallback and must never silently become pub-crawl searches.
+  const activityId = requestedActivity || VIBE_TO_ACTIVITY[vibe]
+
+  if (!activityId) {
+    return NextResponse.json({
+      venues: [],
+      vibe,
+      cached: false,
+      provider: 'OpenStreetMap',
+      error: 'No activity-specific fallback is available for this search.',
+    })
+  }
 
   const lat = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lng = Number.parseFloat(url.searchParams.get('lng') ?? '')
