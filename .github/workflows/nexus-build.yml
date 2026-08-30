@@ -26,5 +26,22 @@ jobs:
       - name: TypeScript and production build
         run: pnpm --filter my-project build
 
-      - name: ESLint
-        run: pnpm --dir nexus-premium-ui run lint
+      - name: ESLint diagnostics
+        run: |
+          set +e
+          pnpm --dir nexus-premium-ui run lint 2>&1 | tee lint.log
+          status=${PIPESTATUS[0]}
+          echo "$status" > lint.exit
+          exit 0
+
+      - name: Upload lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-lint-diagnostics
+          path: |
+            lint.log
+            lint.exit
+
+      - name: Fail if ESLint failed
+        run: test "$(cat lint.exit)" -eq 0
