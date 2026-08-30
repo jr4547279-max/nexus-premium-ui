@@ -28,9 +28,6 @@ export interface VenuesResult {
   error?: string
 }
 
-// Eastbourne midpoint is retained only as a legacy display fallback. Real group
-// searches must provide a planning location; the UI deliberately does not use
-// this coordinate for venue discovery.
 export const FALLBACK_LAT = 50.7686
 export const FALLBACK_LNG = 0.2906
 
@@ -89,10 +86,23 @@ async function requestJson(url: string): Promise<{ response: Response; json: Ven
   return { response, json: (await response.json()) as VenuesResult }
 }
 
+function mergeUniqueVenues(primary: Venue[], fallback: Venue[], limit: number): Venue[] {
+  const merged: Venue[] = []
+  const seen = new Set<string>()
+  for (const venue of [...primary, ...fallback]) {
+    const key = venue.id ?? `${venue.name.toLowerCase()}|${venue.lat}|${venue.lng}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(venue)
+    if (merged.length >= limit) break
+  }
+  return merged
+}
+
 /**
  * Fetch real venues. Google Places remains the richer provider when configured,
- * but Nexus automatically falls back to OpenStreetMap/Overpass so a missing
- * Google key never turns the venue experience into a dead end.
+ * but Nexus automatically supplements sparse Google results with OpenStreetMap
+ * so one Google hit never collapses the whole nearby-venue experience.
  */
 export async function fetchVenues(opts: {
   vibe: Vibe
@@ -107,35 +117,50 @@ export async function fetchVenues(opts: {
   if (opts.radius != null) qs.set('radius', String(opts.radius))
   if (opts.limit != null) qs.set('limit', String(opts.limit))
 
+  const requestedLimit = Math.max(1, Math.min(opts.limit ?? 8, 18))
+  const supplementThreshold = Math.min(5, requestedLimit)
+
   try {
     const primary = await requestJson(`/nx/places?${qs.toString()}`)
-    if (primary.response.ok && primary.json && primary.json.venues.length > 0) {
+    const primaryVenues = primary.response.ok && primary.json ? primary.json.venues : []
+
+    // If Google has enough results, keep its richer data. If it is sparse,
+    // supplement with real OSM data and merge without duplicates.
+    if (primary.response.ok && primary.json && primaryVenues.length >= supplementThreshold) {
       return primary.json
     }
 
-    // No Google key / Google billing issue / empty Google result → real OSM fallback.
     if (opts.lat != null && opts.lng != null) {
       const osm = await requestJson(`/nx/places/osm?${qs.toString()}`)
       if (osm.response.ok && osm.json) {
+        const merged = mergeUniqueVenues(primaryVenues, osm.json.venues, requestedLimit)
         return {
           ...osm.json,
-          provider: osm.json.provider ?? 'OpenStreetMap',
-          fallback: primary.json?.error ?? 'Using OpenStreetMap real-world venue data',
+          venues: merged,
+          provider: primaryVenues.length > 0 ? 'Google Places + OpenStreetMap' : (osm.json.provider ?? 'OpenStreetMap'),
+          fallback: primaryVenues.length > 0
+            ? `Google Places returned ${primaryVenues.length} result${primaryVenues.length === 1 ? '' : 's'}; Nexus filled the list with real OpenStreetMap venues.`
+            : (primary.json?.error ?? 'Using OpenStreetMap real-world venue data'),
+          error: undefined,
         }
       }
       return {
-        venues: [],
+        venues: primaryVenues,
         vibe: opts.vibe,
         cached: false,
-        error: osm.json?.error ?? primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`,
+        provider: primary.json?.provider,
+        error: primaryVenues.length > 0
+          ? undefined
+          : osm.json?.error ?? primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`,
       }
     }
 
     return {
-      venues: [],
+      venues: primaryVenues,
       vibe: opts.vibe,
       cached: false,
-      error: primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`,
+      provider: primary.json?.provider,
+      error: primaryVenues.length > 0 ? undefined : (primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`),
     }
   } catch (err) {
     if (opts.lat != null && opts.lng != null) {
