@@ -1,18 +1,13 @@
 import { NextResponse } from 'next/server'
 import { hasValidProviderLocation, venueDistanceKm } from '@/lib/venue-location'
+import { getActivityVenueSearch } from '@/lib/activities/venue-search'
 
 /**
- * Phase 5: Google Places (New) text-search proxy.
+ * Server-side Google Places (New) text-search proxy.
  *
- * Server-side only — keeps GOOGLE_PLACES_API_KEY out of the browser and
- * caches responses in memory for an hour.
- *
- * Query params:
- *   vibe       — pub | drinks | food | coffee | activity   (default: drinks)
- *   lat        — search center latitude                    (default: Eastbourne midpoint)
- *   lng        — search center longitude                   (default: Eastbourne midpoint)
- *   radius     — search radius in meters                   (default: 5000)
- *   limit      — venues to return                          (default: 8, max: 12)
+ * Activity searches are strict: when an activity is supplied, the request is
+ * driven by the central activity venue registry and never falls back to a
+ * generic vibe such as pubs or bars.
  */
 
 export const runtime = 'nodejs'
@@ -21,28 +16,8 @@ export const dynamic = 'force-dynamic'
 export const FALLBACK_LAT = 50.7686
 export const FALLBACK_LNG = 0.2906
 
-const ACTIVITY_SEARCH: Record<string, { query: string; type?: string }> = {
-  'gym': { query: 'gyms', type: 'gym' },
-  'swimming': { query: 'swimming pools', type: 'swimming_pool' },
-  'beach': { query: 'beaches', type: 'beach' },
-  'picnic': { query: 'picnic areas', type: 'picnic_ground' },
-  'pub-crawl': { query: 'pubs', type: 'pub' },
-  'cocktail-bar': { query: 'cocktail bars', type: 'cocktail_bar' },
-  'board-games': { query: 'board game cafes' },
-  'restaurant': { query: 'restaurants', type: 'restaurant' },
-  'brunch': { query: 'brunch restaurants', type: 'brunch_restaurant' },
-  'coffee': { query: 'cafes and coffee shops', type: 'cafe' },
-  'cinema': { query: 'cinemas', type: 'movie_theater' },
-  'bowling': { query: 'bowling alleys', type: 'bowling_alley' },
-  'live-music': { query: 'live music venues', type: 'live_music_venue' },
-  'escape-room': { query: 'escape rooms' },
-}
-
 const VIBE_QUERIES: Record<string, string> = {
   pub: 'pubs',
-  // "cocktail bars" was too narrow for the World map and could return only one
-  // result in smaller towns. Drinks means the broader real-world bar universe;
-  // users can still switch to the dedicated Pub chip when they want pubs only.
   drinks: 'bars',
   food: 'restaurants',
   coffee: 'cafes and coffee shops',
@@ -90,10 +65,24 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const vibeRaw = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
-  const vibe = (VIBE_QUERIES[vibeRaw] ? vibeRaw : 'drinks') as keyof typeof VIBE_QUERIES
-  const activityId = (url.searchParams.get('activity') ?? '').toLowerCase()
-  const activitySearch = ACTIVITY_SEARCH[activityId]
-  const searchQuery = activitySearch?.query ?? VIBE_QUERIES[vibe]
+  const vibe = VIBE_QUERIES[vibeRaw] ? vibeRaw : 'drinks'
+  const activityId = (url.searchParams.get('activity') ?? '').trim().toLowerCase()
+  const activitySearch = activityId ? getActivityVenueSearch(activityId) : undefined
+
+  // An explicit activity is never allowed to silently become a generic vibe.
+  if (activityId && !activitySearch) {
+    return NextResponse.json(
+      {
+        venues: [],
+        vibe,
+        cached: false,
+        error: `No real venue mapping exists for activity "${activityId}".`,
+      },
+      { status: 400 },
+    )
+  }
+
+  const searchQuery = activitySearch?.query ?? VIBE_QUERIES[vibe]!
   const latRaw = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lngRaw = Number.parseFloat(url.searchParams.get('lng') ?? '')
   const lat = Number.isFinite(latRaw) ? latRaw : FALLBACK_LAT
@@ -131,8 +120,8 @@ export async function GET(req: Request) {
       rankPreference: 'DISTANCE',
     }
 
-    if (activitySearch?.type) {
-      body.includedType = activitySearch.type
+    if (activitySearch?.googleType) {
+      body.includedType = activitySearch.googleType
       body.strictTypeFiltering = true
     } else if (vibe === 'pub') {
       body.includedType = 'pub'
@@ -187,7 +176,7 @@ export async function GET(req: Request) {
       const upstreamMsg = upstream?.error?.message ?? `Google Places returned ${res.status}`
       const billingHint =
         upstreamCode === 'PERMISSION_DENIED'
-          ? ' — Enable billing at https://console.cloud.google.com/project/_/billing/enable and enable "Places API (New)" at https://console.cloud.google.com/apis/library'
+          ? ' — Enable billing and the Places API (New) in Google Cloud Console.'
           : ''
 
       console.error('[api/places] upstream error', {
