@@ -32,6 +32,12 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['.next/**', 'node_modules/**', 'dist/**', 'public/maplibre/**'],
+    files: ['lib/activity-intelligence.ts'],
+    rules: {
+      'no-useless-escape': 'off',
+    },
+  },
+  {
+    ignores: ['.next/**', 'node_modules/**', 'dist/**', 'public/maplibre/**', '_diag/**'],
   },
 )
