@@ -19,6 +19,23 @@ interface GooglePlacesResponse {
   error?: { message?: string; status?: string }
 }
 
+interface BrowserVenueResponse {
+  venues?: Array<{
+    name?: string
+    rating?: number | null
+    rating_count?: number | null
+    open_now?: boolean | null
+    address?: string | null
+    maps_url?: string | null
+    price_level?: string | null
+    distance_km?: number | null
+    lat?: number
+    lng?: number
+    photo_url?: string | null
+  }>
+  error?: string
+}
+
 const GOOGLE_QUERIES: Record<string, string> = {
   gym: 'gyms',
   swimming: 'swimming pools',
@@ -44,6 +61,99 @@ function googlePriceLevel(value?: string): PriceLevel {
     case 'PRICE_LEVEL_VERY_EXPENSIVE': return 4
     default: return 2
   }
+}
+
+function browserPriceLevel(value?: string | null): PriceLevel {
+  switch (value) {
+    case 'PRICE_LEVEL_FREE':
+    case 'PRICE_LEVEL_INEXPENSIVE': return 1
+    case 'PRICE_LEVEL_MODERATE': return 2
+    case 'PRICE_LEVEL_EXPENSIVE': return 3
+    case 'PRICE_LEVEL_VERY_EXPENSIVE': return 4
+    default: return 2
+  }
+}
+
+function mapBrowserVenue(
+  activityId: string,
+  venue: NonNullable<BrowserVenueResponse['venues']>[number],
+  index: number,
+  location: { lat: number; lng: number },
+): PlannerVenue | null {
+  const name = venue.name?.trim()
+  const lat = venue.lat
+  const lng = venue.lng
+  if (!name || lat == null || lng == null) return null
+  if (!hasValidProviderLocation({ name, lat, lng }, location, 20000)) return null
+
+  const openNow = venue.open_now ?? null
+  const rating = venue.rating ?? 0
+  const ratingCount = venue.rating_count ?? 0
+  const distance = venue.distance_km ?? venueDistanceKm(location, { lat, lng })
+
+  return {
+    id: `google-proxy-${activityId}-${index}-${lat}-${lng}`,
+    name,
+    lat,
+    lng,
+    rating,
+    ratingKnown: rating > 0,
+    priceLevel: browserPriceLevel(venue.price_level),
+    priceLevelKnown: !!venue.price_level,
+    estimatedCostPerPerson: 0,
+    atmosphere: [],
+    features: [],
+    openingTime: '00:00',
+    closingTime: '23:59',
+    openingHoursKnown: openNow !== null,
+    capacity: 'medium',
+    tags: openNow === true ? ['open-now'] : [],
+    distanceFromCentre: Math.round((distance ?? 0) * 100) / 100,
+    mapsUrl: venue.maps_url ?? null,
+    address: venue.address ?? null,
+    website: null,
+    isRealData: true,
+    photoUrl: venue.photo_url ?? null,
+    ratingCount,
+  } as PlannerVenue
+}
+
+async function searchBrowserProxyVenues(
+  activityId: string,
+  radiusMetres: number,
+  location: { lat: number; lng: number },
+): Promise<PlannerVenue[]> {
+  const params = new URLSearchParams({
+    activity: activityId,
+    vibe: 'activity',
+    lat: String(location.lat),
+    lng: String(location.lng),
+    radius: String(radiusMetres),
+    limit: '12',
+  })
+
+  const res = await fetch(`/nx/places?${params.toString()}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  })
+
+  const rawBody = await res.text()
+  let data: BrowserVenueResponse = {}
+  try {
+    data = JSON.parse(rawBody) as BrowserVenueResponse
+  } catch {
+    throw new Error(`Venue service returned non-JSON (${res.status}).`)
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error ?? `Venue service returned HTTP ${res.status}.`)
+  }
+
+  return (data.venues ?? [])
+    .map((venue, index) => mapBrowserVenue(activityId, venue, index, location))
+    .filter((venue): venue is PlannerVenue => venue !== null)
+    .slice(0, 30)
 }
 
 async function searchGoogleVenues(
@@ -132,7 +242,7 @@ async function searchGoogleVenues(
       } as PlannerVenue & { ratingCount: number; photoUrl: string | null }
     })
     .filter((venue) => venue !== null)
-    .filter((venue) => hasValidProviderLocation(venue, location, radius))
+    .filter((venue) => hasValidProviderLocation(venue, location, radiusMetres))
     .sort((a, b) => {
       const ratingA = a.rating * Math.log10(((a as PlannerVenue & { ratingCount?: number }).ratingCount ?? 0) + 10)
       const ratingB = b.rating * Math.log10(((b as PlannerVenue & { ratingCount?: number }).ratingCount ?? 0) + 10)
@@ -142,8 +252,12 @@ async function searchGoogleVenues(
 
 /**
  * Real venue provider for single-venue activities.
- * Google Places is the primary source; OpenStreetMap remains the no-key
- * fallback so a provider outage does not turn every planner into an error.
+ *
+ * Browser calls MUST go through the same-origin /nx/places proxy. The Google
+ * API key is server-only, so reading process.env.GOOGLE_PLACES_API_KEY from a
+ * client component always produced an empty result and then an unreliable OSM
+ * fallback. That was the root cause of the planner's "Failed to fetch" state.
+ * Server-side callers can continue to use Google directly.
  */
 export class RealVenueProvider {
   private readonly radiusMetres: number
@@ -159,6 +273,10 @@ export class RealVenueProvider {
     location?: { lat: number; lng: number },
   ): Promise<PlannerVenue[]> {
     if (!location) return []
+
+    if (typeof window !== 'undefined') {
+      return searchBrowserProxyVenues(activityId, this.radiusMetres, location)
+    }
 
     try {
       const googleVenues = await searchGoogleVenues(activityId, this.radiusMetres, location)
