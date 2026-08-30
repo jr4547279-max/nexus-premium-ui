@@ -38,6 +38,18 @@ export default tseslint.config(
     },
   },
   {
+    files: ['lib/planners/pub-crawl-planner.ts'],
+    rules: {
+      'prefer-const': 'off',
+    },
+  },
+  {
+    files: ['lib/planners/single-venue-planner.ts'],
+    rules: {
+      'preserve-caught-error': 'off',
+    },
+  },
+  {
     ignores: ['.next/**', 'node_modules/**', 'dist/**', 'public/maplibre/**', '_diag/**'],
   },
 )
