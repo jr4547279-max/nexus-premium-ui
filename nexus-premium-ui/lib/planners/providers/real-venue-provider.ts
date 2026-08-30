@@ -1,5 +1,6 @@
 import type { PlannerVenue, PriceLevel } from '../types'
 import { hasValidProviderLocation, venueDistanceKm } from '../../venue-location'
+import { getActivityVenueSearch } from '../../activities/venue-search'
 import { OpenStreetMapVenueProvider } from './openstreetmap-venue-provider'
 
 interface GooglePlace {
@@ -19,22 +20,6 @@ interface GooglePlacesResponse {
   error?: { message?: string; status?: string }
 }
 
-const GOOGLE_QUERIES: Record<string, string> = {
-  gym: 'gyms',
-  swimming: 'swimming pools',
-  beach: 'beaches',
-  picnic: 'parks and gardens with picnic areas',
-  'cocktail-bar': 'cocktail bars',
-  restaurant: 'restaurants',
-  brunch: 'brunch restaurants',
-  coffee: 'coffee shops',
-  cinema: 'cinemas',
-  bowling: 'bowling alleys',
-  'live-music': 'live music venues',
-  'board-games': 'board game cafes',
-  'escape-room': 'escape rooms',
-}
-
 function googlePriceLevel(value?: string): PriceLevel {
   switch (value) {
     case 'PRICE_LEVEL_FREE':
@@ -52,10 +37,28 @@ async function searchGoogleVenues(
   location: { lat: number; lng: number },
 ): Promise<PlannerVenue[]> {
   const key = process.env.GOOGLE_PLACES_API_KEY
-  const textQuery = GOOGLE_QUERIES[activityId]
-  if (!key || !textQuery) return []
+  const search = getActivityVenueSearch(activityId)
+  if (!key || !search) return []
 
   const radius = Math.min(20000, Math.max(500, radiusMetres))
+  const body: Record<string, unknown> = {
+    textQuery: search.query,
+    maxResultCount: 12,
+    languageCode: 'en',
+    regionCode: 'GB',
+    locationBias: {
+      circle: {
+        center: { latitude: location.lat, longitude: location.lng },
+        radius,
+      },
+    },
+  }
+
+  if (search.googleType) {
+    body.includedType = search.googleType
+    body.strictTypeFiltering = true
+  }
+
   const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
     headers: {
@@ -73,16 +76,7 @@ async function searchGoogleVenues(
         'places.photos',
       ].join(','),
     },
-    body: JSON.stringify({
-      textQuery,
-      maxResultCount: 12,
-      locationBias: {
-        circle: {
-          center: { latitude: location.lat, longitude: location.lng },
-          radius,
-        },
-      },
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) throw new Error(`Google Places returned HTTP ${res.status}`)
