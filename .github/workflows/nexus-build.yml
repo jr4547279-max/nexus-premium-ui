@@ -20,28 +20,35 @@ jobs:
         if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
         run: python3 scripts/apply-activity-fixes.py
 
-      - name: Remove duplicate venue detail props
+      - name: Remove duplicate activity props
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('nexus-premium-ui/components/nexus/venue-detail-sheet.tsx')
-          text = path.read_text()
-          start = text.index('interface Props {')
-          end = text.index('\n}', start)
-          block = text[start:end]
-          seen = set()
-          cleaned = []
-          for line in block.splitlines():
-              key = line.strip()
-              if key in {'groupId?: string', 'activityId?: string'}:
-                  if key in seen:
-                      continue
-                  seen.add(key)
-              cleaned.append(line)
-          new_block = '\n'.join(cleaned)
-          path.write_text(text[:start] + new_block + text[end:])
-          print('Venue detail prop cleanup complete.')
+          def dedupe_props(path):
+              path = Path(path)
+              text = path.read_text()
+              start = text.index('interface Props {')
+              end = text.index('\n}', start)
+              block = text[start:end]
+              seen = set()
+              cleaned = []
+              for line in block.splitlines():
+                  key = line.strip()
+                  if key in {'groupId?: string', 'activityId?: string'}:
+                      if key in seen:
+                          continue
+                      seen.add(key)
+                  cleaned.append(line)
+              new_block = '\n'.join(cleaned)
+              if new_block != block:
+                  path.write_text(text[:start] + new_block + text[end:])
+                  print(f'Deduplicated {path}')
+              else:
+                  print(f'No duplicate props in {path}')
+
+          dedupe_props('nexus-premium-ui/components/nexus/venue-detail-sheet.tsx')
+          dedupe_props('nexus-premium-ui/components/nexus/venue-recommendations.tsx')
           PY
 
       - name: Commit source fixes
@@ -53,7 +60,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add nexus-premium-ui
-            git commit -m "fix: clean duplicate venue detail props [nexus-fix]"
+            git commit -m "fix: clean duplicate activity props [nexus-fix]"
             git push origin main
           fi
 
