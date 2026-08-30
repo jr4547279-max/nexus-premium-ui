@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server'
 import { OpenStreetMapVenueProvider } from '@/lib/planners/providers/openstreetmap-venue-provider'
+import { getActivityVenueSearch } from '@/lib/activities/venue-search'
 
-/**
- * Real venue fallback using OpenStreetMap + Overpass.
- *
- * This route exists so Nexus still returns real-world venues when Google Places
- * is unavailable, unconfigured, rate-limited, or billing is disabled.
- * No API key is required.
- */
+/** Real venue fallback using OpenStreetMap + Overpass. */
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +11,6 @@ const VIBE_TO_ACTIVITY: Record<string, string> = {
   drinks: 'cocktail-bar',
   food: 'restaurant',
   coffee: 'coffee',
-  activity: 'pub-crawl',
 }
 
 const DEFAULT_RADIUS = 3500
@@ -24,7 +18,15 @@ const DEFAULT_RADIUS = 3500
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const vibe = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
-  const activityId = VIBE_TO_ACTIVITY[vibe] ?? 'cocktail-bar'
+  const requestedActivity = (url.searchParams.get('activity') ?? '').trim().toLowerCase()
+  const activityId = requestedActivity || VIBE_TO_ACTIVITY[vibe] || ''
+
+  if (!activityId || !getActivityVenueSearch(activityId)) {
+    return NextResponse.json(
+      { venues: [], vibe, cached: false, error: 'Unsupported activity venue search.' },
+      { status: 422 },
+    )
+  }
 
   const lat = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lng = Number.parseFloat(url.searchParams.get('lng') ?? '')
@@ -52,7 +54,7 @@ export async function GET(req: Request) {
         rating_count: null,
         open_now: null,
         address: venue.address ?? null,
-        category: venue.tags.find((tag) => ['pub', 'bar', 'restaurant', 'cafe', 'nightclub'].includes(tag)) ?? null,
+        category: venue.tags.find((tag) => ['pub', 'bar', 'restaurant', 'cafe', 'cinema', 'museum', 'gallery', 'fitness_centre', 'swimming_pool'].includes(tag)) ?? null,
         maps_url: venue.mapsUrl ?? null,
         price_level: null,
         distance_km: venue.distanceFromCentre,
