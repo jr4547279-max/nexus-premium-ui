@@ -1081,7 +1081,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
           )}
         </div>
 
-        <LiveLocationWindow groupId={groupId} />
+        <LiveLocationWindow groupId={groupId} members={realMembers} />
 
         {/* ── Section tabs ── */}
         <div className="flex gap-1.5 mb-6 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Clock3, LocateFixed, MapPin, Navigation, Radio, Shield, Users, X } from 'lucide-react'
+import { Check, Clock3, LocateFixed, MapPin, Radio, Shield } from 'lucide-react'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { cn } from '@/lib/utils'
 import { useLiveEvent } from '@/hooks/use-live-event'
@@ -9,8 +9,14 @@ import { loadSavedGoldenWindow } from '@/lib/golden-window-persistence'
 import { scheduleFromGoldenWindow } from '@/lib/live-event-service'
 import type { LatestLocation } from '@/lib/live-event-types'
 
+interface LiveLocationMember {
+  user_id: string
+  display_name?: string | null
+}
+
 interface LiveLocationWindowProps {
   groupId: string
+  members?: LiveLocationMember[]
 }
 
 type MapInstance = import('maplibre-gl').Map
@@ -49,7 +55,7 @@ function freshness(iso: string) {
   return `${Math.floor(seconds / 60)}m ago`
 }
 
-export function LiveLocationWindow({ groupId }: LiveLocationWindowProps) {
+export function LiveLocationWindow({ groupId, members: groupMembers = [] }: LiveLocationWindowProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapInstance | null>(null)
   const scheduleAttemptedRef = useRef(false)
@@ -62,7 +68,7 @@ export function LiveLocationWindow({ groupId }: LiveLocationWindowProps) {
     isLive,
     countdown,
     locations,
-    members,
+    members: presenceMembers,
     isSharing,
     locationPermission,
     startSharing,
@@ -171,7 +177,10 @@ export function LiveLocationWindow({ groupId }: LiveLocationWindowProps) {
     }
   }, [locations, mapReady])
 
-  const memberById = useMemo(() => new Map(members.map((member) => [member.user_id, member])), [members])
+  const members: LiveLocationMember[] = groupMembers.length > 0
+    ? groupMembers
+    : presenceMembers.map((member) => ({ user_id: member.user_id }))
+  const memberById = useMemo(() => new Map(presenceMembers.map((member) => [member.user_id, member])), [presenceMembers])
   const sharingCount = locations.length
 
   if (!event) return null
