@@ -17,20 +17,22 @@ https://nextjs.org/telemetry
 - Environments: .env.production
 
   Creating an optimized production build ...
-✓ Compiled successfully in 5.9s
+✓ Compiled successfully in 5.8s
   Running TypeScript ...
 Failed to type check.
 
-./components/nexus/venue-recommendations.tsx:27:3
-Type error: Duplicate identifier 'groupId'.
+./lib/planners/providers/real-venue-provider.ts:93:3
+Type error: Type '((PlannerVenue & { ratingCount: number; photoUrl: string | null; }) | null)[]' is not assignable to type 'PlannerVenue[]'.
+  Type '(PlannerVenue & { ratingCount: number; photoUrl: string | null; }) | null' is not assignable to type 'PlannerVenue'.
+    Type 'null' is not assignable to type 'PlannerVenue'.
 
-  [90m25 |[0m [36minterface[0m [33mProps[0m {
-  [90m26 |[0m   groupName: string | [36mnull[0m
-[31m[1m>[0m [90m27 |[0m   groupId?: string
+  [90m91 |[0m   [36mif[0m (data.error) [36mthrow[0m [36mnew[0m [33mError[0m(data.error.message ?? [32m'Google Places search failed'[0m)
+  [90m92 |[0m
+[31m[1m>[0m [90m93 |[0m   [36mreturn[0m (data.places ?? [])
   [90m   |[0m   [31m[1m^[0m
-  [90m28 |[0m   activityId?: string
-  [90m29 |[0m   groupId?: string
-  [90m30 |[0m   activityId?: string
+  [90m94 |[0m     .map((place, index) => {
+  [90m95 |[0m       [36mconst[0m lat = place.location?.latitude
+  [90m96 |[0m       [36mconst[0m lng = place.location?.longitude
 Next.js build worker exited with code: 1 and signal: null
 /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui:
  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  my-project@0.1.0 build: `next build`
