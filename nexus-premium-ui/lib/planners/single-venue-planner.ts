@@ -4,10 +4,10 @@
 // Creates a PlannerDefinition for any activity that results in choosing one
 // best-fit venue (restaurant, coffee, cinema, bowling, live-music, etc.).
 //
-// Golden Window is intentionally OPTIONAL here. Nexus can discover a venue
-// from the activity + planning location first, then calculate a Golden Window
-// around the chosen venue later. When a Golden Window is supplied, it improves
-// time-aware scoring and produces a timed plan.
+// Golden Window is intentionally OPTIONAL here. Nexus can discover venues
+// from the activity + planning location first, then use a Golden Window as a
+// timing layer. The planner returns several ranked real venues so the UI can
+// present genuine alternatives instead of silently selecting one at random.
 
 import type {
   PlannerDefinition,
@@ -22,6 +22,7 @@ import { RealVenueProvider } from './providers/real-venue-provider'
 import { scoreVenueForActivity, isVenueOpenAt, addMinutesToTime, format12h } from './scoring'
 
 const MIN_REAL_RESULTS = 1
+const MAX_SUGGESTIONS = 5
 const DEFAULT_RADIUS_METRES = 1500
 const DEFAULT_FLEXIBLE_START = '12:00'
 const DEFAULT_FLEXIBLE_DURATION = 120
@@ -40,14 +41,6 @@ export interface SingleVenuePlannerConfig {
   activityLabel: string
 }
 
-function chooseVenue<T>(candidates: T[], score: (candidate: T) => number): T {
-  if (candidates.length <= 1) return candidates[0]!
-  candidates.sort((a, b) => score(b) - score(a))
-  const band = Math.min(4, candidates.length)
-  const index = Math.floor(Math.random() * band)
-  return candidates[index]!
-}
-
 export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): PlannerDefinition {
   const { activityId, activityEmoji, activityLabel } = config
 
@@ -56,7 +49,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
     activityId,
     kind: 'venue',
     name: `${activityLabel} Planner`,
-    description: `Finds the best ${activityLabel.toLowerCase()} venue for your group based on location, with Golden Window available as an optional timing layer.`,
+    description: `Finds and ranks several real ${activityLabel.toLowerCase()} venues for your group based on location, with Golden Window available as an optional timing layer.`,
 
     async plan(request: PlannerRequest): Promise<PlannerResult> {
       const {
@@ -113,8 +106,12 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       })
 
       const open = candidates.filter((c) => c.openDuringWindow)
-      const pool = open.length > 0 ? open : candidates
-      const { venue, scored } = chooseVenue(pool, (candidate) => candidate.scored.total)
+      const pool = (open.length > 0 ? open : candidates)
+        .slice()
+        .sort((a, b) => b.scored.total - a.scored.total)
+      const selected = pool.slice(0, MAX_SUGGESTIONS)
+      const top = selected[0]!
+      const { venue, scored } = top
 
       const warnings: string[] = []
       if (venue.openingHoursKnown === false) {
@@ -146,15 +143,17 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         ? DAY_LABELS[goldenWindow.day_of_week] ?? 'Unknown'
         : 'Flexible timing'
 
-      const stop: PlannerStop = {
-        order: 1,
-        venue,
+      const stops: PlannerStop[] = selected.map(({ venue: candidateVenue, scored: candidateScore }, index) => ({
+        order: index + 1,
+        venue: candidateVenue,
         arrivalTime: startTime,
         departureTime: addMinutesToTime(startTime, durationMinutes),
         walkingFromPrevious: 0,
         distanceFromPrevious: 0,
-        score: { total: scored.total, breakdown: scored.breakdown },
-      }
+        score: { total: candidateScore.total, breakdown: candidateScore.breakdown },
+        role: index === 0 ? 'Top pick' : 'Alternative',
+        reason: candidateScore.reasons.slice(0, 2).join(' · '),
+      }))
 
       const costLabel = venue.priceLevelKnown !== false
         ? '£'.repeat(Math.max(1, Math.min(4, venue.priceLevel)))
@@ -171,22 +170,23 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         title: `${activityEmoji} ${activityLabel}`,
         subtitle: goldenWindow
           ? `${dayName} · ${format12h(startTime)}`
-          : 'Venue selected · timing flexible',
+          : 'Real venues ranked · timing flexible',
         activityId,
         durationMinutes,
         estimatedCostLabel: costLabel,
         totalDistanceKm: venue.distanceFromCentre,
         walkingMinutes: 0,
-        stops: [stop],
+        stops,
         overallScore: scored.total,
         explanation: [
-          `Nexus selected ${venue.name} from ${venues.length} real nearby ${activityLabel.toLowerCase()} venue${venues.length !== 1 ? 's' : ''}.`,
+          `Nexus ranked ${selected.length} real nearby ${activityLabel.toLowerCase()} venue${selected.length !== 1 ? 's' : ''}.`,
+          `Top pick: ${venue.name}.`,
           scored.reasons.length > 0
             ? `Chosen because: ${scored.reasons.slice(0, 3).join(', ')}.`
             : '',
           goldenWindow
-            ? 'The selection was scored against your Golden Window.'
-            : 'No Golden Window was required — you can choose the best time after selecting the venue.',
+            ? 'The ranking was scored against your Golden Window.'
+            : 'No Golden Window was required — timing stays flexible until you choose a venue.',
         ].filter(Boolean).join(' '),
         warnings,
         generatedAt: new Date().toISOString(),

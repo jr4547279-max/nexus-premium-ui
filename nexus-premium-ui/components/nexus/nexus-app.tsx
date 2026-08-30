@@ -71,7 +71,7 @@ export function NexusApp() {
     let pending: string | null = null
     try { pending = localStorage.getItem(PENDING_INVITE_KEY) } catch { return }
     if (!pending) return
-    try { localStorage.removeItem(PENDING_INVITE_KEY) } catch {}
+    try { localStorage.removeItem(PENDING_INVITE_KEY) } catch { /* Ignore storage cleanup failures. */ }
     joinGroupByInvite(pending).then(({ groupId, errorMessage }) => {
       if (groupId) {
         toast.success('Joined group')
