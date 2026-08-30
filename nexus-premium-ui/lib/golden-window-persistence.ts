@@ -12,6 +12,20 @@ export interface SavedGoldenWindowResult {
   computedAt: string | null
 }
 
+/** Re-anchor persisted day offsets to the browser's current local date. */
+function normalizeWindowTiming(goldenWindow: GoldenWindow): GoldenWindow {
+  const now = new Date()
+  const todayDow = now.getDay()
+  const [hours, minutes] = goldenWindow.start_time.split(':').map(Number)
+  const startMinutes = (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+
+  let daysUntil = (goldenWindow.day_of_week - todayDow + 7) % 7
+  if (daysUntil === 0 && startMinutes <= nowMinutes) daysUntil = 7
+
+  return { ...goldenWindow, days_until: daysUntil }
+}
+
 function cacheForCountdown(goldenWindow: GoldenWindow | null) {
   if (typeof window === 'undefined') return
   try {
@@ -26,14 +40,12 @@ export async function saveGoldenWindow(
   groupId: string,
   goldenWindow: GoldenWindow,
 ): Promise<boolean> {
-  // Cache immediately so the live countdown is available even if the network
-  // request is slow or the persistence RPC temporarily fails. Supabase remains
-  // the source of truth; this is only the UI's countdown cache.
-  cacheForCountdown(goldenWindow)
+  const normalized = normalizeWindowTiming(goldenWindow)
+  cacheForCountdown(normalized)
 
   const { data, error } = await supabase.rpc('save_golden_window', {
     p_group_id: groupId,
-    p_window: goldenWindow as unknown as Record<string, unknown>,
+    p_window: normalized as unknown as Record<string, unknown>,
   })
 
   if (error) {
@@ -66,7 +78,7 @@ export async function loadSavedGoldenWindow(
   }
 
   if (raw.golden_window_data) {
-    const savedWindow = raw.golden_window_data as unknown as GoldenWindow
+    const savedWindow = normalizeWindowTiming(raw.golden_window_data as unknown as GoldenWindow)
     cacheForCountdown(savedWindow)
     return {
       window: savedWindow,
@@ -105,9 +117,10 @@ export async function loadSavedGoldenWindow(
     if (!best) return { window: null, isStale: false, computedAt: null }
 
     const saved = await saveGoldenWindow(groupId, best)
-    if (!saved) cacheForCountdown(best)
+    const normalized = normalizeWindowTiming(best)
+    if (!saved) cacheForCountdown(normalized)
     return {
-      window: best,
+      window: normalized,
       isStale: !saved,
       computedAt: new Date().toISOString(),
     }
