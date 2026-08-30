@@ -18,7 +18,7 @@ import type {
   BudgetPreference,
   MatchQuality,
 } from './types'
-import { OpenStreetMapVenueProvider } from './providers/openstreetmap-venue-provider'
+import { RealVenueProvider } from './providers/real-venue-provider'
 import { scoreVenueForActivity, isVenueOpenAt, addMinutesToTime, format12h } from './scoring'
 
 const MIN_REAL_RESULTS = 1
@@ -40,11 +40,6 @@ export interface SingleVenuePlannerConfig {
   activityLabel: string
 }
 
-/**
- * Pick from a small high-quality band instead of always returning the exact
- * same first result. The first pass is still strongly ranked; recalculations
- * now have a meaningful chance of surfacing a different real venue.
- */
 function chooseVenue<T>(candidates: T[], score: (candidate: T) => number): T {
   if (candidates.length <= 1) return candidates[0]!
   candidates.sort((a, b) => score(b) - score(a))
@@ -82,7 +77,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       const startTime = goldenWindow?.start_time ?? DEFAULT_FLEXIBLE_START
       const durationMinutes = goldenWindow?.duration_minutes ?? DEFAULT_FLEXIBLE_DURATION
 
-      const provider = new OpenStreetMapVenueProvider(radiusMetres)
+      const provider = new RealVenueProvider(radiusMetres)
       let venues: PlannerVenue[]
       try {
         venues = await provider.getVenues(activityId, groupLocation)
@@ -124,7 +119,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
       const warnings: string[] = []
       if (venue.openingHoursKnown === false) {
         warnings.push(
-          `Opening hours for ${venue.name} are not listed in OpenStreetMap — verify before visiting.`,
+          `Opening hours for ${venue.name} are not listed in the real venue source — verify before visiting.`,
         )
       }
       if (venue.ratingKnown === false) {
@@ -198,7 +193,7 @@ export function createSingleVenuePlanner(config: SingleVenuePlannerConfig): Plan
         goldenWindowQuality: matchQuality,
         groupMatchPercent,
         dataSource: 'real',
-        providerName: 'OpenStreetMap',
+        providerName: 'Google Places / OpenStreetMap',
         scoreReasons: scored.reasons,
       }
     },
