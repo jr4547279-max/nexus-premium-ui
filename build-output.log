@@ -17,22 +17,20 @@ https://nextjs.org/telemetry
 - Environments: .env.production
 
   Creating an optimized production build ...
-✓ Compiled successfully in 5.8s
+✓ Compiled successfully in 6.1s
   Running TypeScript ...
 Failed to type check.
 
-./lib/planners/providers/real-venue-provider.ts:93:3
-Type error: Type '((PlannerVenue & { ratingCount: number; photoUrl: string | null; }) | null)[]' is not assignable to type 'PlannerVenue[]'.
-  Type '(PlannerVenue & { ratingCount: number; photoUrl: string | null; }) | null' is not assignable to type 'PlannerVenue'.
-    Type 'null' is not assignable to type 'PlannerVenue'.
+./components/nexus/venue-recommendations.tsx:167:7
+Type error: An object literal cannot have multiple properties with the same name.
 
-  [90m91 |[0m   [36mif[0m (data.error) [36mthrow[0m [36mnew[0m [33mError[0m(data.error.message ?? [32m'Google Places search failed'[0m)
-  [90m92 |[0m
-[31m[1m>[0m [90m93 |[0m   [36mreturn[0m (data.places ?? [])
-  [90m   |[0m   [31m[1m^[0m
-  [90m94 |[0m     .map((place, index) => {
-  [90m95 |[0m       [36mconst[0m lat = place.location?.latitude
-  [90m96 |[0m       [36mconst[0m lng = place.location?.longitude
+  [90m165 |[0m       vibe,
+  [90m166 |[0m       activityId,
+[31m[1m>[0m [90m167 |[0m       activityId,
+  [90m    |[0m       [31m[1m^[0m
+  [90m168 |[0m       lat: midpoint.lat,
+  [90m169 |[0m       lng: midpoint.lng,
+  [90m170 |[0m       limit: [35m8[0m,
 Next.js build worker exited with code: 1 and signal: null
 /home/runner/work/nexus-premium-ui/nexus-premium-ui/nexus-premium-ui:
  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  my-project@0.1.0 build: `next build`
