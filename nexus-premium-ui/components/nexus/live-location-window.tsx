@@ -79,9 +79,6 @@ export function LiveLocationWindow({ groupId, members: groupMembers = [] }: Live
     error,
   } = useLiveEvent(groupId)
 
-  // Ensure every persisted Golden Window has a corresponding live event.
-  // This is idempotent at the UI level and only runs for real groups with a
-  // non-stale saved window; the live-event RPC remains the security boundary.
   useEffect(() => {
     if (scheduleAttemptedRef.current || event || status || !groupId) return
     scheduleAttemptedRef.current = true
@@ -99,13 +96,10 @@ export function LiveLocationWindow({ groupId, members: groupMembers = [] }: Live
     return () => { cancelled = true }
   }, [event, groupId, refresh, status])
 
-  // Never keep a GPS watcher running outside the live window.
   useEffect(() => {
     if (!isLive && isSharing) stopSharing()
   }, [isLive, isSharing, stopSharing])
 
-  // Map lifecycle: it only needs to exist while the live event has at least
-  // one visible location. The first fix determines the initial viewport.
   useEffect(() => {
     if (!isLive || locations.length === 0 || !mapContainerRef.current || mapRef.current) return
     let cancelled = false
@@ -166,7 +160,6 @@ export function LiveLocationWindow({ groupId, members: groupMembers = [] }: Live
     }
   }, [isLive, locations.length])
 
-  // Keep member markers moving without recreating the map.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
