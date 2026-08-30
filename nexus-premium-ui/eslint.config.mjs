@@ -32,6 +32,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['.next/**', 'node_modules/**', 'dist/**'],
+    ignores: ['.next/**', 'node_modules/**', 'dist/**', 'public/maplibre/**'],
   },
 )
