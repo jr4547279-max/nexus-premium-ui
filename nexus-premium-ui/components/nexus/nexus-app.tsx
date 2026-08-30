@@ -26,6 +26,10 @@ import { Radio } from 'lucide-react'
 
 const PENDING_INVITE_KEY = 'nexus.pendingInviteCode'
 
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+}
+
 type Screen =
   | 'resolving'
   | 'landing'
@@ -178,15 +182,7 @@ export function NexusApp() {
       screenContent = (
         <div className="relative min-h-screen">
           <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen(prevGroupScreen)} onViewGoldenWindow={() => setCurrentScreen('golden-window')} onNavigate={handleNavigate} onGroupDeleted={() => { setGroupsVersion((v) => v + 1); setCurrentScreen(prevGroupScreen) }} onStartRun={(plan) => { setActiveRunPlan(plan); setCurrentScreen('run-tracker') }} />
-          <button
-            type="button"
-            onClick={() => setCurrentScreen('live-event')}
-            aria-label="Open live meetup"
-            className="fixed bottom-24 right-4 z-30 flex items-center gap-2 rounded-full border border-primary/30 bg-background/95 px-4 py-3 text-sm font-semibold text-primary shadow-[0_0_28px_rgba(201,160,48,0.18)] backdrop-blur-xl transition active:scale-95"
-          >
-            <Radio className="h-4 w-4" />
-            Live meetup
-          </button>
+          {isUuid(selectedGroupId) && <button type="button" onClick={() => setCurrentScreen('live-event')} aria-label="Open live meetup" className="fixed bottom-24 right-4 z-30 flex items-center gap-2 rounded-full border border-primary/30 bg-background/95 px-4 py-3 text-sm font-semibold text-primary shadow-[0_0_28px_rgba(201,160,48,0.18)] backdrop-blur-xl transition active:scale-95"><Radio className="h-4 w-4" />Live meetup</button>}
         </div>
       )
       break
