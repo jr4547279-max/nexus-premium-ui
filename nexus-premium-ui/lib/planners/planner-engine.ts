@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PlannerRequest, PlannerResult } from './types'
-import { getPlannerFor, hasPlannerFor } from './registry'
+import { getPlannerFor } from './registry'
 
 export type PlannerEngineResult =
   | { ok: true; result: PlannerResult }
