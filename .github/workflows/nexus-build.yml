@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -16,43 +16,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply activity fixes
-        if: "!contains(github.event.head_commit.message, '[nexus-fix]') && !contains(github.event.head_commit.message, '[build-log]')"
-        run: python3 scripts/apply-activity-fixes.py
-
-      - name: Apply activity-specific venue discovery
-        run: python3 scripts/activity-venue-fix.py
-
-      - name: Normalize final activity UX
-        run: python3 scripts/final-activity-normalize.py
-
-      - name: Commit source fixes
-        run: |
-          if git diff --quiet -- nexus-premium-ui; then
-            echo "No source cleanup changes needed."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add nexus-premium-ui
-            git commit -m "fix: normalize activity planner source [nexus-fix]"
-            git push origin main
-          fi
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - run: npm install -g pnpm@10.17.1
       - run: pnpm install --no-frozen-lockfile
-      - name: Build and capture output
-        run: |
-          set -o pipefail
-          pnpm --filter my-project build 2>&1 | tee build-output.log
 
-      - name: Commit build output on failure
-        if: ${{ failure() && !contains(github.event.head_commit.message, '[build-log]') }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add build-output.log
-          git commit -m "chore: capture build output [build-log]"
-          git push origin main
+      - name: Build Nexus
+        run: pnpm --filter my-project build
