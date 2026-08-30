@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import type { Map as LMap, Marker as LMarker, CircleMarker } from 'leaflet'
+import type { Map as LMap, Marker as LMarker } from 'leaflet'
 import type { LatestLocation } from '@/lib/live-event-types'
 
 interface LiveLocationMapProps {
@@ -25,7 +25,7 @@ function memberPin(name: string, stale: boolean) {
 export default function LiveLocationMap({ locations, memberNames, destination }: LiveLocationMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LMap | null>(null)
-  const markersRef = useRef<Map<string, LMarker | CircleMarker>>(new Map())
+  const markersRef = useRef<Map<string, LMarker>>(new Map())
   const destinationRef = useRef<LMarker | null>(null)
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function LiveLocationMap({ locations, memberNames, destination }:
       const name = memberNames.get(loc.user_id) ?? 'Member'
       const icon = L.divIcon({ html: memberPin(name, stale), className: '', iconSize: [90, 66], iconAnchor: [45, 22] })
       const existing = markersRef.current.get(loc.user_id)
-      if (existing && 'setLatLng' in existing && 'setIcon' in existing) {
+      if (existing) {
         existing.setLatLng([loc.latitude, loc.longitude])
         existing.setIcon(icon)
       } else {
@@ -108,6 +108,9 @@ export default function LiveLocationMap({ locations, memberNames, destination }:
         destinationRef.current = L.marker([destination.lat, destination.lng], { icon: destinationIcon }).addTo(map)
         destinationRef.current.bindPopup(`<strong>${destination.name.replace(/[&<>\"']/g, '')}</strong><br/>Current meetup stop`)
       }
+    } else if (destinationRef.current) {
+      destinationRef.current.remove()
+      destinationRef.current = null
     }
   }
 
