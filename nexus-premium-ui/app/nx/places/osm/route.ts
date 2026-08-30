@@ -24,7 +24,10 @@ const DEFAULT_RADIUS = 3500
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const vibe = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
-  const activityId = VIBE_TO_ACTIVITY[vibe] ?? 'cocktail-bar'
+  const requestedActivity = (url.searchParams.get('activity') ?? '').trim().toLowerCase()
+  // Activity is authoritative when supplied. Never let the generic "activity"
+  // vibe silently turn a gym/cinema/swimming search into a pub search.
+  const activityId = requestedActivity || VIBE_TO_ACTIVITY[vibe] || 'cocktail-bar'
 
   const lat = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lng = Number.parseFloat(url.searchParams.get('lng') ?? '')
@@ -52,7 +55,7 @@ export async function GET(req: Request) {
         rating_count: null,
         open_now: null,
         address: venue.address ?? null,
-        category: venue.tags.find((tag) => ['pub', 'bar', 'restaurant', 'cafe', 'nightclub'].includes(tag)) ?? null,
+        category: venue.tags.find((tag) => ['pub', 'bar', 'restaurant', 'cafe', 'nightclub'].includes(tag)) ?? activityId,
         maps_url: venue.mapsUrl ?? null,
         price_level: null,
         distance_km: venue.distanceFromCentre,
