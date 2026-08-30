@@ -106,12 +106,14 @@ function mergeUniqueVenues(primary: Venue[], fallback: Venue[], limit: number): 
  */
 export async function fetchVenues(opts: {
   vibe: Vibe
+  activityId?: string
   lat?: number
   lng?: number
   radius?: number
   limit?: number
 }): Promise<VenuesResult> {
   const qs = new URLSearchParams({ vibe: opts.vibe })
+  if (opts.activityId) qs.set('activity', opts.activityId)
   if (opts.lat != null) qs.set('lat', String(opts.lat))
   if (opts.lng != null) qs.set('lng', String(opts.lng))
   if (opts.radius != null) qs.set('radius', String(opts.radius))

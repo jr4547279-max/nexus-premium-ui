@@ -21,6 +21,23 @@ export const dynamic = 'force-dynamic'
 export const FALLBACK_LAT = 50.7686
 export const FALLBACK_LNG = 0.2906
 
+const ACTIVITY_SEARCH: Record<string, { query: string; type?: string }> = {
+  'gym': { query: 'gyms', type: 'gym' },
+  'swimming': { query: 'swimming pools', type: 'swimming_pool' },
+  'beach': { query: 'beaches', type: 'beach' },
+  'picnic': { query: 'picnic areas', type: 'picnic_ground' },
+  'pub-crawl': { query: 'pubs', type: 'pub' },
+  'cocktail-bar': { query: 'cocktail bars', type: 'cocktail_bar' },
+  'board-games': { query: 'board game cafes' },
+  'restaurant': { query: 'restaurants', type: 'restaurant' },
+  'brunch': { query: 'brunch restaurants', type: 'brunch_restaurant' },
+  'coffee': { query: 'cafes and coffee shops', type: 'cafe' },
+  'cinema': { query: 'cinemas', type: 'movie_theater' },
+  'bowling': { query: 'bowling alleys', type: 'bowling_alley' },
+  'live-music': { query: 'live music venues', type: 'live_music_venue' },
+  'escape-room': { query: 'escape rooms' },
+}
+
 const VIBE_QUERIES: Record<string, string> = {
   pub: 'pubs',
   // "cocktail bars" was too narrow for the World map and could return only one
@@ -74,6 +91,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const vibeRaw = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
   const vibe = (VIBE_QUERIES[vibeRaw] ? vibeRaw : 'drinks') as keyof typeof VIBE_QUERIES
+  const activityId = (url.searchParams.get('activity') ?? '').toLowerCase()
+  const activitySearch = ACTIVITY_SEARCH[activityId]
+  const searchQuery = activitySearch?.query ?? VIBE_QUERIES[vibe]
   const latRaw = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lngRaw = Number.parseFloat(url.searchParams.get('lng') ?? '')
   const lat = Number.isFinite(latRaw) ? latRaw : FALLBACK_LAT
@@ -89,7 +109,7 @@ export async function GET(req: Request) {
       ? 'Eastbourne (default search area — member locations not set up yet)'
       : undefined
 
-  const cacheKey = `${vibe}|${lat.toFixed(3)}|${lng.toFixed(3)}|${radius}|${limit}`
+  const cacheKey = `${activityId || vibe}|${lat.toFixed(3)}|${lng.toFixed(3)}|${radius}|${limit}`
   const cached = CACHE.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json({ ...(cached.payload as object), cached: true, fallback: usedFallback })
@@ -98,7 +118,7 @@ export async function GET(req: Request) {
   let upstream: PlaceApiResponse
   try {
     const body: Record<string, unknown> = {
-      textQuery: VIBE_QUERIES[vibe],
+      textQuery: searchQuery,
       pageSize: Math.min(20, limit),
       languageCode: 'en',
       regionCode: 'GB',
@@ -111,7 +131,10 @@ export async function GET(req: Request) {
       rankPreference: 'DISTANCE',
     }
 
-    if (vibe === 'pub') {
+    if (activitySearch?.type) {
+      body.includedType = activitySearch.type
+      body.strictTypeFiltering = true
+    } else if (vibe === 'pub') {
       body.includedType = 'pub'
       body.strictTypeFiltering = true
     }

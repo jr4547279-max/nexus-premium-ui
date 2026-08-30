@@ -50,6 +50,23 @@ interface Props {
 
 const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
 
+const ACTIVITY_VIBE: Record<string, Vibe> = {
+  'pub-crawl': 'pub',
+  'cocktail-bar': 'drinks',
+  'restaurant': 'food',
+  'brunch': 'food',
+  'coffee': 'coffee',
+  'gym': 'activity',
+  'swimming': 'activity',
+  'beach': 'activity',
+  'picnic': 'activity',
+  'board-games': 'activity',
+  'cinema': 'activity',
+  'bowling': 'activity',
+  'live-music': 'activity',
+  'escape-room': 'activity',
+}
+
 export function VenueRecommendations({
   groupName,
   groupId,
@@ -81,12 +98,14 @@ export function VenueRecommendations({
   )
 
   // User can override the inferred vibe — chips let them do that.
-  const [vibe, setVibe] = useState<Vibe>(intent.vibe)
+  const activityVibe = activityId ? ACTIVITY_VIBE[activityId] : undefined
+  const requestedVibe = activityVibe ?? intent.vibe
+  const [vibe, setVibe] = useState<Vibe>(requestedVibe)
 
   // Re-sync vibe chip when intent changes (e.g. weather arrives after mount).
   useEffect(() => {
-    setVibe(intent.vibe)
-  }, [intent.vibe])
+    setVibe(requestedVibe)
+  }, [requestedVibe])
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const [venues, setVenues] = useState<Venue[]>([])
@@ -144,6 +163,7 @@ export function VenueRecommendations({
     setAltVenues([])
     fetchVenues({
       vibe,
+      activityId,
       lat: midpoint.lat,
       lng: midpoint.lng,
       limit: 8,
@@ -157,7 +177,7 @@ export function VenueRecommendations({
     return () => {
       cancelled = true
     }
-  }, [vibe, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])
+  }, [vibe, activityId, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])
 
   useEffect(() => {
     setMapFailed(false)
