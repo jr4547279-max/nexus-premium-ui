@@ -7,3 +7,4 @@
   PNPM_FLAGS = "--no-frozen-lockfile"
 
 # Production environment configured in Netlify.
+# Public Supabase client variables are intentionally exposed to the browser.
