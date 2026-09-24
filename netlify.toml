@@ -5,3 +5,5 @@
 
 [build.environment]
   PNPM_FLAGS = "--no-frozen-lockfile"
+
+# Production environment configured in Netlify.
