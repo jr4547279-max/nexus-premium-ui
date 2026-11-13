@@ -27,11 +27,11 @@ import { cn } from '@/lib/utils'
  */
 
 const PHRASES = [
-  'Scanning availability…',
-  'Balancing the group…',
-  "Checking tonight's forecast…",
-  'Calculating travel fairness…',
-  'Aligning schedules…',
+  'Gathering saved availability…',
+  'Comparing shared time windows…',
+  'Scoring group coverage…',
+  'Balancing availability fairly…',
+  'Preparing the strongest match…',
   'Finding the Golden Window…',
 ]
 
@@ -81,7 +81,7 @@ export function GoldenWindowSearching({ durationMs = 3000, exiting = false }: Pr
           className={cn(
             'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none',
             'h-[640px] w-[640px] rounded-full blur-3xl',
-            'bg-gradient-to-br from-amber-500/20 via-yellow-400/10 to-amber-600/15',
+            'bg-gradient-to-br from-orange-500/20 via-red-500/10 to-orange-600/15',
             'animate-glow-pulse',
             'transition-opacity duration-[1200ms] ease-out',
             isFinalPhrase ? 'opacity-100' : 'opacity-70',

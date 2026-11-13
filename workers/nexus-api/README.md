@@ -1,68 +1,39 @@
 # Nexus Cloudflare API
 
-This is an isolated, additive backend package for the recovered Nexus app. It
-does not create Cloudflare resources and does not connect to NumerVault. The
-configuration uses the local Wrangler emulator by default; the all-zero D1 ID
-is a placeholder and cannot be used for a remote deployment.
+Isolated backend package for the recovered Nexus app. It is configured for local development only; it creates no Cloudflare resources and has no connection to NumerVault.
 
 ## Components
 
-- Worker REST API: passwordless email sign-in, profiles, Circles, invitations,
-  member availability, Golden Window calculation, plans, RSVPs, venue votes,
-  chat messages and notifications.
-- D1: relational records with explicit foreign keys and membership checks in
-  each request handler.
-- R2: private upload objects. This initial API accepts image uploads through an
-  authenticated endpoint and caps them at 10 MB.
-- Durable Object: one `CircleRoom` per Circle for WebSocket broadcasts. D1
-  remains the durable message store; the object only fans out committed events.
-- Golden Window: imports the existing pure TypeScript sweep-line engine from
-  `nexus-premium-ui/lib/golden-window.ts`.
+- Workers REST API: email-link authentication, profiles, friends, Circles, invitations, availability, Golden Window results, saved venues, plans, RSVPs, venue votes, chat, notifications, live events, presence and private uploads.
+- D1: persistent records and explicit membership checks in the Worker handlers.
+- R2: authenticated private image storage for avatars and Circle chat attachments.
+- Durable Objects: Circle- and event-scoped WebSocket fanout. D1 remains the source of truth.
+- Golden Window: imports the existing pure TypeScript calculation engine in `nexus-premium-ui/lib/golden-window.ts`.
 
 ## Local development
 
-1. Install the workspace's declared package manager dependencies.
-2. Copy `.dev.vars.example` to `.dev.vars` only for local development.
-3. Apply the migration to Wrangler's local D1 and run `npm run dev` here.
-4. Set `NEXT_PUBLIC_NEXUS_API_URL` to the local Worker origin in the Next app.
+1. Install workspace dependencies with the repository's declared pnpm version.
+2. Copy `.dev.vars.example` to `.dev.vars` for local use only.
+3. Apply D1 migrations with `pnpm db:local` and start Wrangler with `pnpm dev` from this directory.
+4. Set `NEXT_PUBLIC_NEXUS_API_URL` in the Next app to the local Worker origin.
 
-Email delivery is intentionally disabled until a provider URL and token are
-configured outside source control. In local development, `ALLOW_DEV_AUTH=true`
-allows the link URL to be returned by the request-link endpoint for testing;
-it is false by default. Never enable that option in a deployed environment.
+Email delivery is disabled until a provider is configured. For a local-only test harness, `ALLOW_DEV_AUTH=true` can return a one-time verification URL. Never enable it in any remotely accessible environment. Do not put provider tokens in source control.
 
-## Security model
+## Security
 
-- User identity comes from a random, opaque, HttpOnly session cookie whose hash
-  is stored in D1. Logout revokes the session server-side.
-- Email challenges are random, hashed, expire after 15 minutes, and can be
-  consumed once. Sign-in requests and verification attempts are rate limited.
-- The API checks Circle membership before reading or changing Circle data.
-  It never relies on client claims, Supabase RLS policies, or a browser-supplied
-  user ID.
-- Browser mutations require the configured application origin. Responses are
-  non-cacheable and JSON bodies are size limited.
-- No Supabase credentials or private data are copied. OAuth, calendar access,
-  realtime legacy subscriptions, venue-provider secrets and production email
-  are not configured by this package.
+- Sessions use random opaque HttpOnly cookies; only token hashes are persisted.
+- Email challenges are random, hashed, one-use and expire after 15 minutes. Authentication, invitations and sensitive writes have server-side rate limits.
+- Circle membership is checked on each private data request. Event access is scoped to invited Circle members. Private location data is returned only during live events with sharing enabled.
+- Browser mutations are same-origin checked. Request bodies are bounded and responses are non-cacheable.
+- No client-supplied user ID is trusted for identity or authorization. Historical Supabase policies are not used by this API.
 
-## Routes
+## Verification
 
-`GET /v1/health`, `POST /v1/auth/request-link`, `POST /v1/auth/verify`,
-`POST /v1/auth/logout`, `GET /v1/auth/me`, `PATCH /v1/profile`,
-`GET|POST /v1/circles`, `POST /v1/circles/:id/invitations`,
-`POST /v1/invitations/accept`, `GET|PUT /v1/circles/:id/availability`,
-`GET /v1/circles/:id/golden-window`, `GET|POST /v1/circles/:id/plans`,
-`GET|POST /v1/circles/:id/messages`, `GET /v1/circles/:id/live`,
-`GET /v1/circles/:id/venues?planId=...`, `GET|PUT /v1/plans/:id/rsvps`,
-`POST /v1/plans/:id/votes`, `POST /v1/plans/:id/confirm`,
-`GET /v1/notifications`, `POST /v1/notifications/:id/read`, and
-`POST /v1/uploads`.
+- `pnpm run typecheck`
+- `pnpm test` — includes a SQLite-backed Worker integration journey that exercises auth, invitation, membership, saved availability, server-side Golden Window scoring, venue voting, plan confirmation, RSVPs, chat and non-member denial.
 
-## Migration status
+The harness invokes the real Worker request handlers with local SQLite and in-memory R2/room adapters. It does not copy production data or contact Cloudflare.
 
-The existing app source remains intact on this branch. `nexus-premium-ui/lib/nexus-api.ts`
-is the new browser boundary. Existing feature services still contain Supabase
-calls and must be ported to this API before Supabase can be removed from the
-frontend dependency graph. No Supabase rows were read or copied, no live user
-data is included, and no remote D1, R2 or Worker was created.
+## Deployment prerequisites
+
+`wrangler.jsonc` contains local-only placeholder D1 metadata and the Nexus-only bucket name `nexus-uploads-dev`. Before a future deployment, create and approve Nexus-specific Worker, D1, R2 and Durable Object bindings; configure a production app origin and a verified email provider; then replace the local placeholder IDs. No remote resource is provisioned by this repository state.

@@ -50,7 +50,6 @@ import {
 } from '@/lib/golden-window'
 import {
   loadSavedGoldenWindow,
-  saveGoldenWindow,
 } from '@/lib/golden-window-persistence'
 import { VenueRecommendations } from './venue-recommendations'
 import { WeatherChip } from './weather-chip'
@@ -81,8 +80,8 @@ interface GroupDetailProps {
 }
 
 /**
- * Detect a UUID — real groups created via Supabase have UUID ids, mock groups
- * use short numeric ids like "1", "2". Anything that isn't a UUID is treated
+ * Detect a UUID — real Circles created via the Nexus API have UUID ids, the
+ * local developer fixtures use short numeric ids like "1", "2". Anything that isn't a UUID is treated
  * as a mock id for the legacy demo data.
  */
 function isUuid(id: string) {
@@ -280,64 +279,61 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   // the background while the 3-second cinematic overlay plays. By the time the
   // overlay ends the save is already done.
 
-  const handleStartSearch = () => {
+  const handleStartSearch = async () => {
     if (revealPhase === 'searching' || revealPhase === 'closing') return
 
     // Reset venues if recalculating.
     setVenuesRevealed(false)
-
-    // Compute immediately — synchronous, no network.
     const wasRecalculation = !!activeWindow
-
-    const windows = computeGoldenWindows(
-      realMembers.map((m) => ({ id: m.user_id, name: m.display_name })),
-      allAvailability.map((r) => ({
-        user_id:     r.user_id,
-        day_of_week: r.day_of_week,
-        start_time:  r.start_time,
-        end_time:    r.end_time,
-      })),
-    )
-    const best = windows[0] ?? null
-    setActiveWindow(best)
-    if (wasRecalculation && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nexus:recalibrate-venues'))
-    }
-
-    // Fire-and-forget save to DB in the background.
-    if (best) {
-      saveGoldenWindow(groupId, best).then((ok) => {
-        if (ok) {
-          setSavedWindow(best)
-          setSavedWindowStale(false)
-          setSavedWindowComputedAt(new Date().toISOString())
-        }
-      })
-    }
-
     const storageKey = `nexus:revealed:${groupId}`
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const startedAt = Date.now()
 
-    if (prefersReducedMotion) {
-      setRevealMode('instant')
-      setRevealPhase('revealed')
-      try { window.sessionStorage.setItem(storageKey, '1') } catch { /* */ }
-      return
+    // The Worker is the source of truth: it calculates this from saved
+    // availability for current Circle members and persists the selected result.
+    setRevealMode(prefersReducedMotion ? 'instant' : 'cinematic')
+    setRevealPhase(prefersReducedMotion ? 'idle' : 'searching')
+    try {
+      const result = await loadSavedGoldenWindow(groupId)
+      const best = result.window
+      if (!best) {
+        setRevealPhase('idle')
+        setActiveWindow(null)
+        toast.error('Add availability from at least two Circle members to find a shared time.')
+        return
+      }
+
+      setActiveWindow(best)
+      setSavedWindow(best)
+      setSavedWindowStale(false)
+      setSavedWindowComputedAt(result.computedAt)
+      if (wasRecalculation && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('nexus:recalibrate-venues'))
+      }
+
+      if (prefersReducedMotion) {
+        setRevealMode('instant')
+        setRevealPhase('revealed')
+        try { window.sessionStorage.setItem(storageKey, '1') } catch { /* */ }
+        return
+      }
+
+      const searchRemainder = Math.max(0, 3000 - (Date.now() - startedAt))
+      revealTimersRef.current.close = setTimeout(() => {
+        setRevealPhase('closing')
+        try { window.sessionStorage.setItem(storageKey, '1') } catch { /* */ }
+      }, searchRemainder)
+      revealTimersRef.current.reveal = setTimeout(
+        () => setRevealPhase('revealed'),
+        searchRemainder + 600,
+      )
+    } catch (error) {
+      console.error('[golden-window] server calculation failed', error)
+      setRevealPhase('idle')
+      toast.error('Could not calculate a Golden Window. Check your connection and try again.')
     }
-
-    setRevealMode('cinematic')
-    setRevealPhase('searching')
-
-    revealTimersRef.current.close = setTimeout(() => {
-      setRevealPhase('closing')
-      try { window.sessionStorage.setItem(storageKey, '1') } catch { /* */ }
-    }, 3000)
-    revealTimersRef.current.reveal = setTimeout(
-      () => setRevealPhase('revealed'),
-      3600,
-    )
   }
 
   // ── Reveal venues ─────────────────────────────────────────────────────────
@@ -793,6 +789,22 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <div className="rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5">
+                <p className="text-[11px] text-muted-foreground">Confidence</p>
+                <p className="mt-0.5 text-sm font-semibold tabular-nums text-primary">{activeWindow.confidence_score}%</p>
+              </div>
+              <div className="rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5">
+                <p className="text-[11px] text-muted-foreground">Fairness</p>
+                <p className="mt-0.5 text-sm font-semibold tabular-nums text-primary">{activeWindow.fairness_score}%</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              {activeWindow.is_compromise
+                ? activeWindow.compromise_note
+                : `${activeWindow.available_member_count} of ${activeWindow.total_member_count} Circle members can make this ${formatDuration(activeWindow.duration_minutes)} window.`}
+            </p>
+
             {/* Weather chip */}
             {(weatherLoading || (weather && !weather.error)) && (
               <div
@@ -846,6 +858,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                 day_of_week: activeWindow.day_of_week,
                 start_time: activeWindow.start_time,
                 end_time: activeWindow.end_time,
+                days_until: activeWindow.days_until,
               } : null}
               weather={weather}
               planningLocation={

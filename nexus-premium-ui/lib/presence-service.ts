@@ -13,7 +13,7 @@
  * The service is pure logic + DB calls. No React dependencies.
  */
 
-import { supabase } from './supabase'
+import { nexusApi } from './nexus-api'
 import { haversineMetres } from './location-service'
 import type {
   MemberPresence,
@@ -106,13 +106,6 @@ export function resolveStalePresence(row: MemberPresence): PresenceStatus {
 // DB helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function fmtErr(
-  e: { code?: string | null; message: string; hint?: string | null },
-  status?: number,
-): string {
-  return `[${e.code ?? status}] ${e.message}${e.hint ? ` — hint: ${e.hint}` : ''}`
-}
-
 /**
  * Upsert the calling user's presence for an event.
  */
@@ -125,23 +118,14 @@ export async function upsertPresence(
     etaMinutes?:       number
   } = {},
 ): Promise<{ presence: MemberPresence | null; errorMessage: string | null }> {
-  const { data, error, status: httpStatus } = await supabase.rpc(
-    'upsert_member_presence',
-    {
-      p_event_id:           eventId,
-      p_status:             status,
-      p_current_stop_index: opts.currentStopIndex ?? null,
-      p_distance_metres:    opts.distanceMetres   ?? null,
-      p_eta_minutes:        opts.etaMinutes        ?? null,
-    },
-  )
-
-  if (error) {
-    const msg = fmtErr(error, httpStatus)
-    console.error('[presence-service] upsertPresence failed', msg)
-    return { presence: null, errorMessage: msg }
+  try {
+    const {presence}=await nexusApi<{presence:MemberPresence}>(`/v1/live-events/${encodeURIComponent(eventId)}/presence`,{method:'PUT',body:JSON.stringify({status,currentStopIndex:opts.currentStopIndex,distanceMetres:opts.distanceMetres,etaMinutes:opts.etaMinutes})})
+    return {presence,errorMessage:null}
+  } catch(error) {
+    const message=error instanceof Error?error.message:'Presence update failed.'
+    console.error('[presence-service] upsertPresence failed',message)
+    return {presence:null,errorMessage:message}
   }
-  return { presence: data as MemberPresence, errorMessage: null }
 }
 
 /**
@@ -151,20 +135,13 @@ export async function upsertPresence(
 export async function getGroupPresence(
   eventId: string,
 ): Promise<MemberPresence[]> {
-  const { data, error } = await supabase
-    .from('member_presence')
-    .select('*')
-    .eq('event_id', eventId)
-
-  if (error) {
+  try {
+    const {presence}=await nexusApi<{presence:MemberPresence[]}>(`/v1/live-events/${encodeURIComponent(eventId)}/presence`)
+    return presence.map((row)=>({...row,status:resolveStalePresence(row)}))
+  } catch(error) {
     console.error('[presence-service] getGroupPresence failed', error)
     return []
   }
-
-  return ((data ?? []) as MemberPresence[]).map((row) => ({
-    ...row,
-    status: resolveStalePresence(row),
-  }))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

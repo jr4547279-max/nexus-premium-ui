@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local",
+    "preview:local": "node --experimental-strip-types test/local-preview-server.mjs",
     "typecheck": "tsc --noEmit",
     "db:local": "wrangler d1 migrations apply nexus-app-dev --local",
     "test": "node --experimental-strip-types --test test/*.test.mjs"

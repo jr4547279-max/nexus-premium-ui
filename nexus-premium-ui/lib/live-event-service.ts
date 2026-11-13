@@ -1,315 +1,49 @@
-/**
- * Live Event Service (Phase 1A)
- *
- * Core CRUD, state-machine transitions, and host actions.
- * All writes go through SECURITY DEFINER RPCs (same pattern as group-service.ts).
- */
-
-import { supabase } from './supabase'
+import { nexusApi } from './nexus-api'
 import type { GoldenWindow } from './golden-window'
-import type {
-  LiveEvent,
-  LiveEventWithDetails,
-  MemberPresence,
-  LatestLocation,
-  EventNotification,
-  EventStop,
-  ScheduleLiveEventParams,
-  ScheduleLiveEventResult,
-  CancelLiveEventResult,
-} from './live-event-types'
+import type { LiveEvent,LiveEventWithDetails,EventStop,ScheduleLiveEventParams,ScheduleLiveEventResult,CancelLiveEventResult } from './live-event-types'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function fmtErr(
-  e: { code?: string | null; message: string; hint?: string | null; details?: string | null },
-  status?: number,
-): string {
-  return (
-    `[${e.code ?? status}] ${e.message}` +
-    (e.hint    ? ` — hint: ${e.hint}`       : '') +
-    (e.details ? ` — details: ${e.details}` : '')
-  )
+export function nextOccurrenceOf(win:Pick<GoldenWindow,'day_of_week'|'start_time'|'end_time'>,from:Date=new Date()):{start:Date;end:Date}{
+  const [sh,sm]=win.start_time.split(':').map(Number),[eh,em]=win.end_time.split(':').map(Number)
+  const candidate=new Date(from);const days=(win.day_of_week-from.getDay()+7)%7
+  candidate.setDate(candidate.getDate()+days);candidate.setHours(sh??0,sm??0,0,0)
+  if(candidate.getTime()-from.getTime()<60_000)candidate.setDate(candidate.getDate()+7)
+  const start=new Date(candidate),end=new Date(candidate);end.setHours(eh??0,em??0,0,0);if(end<=start)end.setDate(end.getDate()+1)
+  return {start,end}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Date / Golden Window utilities
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Compute the next calendar occurrence of a Golden Window from `from`.
- *
- * - If today is the right day-of-week and the window hasn't started
- *   (more than 1 min away), use today.
- * - Otherwise advance to next week.
- * - Handles midnight crossings (end_time < start_time on same day).
- */
-export function nextOccurrenceOf(
-  win: Pick<GoldenWindow, 'day_of_week' | 'start_time' | 'end_time'>,
-  from: Date = new Date(),
-): { start: Date; end: Date } {
-  const parse = (hhmm: string) => {
-    const [h, m] = hhmm.split(':').map(Number)
-    return { h: h ?? 0, m: m ?? 0 }
-  }
-
-  const { h: sh, m: sm } = parse(win.start_time)
-  const { h: eh, m: em } = parse(win.end_time)
-
-  const daysUntil = (win.day_of_week - from.getDay() + 7) % 7
-  const candidate = new Date(from)
-  candidate.setDate(candidate.getDate() + daysUntil)
-  candidate.setHours(sh, sm, 0, 0)
-
-  // Push to next week if the slot is in the past or starts within 1 minute.
-  if (candidate.getTime() - from.getTime() < 60_000) {
-    candidate.setDate(candidate.getDate() + 7)
-  }
-
-  const start = new Date(candidate)
-  const end   = new Date(candidate)
-  end.setHours(eh, em, 0, 0)
-  if (end <= start) end.setDate(end.getDate() + 1) // midnight crossing
-
-  return { start, end }
+function errorText(error:unknown){return error instanceof Error?error.message:'The live event request failed.'}
+export async function scheduleLiveEvent(params:ScheduleLiveEventParams):Promise<ScheduleLiveEventResult>{
+  try{
+    const {event}=await nexusApi<{event:LiveEvent}>(`/v1/circles/${encodeURIComponent(params.groupId)}/live-events`,{method:'POST',body:JSON.stringify({windowStart:params.windowStart.toISOString(),windowEnd:params.windowEnd.toISOString(),goldenWindowData:params.goldenWindowData??{},title:params.title??'Group Meetup',description:params.description??null,stops:params.stops??[],invitedMemberIds:params.invitedMemberIds??[],arrivalRadiusM:params.arrivalRadiusM??50})})
+    return {event,errorMessage:null}
+  }catch(error){return {event:null,errorMessage:errorText(error)}}
+}
+export async function scheduleFromGoldenWindow(groupId:string,win:GoldenWindow,opts:{title?:string;description?:string;stops?:EventStop[];invitedMemberIds?:string[];arrivalRadiusM?:number;from?:Date}={}):Promise<ScheduleLiveEventResult>{
+  const {start,end}=nextOccurrenceOf(win,opts.from)
+  return scheduleLiveEvent({groupId,windowStart:start,windowEnd:end,goldenWindowData:win,title:opts.title,description:opts.description,stops:opts.stops,invitedMemberIds:opts.invitedMemberIds,arrivalRadiusM:opts.arrivalRadiusM})
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Scheduling
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function scheduleLiveEvent(
-  params: ScheduleLiveEventParams,
-): Promise<ScheduleLiveEventResult> {
-  const { data, error, status } = await supabase.rpc('schedule_live_event', {
-    p_group_id:           params.groupId,
-    p_window_start:       params.windowStart.toISOString(),
-    p_window_end:         params.windowEnd.toISOString(),
-    p_golden_window_data: params.goldenWindowData ?? {},
-    p_title:              params.title ?? 'Group Meetup',
-    p_description:        params.description ?? null,
-    p_stops:              params.stops ?? [],
-    p_invited_member_ids: params.invitedMemberIds ?? [],
-    p_arrival_radius_m:   params.arrivalRadiusM ?? 50,
-  })
-
-  if (error) {
-    const msg = fmtErr(error, status)
-    console.error('[live-event-service] scheduleLiveEvent failed', msg)
-    return { event: null, errorMessage: msg }
-  }
-  return { event: data as LiveEvent, errorMessage: null }
+export async function getLiveEvent(eventId:string):Promise<LiveEventWithDetails|null>{
+  try{return (await nexusApi<{event:LiveEventWithDetails}>(`/v1/live-events/${encodeURIComponent(eventId)}`)).event}catch(error){console.error('[live-event-service] getLiveEvent',error);return null}
 }
-
-/**
- * Convenience: schedule the next weekly occurrence of a GoldenWindow.
- */
-export async function scheduleFromGoldenWindow(
-  groupId: string,
-  win: GoldenWindow,
-  opts: {
-    title?:            string
-    description?:      string
-    stops?:            EventStop[]
-    invitedMemberIds?: string[]
-    arrivalRadiusM?:   number
-    from?:             Date
-  } = {},
-): Promise<ScheduleLiveEventResult> {
-  const { start, end } = nextOccurrenceOf(win, opts.from)
-  return scheduleLiveEvent({
-    groupId,
-    windowStart:       start,
-    windowEnd:         end,
-    goldenWindowData:  win,
-    title:             opts.title,
-    description:       opts.description,
-    stops:             opts.stops,
-    invitedMemberIds:  opts.invitedMemberIds,
-    arrivalRadiusM:    opts.arrivalRadiusM,
-  })
+export async function listGroupLiveEvents(groupId:string):Promise<LiveEvent[]>{
+  try{return (await nexusApi<{events:LiveEvent[]}>(`/v1/circles/${encodeURIComponent(groupId)}/live-events`)).events}catch(error){console.error('[live-event-service] listGroupLiveEvents',error);return []}
 }
+export async function getActiveEventForGroup(groupId:string):Promise<LiveEvent|null>{return (await listGroupLiveEvents(groupId)).find((event)=>event.status==='live')??null}
+export async function getPendingEventForGroup(groupId:string):Promise<LiveEvent|null>{return (await listGroupLiveEvents(groupId)).filter((event)=>event.status==='pending').sort((a,b)=>a.window_start.localeCompare(b.window_start))[0]??null}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Queries
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getLiveEvent(
-  eventId: string,
-): Promise<LiveEventWithDetails | null> {
-  const [eventRes, presenceRes, locationRes, notifRes] = await Promise.all([
-    supabase.from('live_events').select('*').eq('id', eventId).single(),
-    supabase.from('member_presence').select('*').eq('event_id', eventId),
-    supabase.rpc('get_latest_locations', { p_event_id: eventId }),
-    supabase
-      .from('event_notifications')
-      .select('*')
-      .eq('event_id', eventId)
-      .order('created_at', { ascending: false })
-      .limit(50),
-  ])
-
-  if (eventRes.error) {
-    console.error('[live-event-service] getLiveEvent failed', eventRes.error)
-    return null
-  }
-
-  return {
-    ...(eventRes.data as LiveEvent),
-    presence:      (presenceRes.data ?? []) as MemberPresence[],
-    locations:     (locationRes.data ?? []) as LatestLocation[],
-    notifications: (notifRes.data ?? []) as EventNotification[],
-  }
+export async function cancelLiveEvent(eventId:string):Promise<CancelLiveEventResult>{
+  try{await nexusApi(`/v1/live-events/${encodeURIComponent(eventId)}/cancel`,{method:'POST',body:'{}'});return {success:true,errorMessage:null}}
+  catch(error){return {success:false,errorMessage:errorText(error)}}
 }
-
-export async function listGroupLiveEvents(
-  groupId: string,
-): Promise<LiveEvent[]> {
-  const { data, error } = await supabase
-    .from('live_events')
-    .select('*')
-    .eq('group_id', groupId)
-    .order('window_start', { ascending: false })
-
-  if (error) {
-    console.error('[live-event-service] listGroupLiveEvents failed', error)
-    return []
-  }
-  return (data ?? []) as LiveEvent[]
+async function transitions(){return nexusApi<{activated:number;deactivated:number}>('/v1/live-events/transitions',{method:'POST',body:'{}'})}
+export async function activateDueEvents():Promise<number>{try{return (await transitions()).activated}catch{return 0}}
+export async function deactivateExpiredEvents():Promise<number>{try{return (await transitions()).deactivated}catch{return 0}}
+async function hostAction(eventId:string,action:string,body?:Record<string,unknown>):Promise<{event:LiveEvent|null;errorMessage:string|null}>{
+  try{const {event}=await nexusApi<{event:LiveEvent}>(`/v1/live-events/${encodeURIComponent(eventId)}/${action}`,{method:'POST',body:JSON.stringify(body??{})});return {event,errorMessage:null}}
+  catch(error){return {event:null,errorMessage:errorText(error)}}
 }
-
-export async function getActiveEventForGroup(
-  groupId: string,
-): Promise<LiveEvent | null> {
-  const { data, error } = await supabase
-    .from('live_events')
-    .select('*')
-    .eq('group_id', groupId)
-    .eq('status', 'live')
-    .order('activated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    console.error('[live-event-service] getActiveEventForGroup failed', error)
-    return null
-  }
-  return (data as LiveEvent) ?? null
-}
-
-export async function getPendingEventForGroup(
-  groupId: string,
-): Promise<LiveEvent | null> {
-  const { data, error } = await supabase
-    .from('live_events')
-    .select('*')
-    .eq('group_id', groupId)
-    .eq('status', 'pending')
-    .order('window_start', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    console.error('[live-event-service] getPendingEventForGroup failed', error)
-    return null
-  }
-  return (data as LiveEvent) ?? null
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mutations
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function cancelLiveEvent(
-  eventId: string,
-): Promise<CancelLiveEventResult> {
-  const { error, status } = await supabase.rpc('cancel_live_event', {
-    p_event_id: eventId,
-  })
-  if (error) {
-    const msg = fmtErr(error, status)
-    console.error('[live-event-service] cancelLiveEvent failed', msg)
-    return { success: false, errorMessage: msg }
-  }
-  return { success: true, errorMessage: null }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Automatic state transitions (called by hook polling + pg_cron)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function activateDueEvents(): Promise<number> {
-  const { data, error } = await supabase.rpc('activate_due_live_events')
-  if (error) { console.error('[live-event-service] activateDueEvents', error); return 0 }
-  return (data as number) ?? 0
-}
-
-export async function deactivateExpiredEvents(): Promise<number> {
-  const { data, error } = await supabase.rpc('deactivate_expired_live_events')
-  if (error) { console.error('[live-event-service] deactivateExpiredEvents', error); return 0 }
-  return (data as number) ?? 0
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Host actions
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function skipStop(
-  eventId: string,
-): Promise<{ event: LiveEvent | null; errorMessage: string | null }> {
-  const { data, error, status } = await supabase.rpc('host_skip_stop', {
-    p_event_id: eventId,
-  })
-  if (error) {
-    const msg = fmtErr(error, status)
-    console.error('[live-event-service] skipStop failed', msg)
-    return { event: null, errorMessage: msg }
-  }
-  return { event: data as LiveEvent, errorMessage: null }
-}
-
-export async function delayStop(
-  eventId: string,
-  delayMinutes: number,
-): Promise<{ event: LiveEvent | null; errorMessage: string | null }> {
-  const { data, error, status } = await supabase.rpc('host_delay_stop', {
-    p_event_id:      eventId,
-    p_delay_minutes: delayMinutes,
-  })
-  if (error) {
-    const msg = fmtErr(error, status)
-    console.error('[live-event-service] delayStop failed', msg)
-    return { event: null, errorMessage: msg }
-  }
-  return { event: data as LiveEvent, errorMessage: null }
-}
-
-export async function endEvent(
-  eventId: string,
-): Promise<{ event: LiveEvent | null; errorMessage: string | null }> {
-  const { data, error, status } = await supabase.rpc('host_end_event', {
-    p_event_id: eventId,
-  })
-  if (error) {
-    const msg = fmtErr(error, status)
-    console.error('[live-event-service] endEvent failed', msg)
-    return { event: null, errorMessage: msg }
-  }
-  return { event: data as LiveEvent, errorMessage: null }
-}
-
-export async function sharePlan(
-  eventId: string,
-): Promise<{ errorMessage: string | null }> {
-  const { error, status } = await supabase.rpc('host_share_plan', {
-    p_event_id: eventId,
-  })
-  if (error) {
-    const msg = fmtErr(error, status)
-    console.error('[live-event-service] sharePlan failed', msg)
-    return { errorMessage: msg }
-  }
-  return { errorMessage: null }
-}
+export function skipStop(eventId:string){return hostAction(eventId,'skip-stop')}
+export function delayStop(eventId:string,delayMinutes:number){return hostAction(eventId,'delay-stop',{delayMinutes})}
+export function endEvent(eventId:string){return hostAction(eventId,'end')}
+export async function sharePlan(eventId:string):Promise<{errorMessage:string|null}>{const result=await hostAction(eventId,'share');return {errorMessage:result.errorMessage}}

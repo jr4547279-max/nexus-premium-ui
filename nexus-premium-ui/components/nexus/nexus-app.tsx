@@ -10,7 +10,6 @@ import { OnboardingFlow } from './onboarding-flow'
 import { Dashboard } from './dashboard'
 import { GroupsScreen } from './groups-screen'
 import { GroupDetail } from './group-detail'
-import { GoldenWindowReveal } from './golden-window-reveal'
 import { RunTracker } from './run-tracker'
 import type { PlannerResult } from '@/lib/planners/planner-engine'
 import { ActivityScreen } from './activity-screen'
@@ -180,7 +179,9 @@ export function NexusApp() {
       screenContent = activeRunPlan ? <RunTracker plan={activeRunPlan} onBack={() => setCurrentScreen('group-detail')} /> : null
       break
     case 'golden-window':
-      screenContent = <GoldenWindowReveal groupId={selectedGroupId} onBack={() => setCurrentScreen('group-detail')} onConfirm={() => setCurrentScreen('home')} />
+      // Keep this route on the recovered Circle experience so the reveal is
+      // always calculated from member-submitted availability by the API.
+      screenContent = <GroupDetail groupId={selectedGroupId} onBack={() => setCurrentScreen('group-detail')} onViewGoldenWindow={() => undefined} onNavigate={handleNavigate} />
       break
     case 'activity':
       screenContent = <ActivityScreen onBack={() => setCurrentScreen('home')} onNavigate={handleNavigate} />

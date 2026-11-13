@@ -13,7 +13,7 @@
  *  - Latest-locations query (used by the hook)
  */
 
-import { supabase } from './supabase'
+import { nexusApi } from './nexus-api'
 import type {
   LiveLocation,
   LatestLocation,
@@ -118,7 +118,7 @@ interface TrackingState {
 let _tracking: TrackingState | null = null
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Write to Supabase
+// Write through the authenticated Nexus API
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function persistLocation(
@@ -126,20 +126,16 @@ async function persistLocation(
   pos: GeolocationPosition,
 ): Promise<LiveLocation | null> {
   const { coords, timestamp } = pos
-  const { data, error } = await supabase.rpc('upsert_live_location', {
-    p_event_id:    eventId,
-    p_latitude:    coords.latitude,
-    p_longitude:   coords.longitude,
-    p_accuracy:    coords.accuracy ?? null,
-    p_heading:     coords.heading  ?? null,
-    p_speed:       coords.speed    ?? null,
-    p_recorded_at: new Date(timestamp).toISOString(),
-  })
-  if (error) {
+  try {
+    const { location } = await nexusApi<{location:LiveLocation}>(`/v1/live-events/${encodeURIComponent(eventId)}/locations`, {
+      method:'POST',
+      body:JSON.stringify({latitude:coords.latitude,longitude:coords.longitude,accuracy:coords.accuracy??null,heading:coords.heading??null,speed:coords.speed??null,recordedAt:new Date(timestamp).toISOString()}),
+    })
+    return location
+  } catch (error) {
     console.error('[location-service] persistLocation failed', error)
     return null
   }
-  return data as LiveLocation
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +147,7 @@ async function persistLocation(
  * Returns a cleanup function — call it to stop tracking.
  *
  * Throttling: the position callback fires at the browser's rate, but we only
- * write to Supabase when BOTH:
+ * write through the Nexus API when BOTH:
  *   - At least `intervalMs` ms have elapsed since the last write, AND
  *   - The device has moved at least `minDistanceM` metres.
  */
@@ -270,12 +266,11 @@ export function trackingEventId(): string | null {
 export async function getLatestLocations(
   eventId: string,
 ): Promise<LatestLocation[]> {
-  const { data, error } = await supabase.rpc('get_latest_locations', {
-    p_event_id: eventId,
-  })
-  if (error) {
+  try {
+    const { locations } = await nexusApi<{locations:LatestLocation[]}>(`/v1/live-events/${encodeURIComponent(eventId)}/locations`)
+    return locations
+  } catch (error) {
     console.error('[location-service] getLatestLocations failed', error)
     return []
   }
-  return (data ?? []) as LatestLocation[]
 }

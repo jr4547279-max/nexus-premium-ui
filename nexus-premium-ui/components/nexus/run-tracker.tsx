@@ -24,7 +24,7 @@
 //          Progress % (nearest-segment projection onto planned route)
 //
 // Privacy: GPS is never started until the user taps "Start Run".
-//          Trail data is session-local only — no Supabase writes.
+//          Trail data is session-local only — no server writes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'

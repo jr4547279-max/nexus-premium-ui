@@ -14,7 +14,10 @@
   ],
   "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "nexus-uploads-dev" }],
   "durable_objects": {
-    "bindings": [{ "name": "CIRCLE_ROOM", "class_name": "CircleRoom" }]
+    "bindings": [
+      { "name": "CIRCLE_ROOM", "class_name": "CircleRoom" },
+      { "name": "LIVE_EVENT_ROOM", "class_name": "CircleRoom" }
+    ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CircleRoom"] }],
   "vars": {

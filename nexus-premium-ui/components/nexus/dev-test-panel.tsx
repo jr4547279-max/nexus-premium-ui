@@ -4,7 +4,7 @@
 // DEV-ONLY: Developer Test Panel
 // ─────────────────────────────────────────────────────────────────────────────
 // Lets developers test the full Golden Window + Planner pipeline using
-// simulated multi-member scenarios without any Supabase interaction.
+// simulated multi-member scenarios without any API interaction.
 //
 // To remove: delete this file and all references in nexus-app.tsx /
 // groups-screen.tsx plus lib/dev/.
@@ -501,7 +501,7 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
           <div>
             <p className="text-xs font-semibold text-amber-400">Development Mode</p>
             <p className="text-[11px] text-amber-400/80 mt-0.5 leading-relaxed">
-              Not connected to Supabase. All computation runs in-memory against the real
+              Preview only. Computation runs in-memory against the real
               Golden Window engine and Planner Engine.
             </p>
           </div>
@@ -551,7 +551,7 @@ export function DevTestPanel({ onBack }: DevTestPanelProps) {
                   </div>
                   <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                     Run the real Golden Window engine against the scenario availability data.
-                    No Supabase calls — pure in-memory computation.
+                    No API calls — pure in-memory computation.
                   </p>
                   <Button
                     onClick={handleFindGoldenWindow}

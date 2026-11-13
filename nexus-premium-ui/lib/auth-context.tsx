@@ -22,8 +22,8 @@ interface AuthContextValue {
   profile: Profile | null
   loading: boolean
   profileLoading: boolean
-  signIn: (email: string) => Promise<{ error: AuthError | null }>
-  signUp: (email: string) => Promise<{ error: AuthError | null; needsEmailConfirm?: boolean }>
+  signIn: (email: string) => Promise<{ error: AuthError | null; developmentVerificationUrl?: string }>
+  signUp: (email: string) => Promise<{ error: AuthError | null; needsEmailConfirm?: boolean; developmentVerificationUrl?: string }>
   signInWithGoogle: () => Promise<{ error: AuthError | null }>
   resetPassword: (email: string) => Promise<{ error: AuthError | null }>
   signOut: () => Promise<void>
@@ -68,8 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const requestLink = useCallback(async (email: string) => {
     try {
-      await nexusApi('/v1/auth/request-link', { method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase() }) })
-      return { error: null as AuthError | null }
+      const result = await nexusApi<{ delivery?: string; verificationUrl?: string }>('/v1/auth/request-link', { method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase() }) })
+      return {
+        error: null as AuthError | null,
+        ...(result.delivery === 'development' && result.verificationUrl ? { developmentVerificationUrl: result.verificationUrl } : {}),
+      }
     } catch (error) {
       return { error: authError(error) }
     }

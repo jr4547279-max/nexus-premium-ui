@@ -5,7 +5,7 @@
  *
  * Single React hook that wires together the Live Event Engine:
  *   - Fetches event, presence, locations, and notifications on mount
- *   - Supabase Realtime subscriptions (live_events, live_locations,
+ *   - Supabase Realtime subscriptions (removed during the Cloudflare migration) (live_events, live_locations,
  *     member_presence, event_notifications) with automatic cleanup
  *   - 30-second polling for automatic pending→live→ended transitions
  *   - 1-second countdown timer (time to start / time to end)
@@ -23,9 +23,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { RealtimeChannel } from '@supabase/supabase-js'
-
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { nexusApiOrigin } from '@/lib/nexus-api'
 import { useAuth } from '@/lib/auth-context'
 
 // Services
@@ -185,7 +183,9 @@ export function useLiveEvent(groupId: string | null | undefined): UseLiveEventRe
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const mountedRef        = useRef(true)
-  const channelRef        = useRef<RealtimeChannel | null>(null)
+  const socketRef         = useRef<WebSocket | null>(null)
+  const socketEventIdRef   = useRef<string | null>(null)
+  const socketConnectRef   = useRef<(eventId:string)=>void>(()=>{})
   const pollTimerRef      = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Cache the current event for use inside callbacks without stale closures.
@@ -238,6 +238,9 @@ export function useLiveEvent(groupId: string | null | undefined): UseLiveEventRe
       setAllEvents(allEvts)
 
       if (!targetEvent) {
+        socketRef.current?.close()
+        socketRef.current = null
+        socketEventIdRef.current = null
         setEvent(null)
         setMembers([])
         setLocations([])
@@ -255,7 +258,10 @@ export function useLiveEvent(groupId: string | null | undefined): UseLiveEventRe
       ])
 
       if (!mountedRef.current) return
-      if (full) setEvent(full)
+      if (full) {
+        setEvent(full)
+        if(socketEventIdRef.current!==full.id) socketConnectRef.current(full.id)
+      }
       setMembers(pres)
       setLocations(locs)
       setNotifications(notifs)
@@ -273,71 +279,19 @@ export function useLiveEvent(groupId: string | null | undefined): UseLiveEventRe
   // ── Realtime subscription ─────────────────────────────────────────────────
 
   const subscribe = useCallback(() => {
-    if (!groupId || !isSupabaseConfigured) return
-
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current).catch(() => {})
-      channelRef.current = null
+    if (!groupId) return
+    socketConnectRef.current=(eventId)=>{
+      if(socketEventIdRef.current===eventId && socketRef.current && socketRef.current.readyState<=WebSocket.OPEN)return
+      socketRef.current?.close()
+      const apiUrl=nexusApiOrigin?new URL(nexusApiOrigin):new URL(location.origin)
+      const scheme=apiUrl.protocol==='https:'?'wss:':'ws:'
+      const socket=new WebSocket(`${scheme}//${apiUrl.host}/v1/live-events/${encodeURIComponent(eventId)}/live`)
+      socketRef.current=socket
+      socketEventIdRef.current=eventId
+      socket.onmessage=()=>{void fetchData()}
+      socket.onerror=()=>console.warn('[useLiveEvent] live update socket disconnected; polling remains active')
     }
-
-    const channel = supabase
-      .channel(`live-event-engine:${groupId}`)
-      // live_events — filtered to this group
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_events', filter: `group_id=eq.${groupId}` },
-        () => { fetchData() },
-      )
-      // member_presence — no group_id column; re-fetch handles filtering
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'member_presence' },
-        (payload) => {
-          const ev = eventRef.current
-          if (!ev) return
-          const row = (payload.new ?? payload.old) as { event_id?: string } | null
-          if (row?.event_id !== ev.id) return
-          getGroupPresence(ev.id).then((p) => {
-            if (mountedRef.current) setMembers(p)
-          })
-        },
-      )
-      // live_locations
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'live_locations' },
-        (payload) => {
-          const ev = eventRef.current
-          if (!ev) return
-          const row = payload.new as { event_id?: string } | null
-          if (row?.event_id !== ev.id) return
-          getLatestLocations(ev.id).then((l) => {
-            if (mountedRef.current) setLocations(l)
-          })
-        },
-      )
-      // event_notifications
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'event_notifications' },
-        (payload) => {
-          const ev = eventRef.current
-          if (!ev) return
-          const row = payload.new as EventNotification & { event_id?: string }
-          if (row.event_id !== ev.id) return
-          setNotifications((prev) => [row, ...prev].slice(0, 50))
-        },
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`[useLiveEvent] realtime subscribed for group ${groupId}`)
-        }
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('[useLiveEvent] realtime channel error', err)
-        }
-      })
-
-    channelRef.current = channel
+    if(eventRef.current) socketConnectRef.current(eventRef.current.id)
   }, [groupId, fetchData])
 
   // ── Countdown timer ───────────────────────────────────────────────────────
@@ -381,10 +335,9 @@ export function useLiveEvent(groupId: string | null | undefined): UseLiveEventRe
     return () => {
       mountedRef.current = false
 
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current).catch(() => {})
-        channelRef.current = null
-      }
+      socketRef.current?.close()
+      socketRef.current = null
+      socketEventIdRef.current = null
       if (pollTimerRef.current)      { clearInterval(pollTimerRef.current);      pollTimerRef.current      = null }
       if (countdownTimerRef.current) { clearInterval(countdownTimerRef.current); countdownTimerRef.current = null }
 

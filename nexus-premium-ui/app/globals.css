@@ -37,34 +37,34 @@
 }
 
 .dark {
-  --background: oklch(0.12 0.02 260);
-  --foreground: oklch(0.95 0.01 90);
-  --card: oklch(0.15 0.02 260);
-  --card-foreground: oklch(0.95 0.01 90);
-  --popover: oklch(0.13 0.02 260);
-  --popover-foreground: oklch(0.95 0.01 90);
-  --primary: oklch(0.78 0.14 75);
-  --primary-foreground: oklch(0.15 0.02 260);
-  --secondary: oklch(0.20 0.02 260);
-  --secondary-foreground: oklch(0.90 0.01 90);
-  --muted: oklch(0.22 0.02 260);
-  --muted-foreground: oklch(0.65 0.02 90);
-  --accent: oklch(0.75 0.12 75);
-  --accent-foreground: oklch(0.15 0.02 260);
+  --background: oklch(0.105 0.006 25);
+  --foreground: oklch(0.97 0.004 50);
+  --card: oklch(0.145 0.008 25);
+  --card-foreground: oklch(0.97 0.004 50);
+  --popover: oklch(0.13 0.008 25);
+  --popover-foreground: oklch(0.97 0.004 50);
+  --primary: oklch(0.72 0.19 35);
+  --primary-foreground: oklch(0.12 0.008 25);
+  --secondary: oklch(0.20 0.008 25);
+  --secondary-foreground: oklch(0.94 0.004 50);
+  --muted: oklch(0.22 0.008 25);
+  --muted-foreground: oklch(0.76 0.012 45);
+  --accent: oklch(0.68 0.20 28);
+  --accent-foreground: oklch(0.98 0.004 50);
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(0.95 0.01 90);
-  --border: oklch(0.28 0.02 260);
-  --input: oklch(0.20 0.02 260);
-  --ring: oklch(0.78 0.14 75);
+  --border: oklch(0.30 0.012 25);
+  --input: oklch(0.20 0.008 25);
+  --ring: oklch(0.72 0.19 35);
 
   /* Nexus Custom Colors — dark */
-  --nexus-gold: oklch(0.78 0.14 75);
-  --nexus-gold-dim: oklch(0.65 0.10 75);
-  --nexus-gold-bright: oklch(0.88 0.16 75);
-  --nexus-navy: oklch(0.12 0.02 260);
-  --nexus-navy-light: oklch(0.18 0.02 260);
-  --nexus-glass: oklch(0.18 0.02 260 / 0.6);
-  --nexus-glass-border: oklch(0.35 0.02 260);
+  --nexus-gold: oklch(0.72 0.19 35);
+  --nexus-gold-dim: oklch(0.62 0.17 30);
+  --nexus-gold-bright: oklch(0.82 0.17 45);
+  --nexus-navy: oklch(0.105 0.006 25);
+  --nexus-navy-light: oklch(0.16 0.008 25);
+  --nexus-glass: oklch(0.17 0.008 25 / 0.78);
+  --nexus-glass-border: oklch(0.34 0.014 25);
 }
 
 @theme inline {
@@ -133,20 +133,20 @@ svg {
 /* Nexus Custom Utilities */
 @layer utilities {
   .glow-gold {
-    box-shadow: 0 0 20px oklch(0.78 0.14 75 / 0.3),
-                0 0 40px oklch(0.78 0.14 75 / 0.15),
-                0 0 60px oklch(0.78 0.14 75 / 0.05);
+    box-shadow: 0 0 20px oklch(0.72 0.19 35 / 0.32),
+                0 0 40px oklch(0.68 0.20 28 / 0.18),
+                0 0 60px oklch(0.62 0.17 30 / 0.08);
   }
 
   .glow-gold-intense {
-    box-shadow: 0 0 30px oklch(0.78 0.14 75 / 0.5),
-                0 0 60px oklch(0.78 0.14 75 / 0.3),
-                0 0 100px oklch(0.78 0.14 75 / 0.15);
+    box-shadow: 0 0 30px oklch(0.72 0.19 35 / 0.52),
+                0 0 60px oklch(0.68 0.20 28 / 0.3),
+                0 0 100px oklch(0.62 0.17 30 / 0.15);
   }
 
   .text-glow-gold {
-    text-shadow: 0 0 10px oklch(0.78 0.14 75 / 0.5),
-                 0 0 20px oklch(0.78 0.14 75 / 0.3);
+    text-shadow: 0 0 10px oklch(0.72 0.19 35 / 0.5),
+                 0 0 20px oklch(0.68 0.20 28 / 0.3);
   }
 
   .glass-card {
@@ -168,6 +168,7 @@ svg {
 
   .orbital-ring {
     animation: orbit 20s linear infinite;
+    will-change: transform;
   }
 
   .orbital-ring-reverse {
@@ -180,6 +181,7 @@ svg {
 
   .float {
     animation: float 6s ease-in-out infinite;
+    will-change: transform;
   }
 
   .shimmer {
@@ -281,6 +283,15 @@ svg {
 @keyframes weather-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ── Nexus World ─────────────────────────────────────────────────────────── */

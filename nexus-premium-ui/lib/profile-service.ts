@@ -1,4 +1,4 @@
-import { nexusApi } from './nexus-api'
+import { nexusApi, nexusApiOrigin } from './nexus-api'
 
 export interface ProfilePreferences {
   theme?: 'light' | 'dark' | 'system'
@@ -38,7 +38,9 @@ type ProfileResponse = { profile: Profile }
 export async function getProfile(userId?: string): Promise<Profile | null> {
   try {
     const { profile } = await nexusApi<ProfileResponse>('/v1/profile')
-    return !userId || profile.id === userId ? profile : null
+    if (userId && profile.id !== userId) return null
+    if (profile.avatar_url?.startsWith('/v1/')) profile.avatar_url = `${nexusApiOrigin}${profile.avatar_url}`
+    return profile
   } catch {
     return null
   }

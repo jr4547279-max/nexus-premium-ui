@@ -50,7 +50,12 @@ export function InviteMemberModal({ open, onOpenChange, groupName, inviteCode, g
       setSearching(true)
       try {
         const rows = await searchGroupMemberCandidates(groupId, q)
-        if (!cancelled) setResults(rows as Candidate[])
+        if (!cancelled) setResults(rows.map((profile) => ({
+          user_id: profile.id,
+          username: profile.username,
+          display_name: profile.display_name,
+          avatar_url: profile.avatar_url,
+        })))
       } catch (error) {
         if (!cancelled) toast.error('Username search failed', { description: error instanceof Error ? error.message : 'Please try again.' })
       } finally {
@@ -87,7 +92,7 @@ export function InviteMemberModal({ open, onOpenChange, groupName, inviteCode, g
     setAdding(true)
     try {
       const result = await addGroupMemberByUsername(groupId, selected.username)
-      if (!result?.success) throw new Error(result?.error_message || 'Could not add this person.')
+      if (!result?.success) throw new Error(typeof result?.error_message === 'string' ? result.error_message : 'Could not add this person.')
       toast.success(result.already_member ? 'Already in the group' : `${selected.display_name || selected.username} added to ${groupName}`)
       setSelected(null)
       setQuery('')

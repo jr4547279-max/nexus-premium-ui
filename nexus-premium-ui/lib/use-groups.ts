@@ -5,7 +5,7 @@ import { useAuth } from './auth-context'
 import { listMyGroups, type GroupSummary } from './group-service'
 
 /**
- * Loads the signed-in user's groups from Supabase. Returns `null` while the
+ * Loads the signed-in user's groups from the Nexus API. Returns `null` while the
  * initial load is in-flight so callers can decide whether to fall back to
  * mock data ONLY when the real list is empty (not while loading).
  */

@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { GlassCard } from './glass-card'
-import { Star, MapPin, Sparkles, ThumbsUp, ThumbsDown, ExternalLink, AlertTriangle } from 'lucide-react'
+import { Star, MapPin, Sparkles, ThumbsUp, ThumbsDown, ExternalLink, AlertTriangle, Check, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import {
   fetchVenues,
   computeMidpoint,
@@ -14,6 +15,7 @@ import {
 } from '@/lib/venue-service'
 import { VenueDetailSheet } from './venue-detail-sheet'
 import type { Weather } from '@/lib/weather-service'
+import { confirmNexusPlan, createGoldenWindowPlan, recordVenueVote } from '@/lib/plan-service'
 import {
   detectActivityIntent,
   rankVenues,
@@ -31,11 +33,12 @@ interface Props {
     day_of_week: number
     start_time: string
     end_time: string
+    days_until?: number
   } | null
   /**
    * Group planning location — takes priority over memberCoords for the
    * venue search midpoint. When present, this is the real coordinates
-   * the group has set via the map picker (stored in Supabase).
+   * the group has set via the map picker (stored by the Nexus API).
    */
   planningLocation?: { lat: number; lng: number } | null
   /** Future-proof: when member coords exist, pass them and the midpoint will shift. */
@@ -107,12 +110,29 @@ export function VenueRecommendations({
     setVibe(requestedVibe)
   }, [requestedVibe])
 
+  useEffect(() => {
+    planIdRef.current = null
+    setPlanId(null)
+    setVotes({})
+    setVenueRecordIds({})
+    setLikedVenues({})
+    setConfirmedVenueName(null)
+  }, [groupId, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])
+
   // ── Data fetching ──────────────────────────────────────────────────────────
   const [venues, setVenues] = useState<Venue[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [usingFallback, setUsingFallback] = useState(true)
   const [votes, setVotes] = useState<Record<string, 1 | -1 | 0>>({})
+  const [venueSource, setVenueSource] = useState<string | null>(null)
+  const [planId, setPlanId] = useState<string | null>(null)
+  const planIdRef = useRef<string | null>(null)
+  const [venueRecordIds, setVenueRecordIds] = useState<Record<string, string>>({})
+  const [likedVenues, setLikedVenues] = useState<Record<string, Venue>>({})
+  const [savingVote, setSavingVote] = useState<string | null>(null)
+  const [confirmingPlan, setConfirmingPlan] = useState(false)
+  const [confirmedVenueName, setConfirmedVenueName] = useState<string | null>(null)
   const [mapFailed, setMapFailed] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
   const [recalibrationSeed, setRecalibrationSeed] = useState(0)
@@ -133,7 +153,7 @@ export function VenueRecommendations({
   )
 
   // Midpoint priority:
-  //   1. planningLocation — group's real saved location (from map picker / Supabase)
+  //   1. planningLocation — group's real saved location (from map picker / Nexus API)
   //   2. memberCoords     — individual member coordinates (future feature)
   //   3. fallback         — no location set; show a prompt instead of silently searching Eastbourne
   const midpoint = useMemo(() => {
@@ -149,6 +169,7 @@ export function VenueRecommendations({
       setLoading(false)
       setError(null)
       setUsingFallback(true)
+      setVenueSource(null)
       setShowAlternatives(false)
       setAltVenues([])
       return
@@ -170,6 +191,7 @@ export function VenueRecommendations({
       if (result.error) setError(result.error)
       setVenues(result.venues)
       setUsingFallback(false)
+      setVenueSource(result.provider ?? (result.venues.length ? 'OpenStreetMap' : null))
       setLoading(false)
     })
     return () => {
@@ -207,6 +229,75 @@ export function VenueRecommendations({
       setAltVenues(result.venues)
       setAltLoading(false)
     })
+  }
+
+  const venueKey = (venue: Venue) => `${venue.name}|${venue.address ?? ''}`
+
+  const handleVenueVote = async (venue: Venue, direction: 1 | -1) => {
+    if (!groupId || !goldenWindow) {
+      toast.error('Find a Golden Window before voting on venues.')
+      return
+    }
+    const key = venueKey(venue)
+    if (savingVote) return
+    const nextVote = votes[venue.name] === direction ? 0 : direction
+    setSavingVote(key)
+    try {
+      let currentPlanId = planIdRef.current
+      if (!currentPlanId) {
+        const start = new Date()
+        let daysUntil = goldenWindow.days_until
+        if (daysUntil == null) daysUntil = (goldenWindow.day_of_week - start.getDay() + 7) % 7
+        const [startHour, startMinute] = goldenWindow.start_time.split(':').map(Number)
+        const [endHour, endMinute] = goldenWindow.end_time.split(':').map(Number)
+        start.setDate(start.getDate() + daysUntil)
+        start.setHours(startHour, startMinute, 0, 0)
+        if (start.getTime() <= Date.now()) start.setDate(start.getDate() + 7)
+        const end = new Date(start)
+        end.setHours(endHour, endMinute, 0, 0)
+        if (end <= start) end.setDate(end.getDate() + 1)
+        const created = await createGoldenWindowPlan(groupId, {
+          title: `${groupName?.trim() || 'Circle'} plan`,
+          startsAt: start.toISOString(),
+          endsAt: end.toISOString(),
+          window: { dayOfWeek: goldenWindow.day_of_week, startTime: goldenWindow.start_time, endTime: goldenWindow.end_time },
+        })
+        currentPlanId = created.id
+        planIdRef.current = currentPlanId
+        setPlanId(currentPlanId)
+      }
+      const savedVenueId = await recordVenueVote(currentPlanId, venue, nextVote, venueRecordIds[key])
+      setVenueRecordIds((previous) => ({ ...previous, [key]: savedVenueId }))
+      setVotes((previous) => ({ ...previous, [venue.name]: nextVote }))
+      setLikedVenues((previous) => {
+        const next = { ...previous }
+        if (nextVote === 1) next[key] = venue
+        else delete next[key]
+        return next
+      })
+      setConfirmedVenueName(null)
+    } catch (error) {
+      console.error('[venue-recommendations] vote failed', error)
+      toast.error(error instanceof Error ? error.message : 'Your vote could not be saved.')
+    } finally {
+      setSavingVote(null)
+    }
+  }
+
+  const handleConfirmPlan = async (venue: Venue) => {
+    const currentPlanId = planIdRef.current
+    const savedVenueId = venueRecordIds[venueKey(venue)]
+    if (!currentPlanId || !savedVenueId || confirmingPlan) return
+    setConfirmingPlan(true)
+    try {
+      await confirmNexusPlan(currentPlanId, savedVenueId)
+      setConfirmedVenueName(venue.name)
+      toast.success('Plan confirmed and your RSVP is yes.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not confirm the plan.')
+    } finally {
+      setConfirmingPlan(false)
+    }
   }
 
   const mapUrl = useMemo(
@@ -307,6 +398,7 @@ export function VenueRecommendations({
         <h2 className="text-lg font-semibold">Nearby fits</h2>
         {goldenWindow ? <span className="text-[11px] text-muted-foreground">For {goldenWindow.start_time}–{goldenWindow.end_time}</span> : null}
       </div>
+      {venueSource && venues.length > 0 && <p className="-mt-1 mb-2 text-[11px] text-muted-foreground" aria-live="polite">Live venue results · {venueSource}</p>}
       {usingFallback && <p className="text-[10px] text-muted-foreground italic -mt-2 mb-1">Set a group location above to find real venues nearby.</p>}
 
       {loading ? (
@@ -319,8 +411,30 @@ export function VenueRecommendations({
         <GlassCard className="p-4"><p className="text-xs text-muted-foreground">No venues found for this vibe in the search area.</p></GlassCard>
       ) : (
         <div className="space-y-2.5">
-          {listResults.map((result, idx) => <VenueCard key={`${result.venue.name}-${result.venue.address ?? idx}`} result={result} isTopPick={idx === 0} vote={votes[result.venue.name] ?? 0} onVote={(dir) => setVotes((p) => ({ ...p, [result.venue.name]: p[result.venue.name] === dir ? 0 : dir }))} onOpen={() => setSelectedVenue(result.venue)} />)}
+          {listResults.map((result, idx) => <VenueCard key={`${result.venue.name}-${result.venue.address ?? idx}`} result={result} isTopPick={idx === 0} vote={votes[result.venue.name] ?? 0} onVote={(dir) => void handleVenueVote(result.venue, dir)} onOpen={() => setSelectedVenue(result.venue)} />)}
         </div>
+      )}
+
+      {Object.keys(likedVenues).length > 0 && (
+        <GlassCard className="mt-4 space-y-3 p-4" aria-live="polite">
+          <div>
+            <p className="text-sm font-medium">Circle venue vote</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Votes are saved to the Circle plan. Confirming records the plan and your RSVP; it does not book the venue.</p>
+          </div>
+          {Object.entries(likedVenues).map(([key, venue]) => (
+            <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 px-3 py-2">
+              <span className="min-w-0 truncate text-sm">{venue.name}</span>
+              {confirmedVenueName === venue.name ? (
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-primary"><Check className="h-4 w-4" />Confirmed · RSVP yes</span>
+              ) : (
+                <button type="button" onClick={() => void handleConfirmPlan(venue)} disabled={confirmingPlan || !planId} className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-60">
+                  {confirmingPlan ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  Confirm plan
+                </button>
+              )}
+            </div>
+          ))}
+        </GlassCard>
       )}
 
       {showAlternatives && (
@@ -329,12 +443,12 @@ export function VenueRecommendations({
           {altLoading ? (
             <GlassCard className="p-4"><div className="flex items-center gap-3" role="status"><span className="relative flex w-2.5 h-2.5"><span className="absolute inset-0 rounded-full bg-blue-400/50 animate-ping" /><span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-blue-400" /></span><p className="text-sm text-muted-foreground">Finding cosy alternatives…</p></div></GlassCard>
           ) : (
-            <div className="space-y-2.5">{rankVenues(altVenues, weather ?? null, { ...intent, preferIndoor: true, category: 'indoor_social', vibe: weatherAlt.alternativeVibe, weatherSensitive: false }).slice(0, 4).map((result, idx) => <VenueCard key={`alt-${result.venue.name}-${idx}`} result={result} isTopPick={false} isAlternative vote={votes[result.venue.name] ?? 0} onVote={(dir) => setVotes((p) => ({ ...p, [result.venue.name]: p[result.venue.name] === dir ? 0 : dir }))} onOpen={() => setSelectedVenue(result.venue)} />)}</div>
+            <div className="space-y-2.5">{rankVenues(altVenues, weather ?? null, { ...intent, preferIndoor: true, category: 'indoor_social', vibe: weatherAlt.alternativeVibe, weatherSensitive: false }).slice(0, 4).map((result, idx) => <VenueCard key={`alt-${result.venue.name}-${idx}`} result={result} isTopPick={false} isAlternative vote={votes[result.venue.name] ?? 0} onVote={(dir) => void handleVenueVote(result.venue, dir)} onOpen={() => setSelectedVenue(result.venue)} />)}</div>
           )}
         </div>
       )}
 
-      <VenueDetailSheet venue={selectedVenue} groupId={groupId} activityId={activityId} vibe={vibe} goldenWindow={goldenWindow ?? null} midpointFallback={midpoint.fallback} weather={weather ?? null} vote={selectedVenue ? votes[selectedVenue.name] ?? 0 : 0} onVote={(dir) => selectedVenue && setVotes((p) => ({ ...p, [selectedVenue.name]: p[selectedVenue.name] === dir ? 0 : dir }))} onClose={() => setSelectedVenue(null)} intent={intent} />
+      <VenueDetailSheet venue={selectedVenue} groupId={groupId} activityId={activityId} vibe={vibe} goldenWindow={goldenWindow ?? null} midpointFallback={midpoint.fallback} weather={weather ?? null} vote={selectedVenue ? votes[selectedVenue.name] ?? 0 : 0} onVote={(dir) => selectedVenue && void handleVenueVote(selectedVenue, dir)} onClose={() => setSelectedVenue(null)} intent={intent} />
     </div>
   )
 }

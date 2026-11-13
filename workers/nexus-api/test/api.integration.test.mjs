@@ -1,0 +1,189 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
+import worker from '../src/index.ts'
+
+function localD1(database) {
+  const wrap = (sql, values = []) => ({
+    bind(...nextValues) { return wrap(sql, nextValues) },
+    async first(column) {
+      const row = database.prepare(sql).get(...values)
+      return column ? row?.[column] ?? null : row ?? null
+    },
+    async all() { return { results: database.prepare(sql).all(...values) } },
+    async run() {
+      const result = database.prepare(sql).run(...values)
+      return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }
+    },
+  })
+  return {
+    prepare(sql) { return wrap(sql) },
+    async batch(statements) {
+      database.exec('BEGIN')
+      try {
+        const results = []
+        for (const statement of statements) results.push(await statement.run())
+        database.exec('COMMIT')
+        return results
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+    },
+  }
+}
+
+function testEnvironment() {
+  const sqlite = new DatabaseSync(':memory:')
+  sqlite.exec('PRAGMA foreign_keys = ON')
+  for (const file of ['0001_initial.sql', '0002_social_live.sql', '0003_golden_plan_idempotency.sql']) {
+    sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), 'utf8'))
+  }
+  const room = { idFromName: (name) => name, get: () => ({ fetch: async () => new Response(null, { status: 204 }) }) }
+  const objects = new Map()
+  return {
+    sqlite,
+    env: {
+      DB: localD1(sqlite),
+      UPLOADS: {
+        async put(key, body, options) { objects.set(key, { body: await new Response(body).arrayBuffer(), options }) },
+        async get(key) {
+          const item = objects.get(key)
+          return item ? { body: item.body, httpMetadata: item.options?.httpMetadata } : null
+        },
+        async delete(key) { objects.delete(key) },
+      },
+      CIRCLE_ROOM: room,
+      LIVE_EVENT_ROOM: room,
+      APP_ORIGIN: 'https://app.nexus.test',
+      PUBLIC_APP_URL: 'https://app.nexus.test',
+      AUTH_MODE: 'development',
+      ALLOW_DEV_AUTH: 'false',
+      EMAIL_FROM: 'Nexus <hello@nexus.test>',
+      EMAIL_API_URL: 'https://mailer.nexus.test/send',
+      EMAIL_API_TOKEN: 'test-only-token',
+    },
+  }
+}
+
+test('authenticated Circle planning journey uses saved availability and enforces membership', async (t) => {
+  const { env, sqlite } = testEnvironment()
+  t.after(() => sqlite.close())
+  const realFetch = globalThis.fetch
+  const sentMail = []
+  globalThis.fetch = async (input, init = {}) => {
+    if (String(input) === env.EMAIL_API_URL) {
+      sentMail.push(JSON.parse(String(init.body)))
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    return realFetch(input, init)
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  async function request(path, { method = 'GET', body, cookie } = {}) {
+    const headers = new Headers({ origin: env.APP_ORIGIN })
+    if (body !== undefined) headers.set('content-type', 'application/json')
+    if (cookie) headers.set('cookie', cookie)
+    const response = await worker.fetch(new Request(`https://api.nexus.test${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }), env)
+    return { response, data: await response.json(), setCookie: response.headers.get('set-cookie') }
+  }
+
+  async function signIn(email) {
+    const before = sentMail.length
+    const requested = await request('/v1/auth/request-link', { method: 'POST', body: { email } })
+    assert.equal(requested.response.status, 202)
+    const magicMail = sentMail[before]
+    assert.ok(magicMail, 'auth email delivered through the isolated mail stub')
+    const verifyUrl = new URL(magicMail.text.match(/https:\/\/[^\s]+/)?.[0])
+    const verified = await request('/v1/auth/verify', { method: 'POST', body: { token: verifyUrl.searchParams.get('token') } })
+    assert.equal(verified.response.status, 200)
+    assert.ok(verified.setCookie?.includes('HttpOnly'))
+    return verified.setCookie.split(';', 1)[0]
+  }
+
+  const alice = await signIn('alice@nexus.test')
+  const bob = await signIn('bob@nexus.test')
+  const aliceProfile = await request('/v1/profile', { method: 'PATCH', cookie: alice, body: { display_name: 'Alice', username: 'alice' } })
+  const bobProfile = await request('/v1/profile', { method: 'PATCH', cookie: bob, body: { display_name: 'Bob', username: 'bob' } })
+  assert.equal(aliceProfile.response.status, 200)
+  assert.equal(bobProfile.response.status, 200)
+
+  const created = await request('/v1/circles', { method: 'POST', cookie: alice, body: { name: 'Friday plans', emoji: '🧡' } })
+  assert.equal(created.response.status, 201)
+  const circleId = created.data.circle.id
+
+  const mailCount = sentMail.length
+  const invitation = await request(`/v1/circles/${circleId}/invitations`, { method: 'POST', cookie: alice, body: { email: 'bob@nexus.test' } })
+  assert.equal(invitation.response.status, 201)
+  const invitationMail = sentMail[mailCount]
+  const inviteToken = invitationMail.text.match(/https:\/\/[^\s]+/)?.[0].split('/').at(-1)
+  assert.ok(inviteToken)
+  assert.equal((await request(`/v1/invitations/preview?token=${encodeURIComponent(inviteToken)}`)).response.status, 200)
+  const joined = await request('/v1/invitations/accept', { method: 'POST', cookie: bob, body: { token: inviteToken } })
+  assert.equal(joined.response.status, 200)
+
+  const day = (new Date().getDay() + 2) % 7
+  for (const cookie of [alice, bob]) {
+    const saved = await request(`/v1/circles/${circleId}/availability`, {
+      method: 'PUT', cookie,
+      body: { slots: [{ dayOfWeek: day, startTime: '18:00', endTime: '21:30' }] },
+    })
+    assert.equal(saved.response.status, 200)
+  }
+  const windowResult = await request(`/v1/circles/${circleId}/golden-window`, { cookie: alice })
+  assert.equal(windowResult.response.status, 200)
+  assert.equal(windowResult.data.source, 'member-submitted availability')
+  const best = windowResult.data.windows[0]
+  assert.ok(best)
+  assert.equal(best.available_member_count, 2)
+  assert.equal(best.total_member_count, 2)
+  assert.equal(best.fairness_score, 100)
+
+  const start = new Date()
+  start.setDate(start.getDate() + best.days_until)
+  const [hours, minutes] = best.start_time.split(':').map(Number)
+  start.setHours(hours, minutes, 0, 0)
+  const plan = await request(`/v1/circles/${circleId}/plans`, {
+    method: 'POST', cookie: alice,
+    body: {
+      title: 'Friday together', startsAt: start.toISOString(),
+      goldenWindow: true,
+      window: { dayOfWeek: best.day_of_week, startTime: best.start_time, endTime: best.end_time },
+      venue: { name: 'Ember House' },
+    },
+  })
+  assert.ok([200, 201].includes(plan.response.status))
+  const planId = plan.data.plan.id
+  const repeatPlan = await request(`/v1/circles/${circleId}/plans`, {
+    method: 'POST', cookie: bob,
+    body: {
+      title: 'Friday together', startsAt: start.toISOString(),
+      goldenWindow: true,
+      window: { dayOfWeek: best.day_of_week, startTime: best.start_time, endTime: best.end_time },
+    },
+  })
+  assert.equal(repeatPlan.data.plan.id, planId, 'all Circle members share one plan for this Golden Window')
+
+  const voteAlice = await request(`/v1/plans/${planId}/votes`, { method: 'POST', cookie: alice, body: { providerVenueId: 'place:ember-house', venueName: 'Ember House', venueType: 'restaurant', vote: 1 } })
+  assert.equal(voteAlice.response.status, 200)
+  const voteBob = await request(`/v1/plans/${planId}/votes`, { method: 'POST', cookie: bob, body: { providerVenueId: 'place:ember-house', venueName: 'Ember House', venueType: 'restaurant', vote: 1 } })
+  assert.equal(voteBob.response.status, 200)
+  assert.equal(voteBob.data.venue_id, voteAlice.data.venue_id, 'members vote on the same durable venue record')
+  assert.equal((await request(`/v1/plans/${planId}/confirm`, { method: 'POST', cookie: alice, body: { venueId: voteAlice.data.venue_id } })).response.status, 200)
+  assert.equal((await request(`/v1/plans/${planId}/rsvps`, { cookie: alice })).data.rsvps.find((entry) => entry.display_name === 'Alice')?.response, 'yes')
+  assert.equal((await request(`/v1/plans/${planId}/rsvps`, { method: 'PUT', cookie: alice, body: { response: 'yes' } })).response.status, 200)
+  assert.equal((await request(`/v1/plans/${planId}/rsvps`, { method: 'PUT', cookie: bob, body: { response: 'yes' } })).response.status, 200)
+
+  const chat = await request(`/v1/circles/${circleId}/messages`, { method: 'POST', cookie: bob, body: { body: 'See you there!' } })
+  assert.equal(chat.response.status, 201)
+  assert.equal((await request(`/v1/circles/${circleId}/messages`, { cookie: alice })).data.messages.at(-1).body, 'See you there!')
+
+  const charlie = await signIn('charlie@nexus.test')
+  const forbidden = await request(`/v1/circles/${circleId}/messages`, { cookie: charlie })
+  assert.equal(forbidden.response.status, 404, 'non-members cannot read private Circle chat')
+})

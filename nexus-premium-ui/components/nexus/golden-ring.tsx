@@ -100,7 +100,7 @@ export function GoldenRing({
       <div
         className={cn(
           'absolute inset-0 rounded-full',
-          'bg-gradient-to-r from-amber-500/20 via-yellow-400/30 to-amber-600/20',
+          'bg-gradient-to-r from-orange-600/20 via-orange-400/35 to-red-600/25',
           'blur-xl',
           glowIntensity[intensity],
           animated && 'animate-glow-pulse'
@@ -110,7 +110,7 @@ export function GoldenRing({
       <div
         className={cn(
           'absolute inset-2 rounded-full',
-          'bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600',
+          'bg-gradient-to-br from-orange-300 via-orange-500 to-red-600',
           'p-[2px]',
           animated && 'orbital-ring'
         )}
@@ -123,7 +123,7 @@ export function GoldenRing({
         <div
           className={cn(
             'absolute inset-6 rounded-full',
-            'border border-amber-500/30',
+            'border border-orange-400/35',
             animated && 'orbital-ring-reverse'
           )}
         />
@@ -131,7 +131,7 @@ export function GoldenRing({
 
       <GoldenCountdown />
 
-      <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1/4 h-2 rounded-full bg-gradient-to-r from-transparent via-yellow-300 to-transparent opacity-60" />
+      <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1/4 h-2 rounded-full bg-gradient-to-r from-transparent via-orange-200 to-transparent opacity-70" />
     </div>
   )
 }
@@ -144,12 +144,12 @@ interface OrbitalBackgroundProps {
 export function OrbitalBackground({ className, children }: OrbitalBackgroundProps) {
   return (
     <div className={cn('relative overflow-hidden', className)}>
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-amber-600/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-orange-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-red-600/5 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-[600px] h-[600px] border border-amber-500/5 rounded-full orbital-ring pointer-events-none" />
-        <div className="absolute w-[400px] h-[400px] border border-amber-500/10 rounded-full orbital-ring-reverse pointer-events-none" />
-        <div className="absolute w-[200px] h-[200px] border border-amber-500/5 rounded-full orbital-ring pointer-events-none" style={{ animationDuration: '15s' }} />
+        <div className="w-[600px] h-[600px] border border-orange-500/5 rounded-full orbital-ring pointer-events-none" />
+        <div className="absolute w-[400px] h-[400px] border border-red-500/10 rounded-full orbital-ring-reverse pointer-events-none" />
+        <div className="absolute w-[200px] h-[200px] border border-orange-500/5 rounded-full orbital-ring pointer-events-none" style={{ animationDuration: '15s' }} />
       </div>
       {children}
     </div>

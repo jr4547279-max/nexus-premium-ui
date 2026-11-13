@@ -26,16 +26,18 @@ export function AuthScreen({ onBack }: AuthScreenProps) {
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [linkSent, setLinkSent] = useState(false)
+  const [developmentVerificationUrl, setDevelopmentVerificationUrl] = useState<string | null>(null)
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!email.trim()) { toast.error('Enter your email address.'); return }
     setIsLoading(true)
     try {
-      const { error } = mode === 'signup' ? await signUp(email) : await signIn(email)
+      const { error, developmentVerificationUrl: devUrl } = mode === 'signup' ? await signUp(email) : await signIn(email)
       if (error) { toast.error(friendlyError(error)); return }
+      setDevelopmentVerificationUrl(devUrl ?? null)
       setLinkSent(true)
-      toast.success('Check your inbox for your secure sign-in link.', { duration: 7000 })
+      toast.success(devUrl ? 'Local preview link is ready.' : 'Check your inbox for your secure sign-in link.', { duration: 7000 })
     } finally {
       setIsLoading(false)
     }
@@ -58,14 +60,15 @@ export function AuthScreen({ onBack }: AuthScreenProps) {
               <NexusLogo size="md" showText={false} />
               <h1 className="text-xl font-light tracking-wide mt-3">{linkSent ? 'Check your email' : mode === 'login' ? 'Welcome back' : 'Join Nexus'}</h1>
               <p className="text-muted-foreground text-xs mt-1 text-center">
-                {linkSent ? `We sent a one-time sign-in link to ${email.trim()}. It expires in 15 minutes.` : 'Sign in securely with a one-time email link.'}
+                {linkSent ? developmentVerificationUrl ? 'Local preview mode · no email was sent.' : `We sent a one-time sign-in link to ${email.trim()}. It expires in 15 minutes.` : 'Sign in securely with a one-time email link.'}
               </p>
             </div>
             <GlassCard className="p-4">
               {linkSent ? (
                 <div className="space-y-4 text-center">
                   <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-primary/30 bg-primary/10"><Mail className="h-5 w-5 text-primary" /></div>
-                  <p className="text-xs text-muted-foreground">The link can only be used once. If you do not see it, check your spam folder.</p>
+                  <p className="text-xs text-muted-foreground">{developmentVerificationUrl ? 'This one-time preview link is local to this development session.' : 'The link can only be used once. If you do not see it, check your spam folder.'}</p>
+                  {developmentVerificationUrl && <a href={developmentVerificationUrl} className="block w-full rounded-xl bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">Open local sign-in link</a>}
                   <Button variant="outline" className="w-full" onClick={() => setLinkSent(false)}>Use a different email</Button>
                   <button type="button" className="text-xs text-primary hover:underline" disabled={isLoading} onClick={() => void handleSubmit({ preventDefault() {} } as React.FormEvent)}>
                     Send the link again

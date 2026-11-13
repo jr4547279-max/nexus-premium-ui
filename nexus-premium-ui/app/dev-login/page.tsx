@@ -4,7 +4,7 @@
 // ⚠️  DEVELOPMENT BYPASS — REMOVE BEFORE PRODUCTION DEPLOYMENT
 //
 // Visits /dev-login to enter the premium onboarding/dashboard flow without
-// going through Supabase auth. Useful when the Supabase email rate limit is
+// going through email-link sign-in. Useful when email delivery is
 // hit or you need fast iteration on the authenticated UI.
 //
 // This page is ONLY reachable by manually navigating to /dev-login.
@@ -23,6 +23,10 @@ import { WorldScreen } from '@/components/nexus/world-screen'
 type DevScreen = 'onboarding' | 'home' | 'groups' | 'group-detail' | 'activity' | 'profile' | 'world'
 
 export default function DevLoginPage() {
+  if (process.env.NODE_ENV !== 'development') {
+    return <main className="min-h-screen bg-background px-6 grid place-items-center text-center"><div><h1 className="text-lg font-medium">Developer preview unavailable</h1><p className="mt-2 text-sm text-muted-foreground">Use the secure Nexus sign-in page to continue.</p></div></main>
+  }
+
   // Start with a stable server value ('onboarding') to avoid SSR/client mismatch,
   // then read the ?screen= query param client-side in a useEffect.
   const [screen, setScreen] = useState<DevScreen>('onboarding')

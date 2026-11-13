@@ -4,7 +4,6 @@ import { TopHeader, BottomNav } from './navigation'
 import { GroupCard } from './glass-card'
 import { Button } from '@/components/ui/button'
 import { Plus, Beaker } from 'lucide-react'
-import { mockGroups } from '@/lib/mock-data'
 import { useGroups } from '@/lib/use-groups'
 
 interface GroupsScreenProps {
@@ -15,8 +14,7 @@ interface GroupsScreenProps {
 
 export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: GroupsScreenProps) {
   const { groups: realGroups, loading } = useGroups()
-  const showRealGroups = !loading && realGroups !== null && realGroups.length > 0
-  const groupsToShow = showRealGroups ? realGroups! : mockGroups
+  const groupsToShow = realGroups ?? []
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -25,7 +23,7 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
       <main className="px-4 py-6 max-w-md mx-auto">
         <div className="flex items-center justify-between mb-4">
           <p className="text-sm text-muted-foreground">
-            {loading ? 'Loading…' : `${groupsToShow.length} group${groupsToShow.length === 1 ? '' : 's'}`}
+            {loading ? 'Loading Circles…' : `${groupsToShow.length} Circle${groupsToShow.length === 1 ? '' : 's'}`}
           </p>
         </div>
 
@@ -42,6 +40,12 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
               onClick={() => onGroupClick(group.id)}
             />
           ))}
+          {!loading && groupsToShow.length === 0 && (
+            <div className="rounded-2xl border border-border/40 bg-card/40 px-5 py-6 text-center">
+              <p className="text-sm font-medium">Your Circle starts here.</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Create a Circle and invite friends to plan around real shared availability.</p>
+            </div>
+          )}
         </div>
 
         <Button
@@ -53,9 +57,7 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
         </Button>
       </main>
 
-      {/* DEV-ONLY: floating badge — always visible in this build for testing.
-          Remove or re-gate before publishing to real users. */}
-      <button
+      {process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEV_TOOLS === 'true' && <button
         onClick={() => onNavigate('dev-test')}
         style={{
           position: 'fixed',
@@ -67,7 +69,7 @@ export function GroupsScreen({ onGroupClick, onNavigate, onCreateGroup }: Groups
       >
         <Beaker className="w-3.5 h-3.5" />
         🧪 DEV TEST
-      </button>
+      </button>}
 
       <BottomNav
         activeTab="groups"

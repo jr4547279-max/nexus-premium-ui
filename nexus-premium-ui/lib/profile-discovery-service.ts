@@ -1,4 +1,5 @@
-import { supabase } from './supabase'
+import { nexusApi } from './nexus-api'
+import { socialProfileFromApi, type SocialProfile } from './social-service'
 
 export interface PublicProfile {
   user_id: string
@@ -10,31 +11,23 @@ export interface PublicProfile {
 }
 
 export async function getPublicProfile(username: string): Promise<PublicProfile | null> {
-  const q = username.trim()
-  if (!q) return null
-  const { data, error } = await supabase.rpc('get_public_profile_by_username', { p_username: q })
-  if (error) {
-    console.error('[profile discovery]', error)
-    return null
-  }
-  const row = Array.isArray(data) ? data[0] : data
-  return row ?? null
+  const value=username.trim().replace(/^@/,'')
+  if(!value) return null
+  try{
+    const {profile}=await nexusApi<{profile:Record<string,unknown>}>(`/v1/users/username/${encodeURIComponent(value)}`)
+    const social=socialProfileFromApi(profile)
+    return {user_id:social.id,username:social.username??value,display_name:social.display_name,avatar_url:social.avatar_url,bio:social.bio,favourite_activities:social.favourite_activities}
+  }catch(error){console.error('[profile discovery]',error);return null}
 }
 
-export async function searchGroupMemberCandidates(groupId: string, query: string) {
-  const { data, error } = await supabase.rpc('search_group_member_candidates', {
-    p_group_id: groupId,
-    p_query: query.trim(),
-  })
-  if (error) throw error
-  return data ?? []
+export async function searchGroupMemberCandidates(groupId:string,query:string):Promise<SocialProfile[]>{
+  const q=query.trim().replace(/^@/,'')
+  if(q.length<2)return []
+  const {users}=await nexusApi<{users:Array<Record<string,unknown>>}>(`/v1/circles/${encodeURIComponent(groupId)}/members/candidates?q=${encodeURIComponent(q)}`)
+  return users.map(socialProfileFromApi)
 }
 
-export async function addGroupMemberByUsername(groupId: string, username: string) {
-  const { data, error } = await supabase.rpc('add_group_member_by_username', {
-    p_group_id: groupId,
-    p_username: username.trim(),
-  })
-  if (error) throw error
-  return Array.isArray(data) ? data[0] : data
+export async function addGroupMemberByUsername(groupId:string,username:string){
+  const result=await nexusApi<Record<string,unknown>>(`/v1/circles/${encodeURIComponent(groupId)}/members/by-username`,{method:'POST',body:JSON.stringify({username:username.trim().replace(/^@/,'')})})
+  return result
 }

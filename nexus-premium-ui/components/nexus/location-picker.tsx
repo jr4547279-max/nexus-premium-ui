@@ -287,7 +287,7 @@ export function LocationPicker({
           formatted_address: selected.address,
           place_id:          selected.placeId ?? null,
         })
-        if (!result) throw new Error('Save returned null — run supabase/migration.sql first')
+        if (!result) throw new Error('Location could not be saved. Check your connection and try again.')
         await refreshProfile()
         toast.success('Location saved', {
           description: extractCity(selected.address) || selected.address,

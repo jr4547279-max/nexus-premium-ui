@@ -1,12 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { TopHeader, BottomNav } from './navigation'
 import { GlassCard, AvatarStack } from './glass-card'
 import { GoldenRing } from './golden-ring'
 import { useGroups } from '@/lib/use-groups'
-import { mockGroups } from '@/lib/mock-data'
 import { extractCity } from '@/lib/profile-service'
 import { cn } from '@/lib/utils'
 import {
@@ -82,13 +81,9 @@ const feedItems = [
 
 export function SocialHome({ onGroupClick, onNavigate, onCreateGroup }: SocialHomeProps) {
   const { user, profile } = useAuth()
-  const { groups: realGroups } = useGroups()
+  const { groups: realGroups, loading: groupsLoading } = useGroups()
   const [idea, setIdea] = useState('')
-
-  const groups = useMemo(
-    () => (!realGroups || realGroups.length === 0 ? mockGroups : realGroups),
-    [realGroups],
-  )
+  const groups = realGroups ?? []
 
   const displayName = profile?.display_name || user?.email?.split('@')[0] || 'there'
   const city = extractCity(profile?.formatted_address) || 'your area'
@@ -202,7 +197,7 @@ export function SocialHome({ onGroupClick, onNavigate, onCreateGroup }: SocialHo
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-medium">From your people</h2>
-              <p className="text-[10px] text-muted-foreground">Plans, routes and moments — not noise.</p>
+              <p className="text-[10px] text-muted-foreground">Sample community posts · examples, not live activity.</p>
             </div>
             <button onClick={() => onNavigate('social')} className="text-xs text-primary">See social</button>
           </div>
@@ -246,7 +241,7 @@ export function SocialHome({ onGroupClick, onNavigate, onCreateGroup }: SocialHo
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-primary">Routes</p>
               <h2 className="mt-1 text-lg font-semibold">Plans that already exist</h2>
-              <p className="mt-1 text-[10px] text-muted-foreground">Keep pub crawls and walking routes. Discover them socially.</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">Sample route ideas · no route is booked or shared.</p>
             </div>
             <button onClick={() => onNavigate('world')} className="text-xs text-primary">Explore</button>
           </div>
@@ -284,11 +279,16 @@ export function SocialHome({ onGroupClick, onNavigate, onCreateGroup }: SocialHo
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/40 text-lg">{group.emoji}</div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{group.name}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{group.memberCount} people · {group.hasGoldenWindow ? 'plan ready' : 'needs a plan'}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{group.memberCount} Circle members</p>
                 </div>
                 <AvatarStack avatars={group.members} max={3} size="sm" />
               </GlassCard>
             ))}
+            {!groupsLoading && groups.length === 0 && (
+              <div className="rounded-xl border border-border/40 bg-card/40 px-4 py-4 text-xs leading-relaxed text-muted-foreground">
+                No Circles yet. Create one and invite friends to start planning together.
+              </div>
+            )}
           </div>
         </section>
 

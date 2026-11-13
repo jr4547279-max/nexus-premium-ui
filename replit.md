@@ -1,46 +1,28 @@
-# nexus-premium-ui
+# Nexus
 
-A premium Next.js 16 app ("Nexus — Plans, perfectly aligned") built with v0, Tailwind CSS v4, shadcn/Radix UI components, and Supabase for auth/data.
+Nexus is a mobile-first social planning application. Its signature is the cinematic ember-orange Golden Window ring, white NEXUS wordmark and the line “Plans, perfectly aligned.”
 
-## How to run
+## Current architecture
 
-The app is configured to run via the **"Start application"** workflow:
+- Next.js 16, React 19, Tailwind CSS and the recovered Nexus component system.
+- Cloudflare Worker API under `workers/nexus-api`.
+- D1 for accounts, Circles, invitations, availability, plans, voting, chat, notifications and social data.
+- Private R2 uploads; Durable Objects fan out authenticated Circle and live-event updates.
+- The original pure TypeScript Golden Window scoring engine remains in `nexus-premium-ui/lib/golden-window.ts`; the Worker calls it using member-submitted availability.
+- Venue discovery remains behind the existing server proxy. Provider results and sample content must be labelled accurately.
 
-```
-cd nexus-premium-ui && pnpm run dev
-```
+Supabase is no longer an application dependency. Historical Supabase migrations and source references are retained under the original `supabase/` history and `nexus-premium-ui/legacy/` archive; they are not used by the new backend.
 
-This starts Next.js on port 5000 (`-H 0.0.0.0 -p 5000`).
+## Local development
 
-## Required environment variables
+Start the Next.js app from the repository root with `pnpm dev`. Start the Worker from `workers/nexus-api` with `pnpm dev`, apply its migrations locally with `pnpm db:local`, and set `NEXT_PUBLIC_NEXUS_API_URL` in the app environment to the local Worker origin. Use `.dev.vars.example` only for local development. Never set `ALLOW_DEV_AUTH=true` in a deployed environment.
 
-The app starts without these, but key features won't work:
+The current restricted development container may reject Wrangler's local listener while enumerating host interfaces. The isolated SQLite-backed integration suite runs the Worker request handlers directly and does not require a listener.
 
-| Variable | Used for |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase auth & data (sign-in, sessions) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase auth & data (sign-in, sessions) |
-| `GOOGLE_PLACES_API_KEY` | Places/map API routes (`/nx/places`, `/nx/places/map`, `/nx/places/photo`) |
+## Verification
 
-## Stack
+- App type check: `cd nexus-premium-ui && pnpm exec tsc --noEmit`
+- App production build: `cd nexus-premium-ui && pnpm run build`
+- Worker type check and tests: `cd workers/nexus-api && pnpm run typecheck && pnpm test`
 
-- **Framework**: Next.js 16 (Turbopack, App Router)
-- **Styling**: Tailwind CSS v4 + tw-animate-css
-- **UI**: shadcn/ui components (Radix UI primitives)
-- **Auth/Data**: Supabase (`@supabase/supabase-js`)
-- **Charts**: Recharts
-- **Package manager**: pnpm (workspace)
-
-## Notable routes
-
-- `/` — Landing page
-- `/auth/callback` — Supabase OAuth callback
-- `/invite/[code]` — Invite flow
-- `/dev-login` — Development login helper
-- `/weather-demo` — Weather atmosphere component demo
-- `/nx/weather` — Weather API route
-- `/nx/places` — Places recommendation API route
-- `/nx/places/map` — Static map image route
-- `/nx/places/photo` — Place photo proxy route
-
-## User preferences
+No Cloudflare resources are deployed or changed by these commands. The Wrangler D1 ID in `wrangler.jsonc` is a local placeholder; deployment requires approved, Nexus-specific resources.
