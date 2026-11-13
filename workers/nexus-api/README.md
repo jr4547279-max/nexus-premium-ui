@@ -19,6 +19,16 @@ Isolated backend package for the recovered Nexus app. It is configured for local
 
 Email delivery is disabled until a provider is configured. For a local-only test harness, `ALLOW_DEV_AUTH=true` can return a one-time verification URL. Never enable it in any remotely accessible environment. Do not put provider tokens in source control.
 
+### API-connected local preview without Wrangler
+
+When Wrangler cannot bind a local network interface, use the isolated harness instead. It invokes the same Worker request handler with SQLite, temporary local R2 storage and in-memory Durable Object adapters; it creates no Cloudflare resources.
+
+1. In one terminal, run `pnpm preview:local` from `workers/nexus-api`.
+2. In a second terminal, run `NEXT_PUBLIC_NEXUS_API_URL=http://127.0.0.1:39187 pnpm exec next dev -H 127.0.0.1 -p 37141` from `nexus-premium-ui`.
+3. Open `http://127.0.0.1:37141`. Local email-link auth returns a development-only verification link in the UI; no email is sent.
+
+The preview database is `/tmp/nexus-api-preview.sqlite` and contains local test data only. Venue discovery still depends on the configured venue provider; Nexus labels example community content separately from live venue results.
+
 ## Security
 
 - Sessions use random opaque HttpOnly cookies; only token hashes are persisted.
