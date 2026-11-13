@@ -2,35 +2,28 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
-import type { Session, User, AuthError } from '@supabase/supabase-js'
-import { supabase, isSupabaseConfigured } from './supabase'
-import { type Profile, getProfile, ensureProfile } from './profile-service'
+import { nexusApi, NexusApiError } from './nexus-api'
+import { type Profile, getProfile } from './profile-service'
 
 export const CANONICAL_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus-premium-website-business.vercel.app'
 
-function getCallbackUrl(): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/auth/callback`
-  }
-  return `${CANONICAL_SITE_URL}/auth/callback`
-}
+export interface NexusUser { id: string; email: string }
+export interface NexusSession { user: NexusUser }
+export interface AuthError { message: string; code: string; name: string }
 
-function authError(message: string, code: string): AuthError {
-  return { message, code, name: 'AuthError', status: 0 } as unknown as AuthError
-}
-
-function notConfiguredError(): AuthError {
-  return authError('Supabase is not configured yet. Add your production secrets to enable real auth.', 'not_configured')
+function authError(error: unknown): AuthError {
+  if (error instanceof NexusApiError) return { message: error.message, code: error.code, name: error.name }
+  return { message: error instanceof Error ? error.message : 'Unable to reach Nexus. Please try again.', code: 'request_failed', name: 'NexusAuthError' }
 }
 
 interface AuthContextValue {
-  session: Session | null
-  user: User | null
+  session: NexusSession | null
+  user: NexusUser | null
   profile: Profile | null
   loading: boolean
   profileLoading: boolean
-  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>
-  signUp: (email: string, password: string) => Promise<{ error: AuthError | null; needsEmailConfirm?: boolean }>
+  signIn: (email: string) => Promise<{ error: AuthError | null }>
+  signUp: (email: string) => Promise<{ error: AuthError | null; needsEmailConfirm?: boolean }>
   signInWithGoogle: () => Promise<{ error: AuthError | null }>
   resetPassword: (email: string) => Promise<{ error: AuthError | null }>
   signOut: () => Promise<void>
@@ -41,204 +34,62 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const [session, setSession] = useState<Session | null>(null)
+  const [session, setSession] = useState<NexusSession | null>(null)
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
 
-  const loadProfile = useCallback(async (userId: string, email: string) => {
+  const loadProfile = useCallback(async (userId: string) => {
     setProfileLoading(true)
-    const timeout = setTimeout(() => setProfileLoading(false), 8000)
-    try {
-      let p = await getProfile(userId)
-      if (!p) p = await ensureProfile(userId, email)
-      setProfile(p)
-    } catch {
-      setProfile(null)
-    } finally {
-      clearTimeout(timeout)
-      setProfileLoading(false)
-    }
+    try { setProfile(await getProfile(userId)) }
+    finally { setProfileLoading(false) }
   }, [])
 
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false)
-      return
-    }
-
-    // Email confirmation and password-reset links still use the dedicated
-    // callback page. Google sign-in now returns directly to the current origin
-    // and is handled automatically by Supabase's implicit browser flow.
-    if (pathname === '/auth/callback') {
-      setLoading(true)
-      return
-    }
-
-    let mounted = true
-    let loadedForUserId: string | null = null
-    const timeout = setTimeout(() => {
-      if (mounted) setLoading(false)
-    }, 5000)
-
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        if (!mounted) return
-        setSession(session)
-        setLoading(false)
-        if (session?.user) {
-          loadedForUserId = session.user.id
-          void loadProfile(session.user.id, session.user.email ?? '')
-        }
-      })
-      .catch(() => {
-        if (mounted) setLoading(false)
-      })
-      .finally(() => clearTimeout(timeout))
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      if (!mounted) return
-      setLoading(false)
-      if (!nextSession) {
-        if (event === 'SIGNED_OUT') {
-          loadedForUserId = null
-          setSession(null)
-          setProfile(null)
-        }
-        return
-      }
-      setSession(nextSession)
-      const uid = nextSession.user.id
-      if (uid !== loadedForUserId || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-        loadedForUserId = uid
-        void loadProfile(uid, nextSession.user.email ?? '')
-      }
-    })
-
-    return () => {
-      mounted = false
-      clearTimeout(timeout)
-      subscription.unsubscribe()
-    }
-  }, [loadProfile, pathname])
-
-  const refreshProfile = useCallback(async () => {
-    if (!session?.user) return
-    await loadProfile(session.user.id, session.user.email ?? '')
-  }, [session, loadProfile])
-
-  const signIn = useCallback(async (email: string, password: string) => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-
-    const cleanEmail = email.trim().toLowerCase()
-    if (!cleanEmail || !password) return { error: authError('Enter your email and password.', 'missing_credentials') }
-
+  const refreshSession = useCallback(async () => {
     try {
-      const request = supabase.auth.signInWithPassword({ email: cleanEmail, password })
-      const result = await Promise.race([
-        request,
-        new Promise<{
-          data: { session: Session | null; user: User | null }
-          error: AuthError
-        }>((resolve) => {
-          window.setTimeout(() => resolve({
-            data: { session: null, user: null },
-            error: authError('Sign-in timed out. Please try again.', 'auth_timeout'),
-          }), 12000)
-        }),
-      ])
-
-      if (!result.error && result.data.session?.user) {
-        setSession(result.data.session)
-        void loadProfile(result.data.session.user.id, result.data.session.user.email ?? cleanEmail)
-      }
-
-      return { error: result.error }
-    } catch (error) {
-      return {
-        error: authError(
-          error instanceof Error ? error.message : 'Unable to reach the sign-in service. Please try again.',
-          'auth_request_failed',
-        ),
-      }
+      const result = await nexusApi<{ user: NexusUser }>('/v1/auth/me')
+      setSession({ user: result.user })
+      await loadProfile(result.user.id)
+    } catch {
+      setSession(null)
+      setProfile(null)
+    } finally {
+      setLoading(false)
     }
   }, [loadProfile])
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    const cleanEmail = email.trim().toLowerCase()
+  useEffect(() => {
+    if (pathname === '/auth/verify') return
+    void refreshSession()
+    const onAuthenticated = () => { void refreshSession() }
+    window.addEventListener('nexus:auth-changed', onAuthenticated)
+    return () => window.removeEventListener('nexus:auth-changed', onAuthenticated)
+  }, [pathname, refreshSession])
+
+  const requestLink = useCallback(async (email: string) => {
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: { emailRedirectTo: getCallbackUrl() },
-      })
-      if (!error && data.user) await ensureProfile(data.user.id, cleanEmail)
-      return { error, needsEmailConfirm: !error && !data.session }
+      await nexusApi('/v1/auth/request-link', { method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase() }) })
+      return { error: null as AuthError | null }
     } catch (error) {
-      return {
-        error: authError(
-          error instanceof Error ? error.message : 'Unable to create your account. Please try again.',
-          'signup_request_failed',
-        ),
-      }
+      return { error: authError(error) }
     }
   }, [])
 
-  const signInWithGoogle = useCallback(async () => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
+  const signIn = useCallback((email: string) => requestLink(email), [requestLink])
+  const signUp = useCallback(async (email: string) => ({ ...(await requestLink(email)), needsEmailConfirm: true }), [requestLink])
+  const resetPassword = useCallback((email: string) => requestLink(email), [requestLink])
 
-    try {
-      // Google uses the browser-native implicit flow. Returning to the current
-      // origin lets supabase-js consume the access/refresh tokens from the URL
-      // fragment before Nexus initialises its normal session state. This avoids
-      // the one-time PKCE callback exchange that was repeatedly losing the
-      // session on mobile.
-      const redirectTo = typeof window !== 'undefined'
-        ? window.location.origin
-        : CANONICAL_SITE_URL
-
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-          scopes: 'openid email profile',
-        },
-      })
-      return { error }
-    } catch (error) {
-      return {
-        error: authError(
-          error instanceof Error ? error.message : 'Unable to start Google sign-in. Please try again.',
-          'oauth_request_failed',
-        ),
-      }
-    }
-  }, [])
-
-  const resetPassword = useCallback(async (email: string) => {
-    if (!isSupabaseConfigured) return { error: notConfiguredError() }
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: getCallbackUrl() })
-      return { error }
-    } catch (error) {
-      return {
-        error: authError(
-          error instanceof Error ? error.message : 'Unable to send the password reset email. Please try again.',
-          'reset_request_failed',
-        ),
-      }
-    }
-  }, [])
+  const signInWithGoogle = useCallback(async () => ({
+    error: { message: 'Google sign-in will be added after the email sign-in flow is connected.', code: 'google_not_configured', name: 'NexusAuthError' },
+  }), [])
 
   const signOut = useCallback(async () => {
-    if (isSupabaseConfigured) await supabase.auth.signOut()
-    setSession(null)
-    setProfile(null)
+    try { await nexusApi('/v1/auth/logout', { method: 'POST', body: '{}' }) }
+    finally { setSession(null); setProfile(null) }
   }, [])
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user ?? null, profile, loading, profileLoading, signIn, signUp, signInWithGoogle, resetPassword, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, profile, loading, profileLoading, signIn, signUp, signInWithGoogle, resetPassword, signOut, refreshProfile: () => session ? loadProfile(session.user.id) : Promise.resolve() }}>
       {children}
     </AuthContext.Provider>
   )

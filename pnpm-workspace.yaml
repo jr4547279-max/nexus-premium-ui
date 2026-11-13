@@ -12,6 +12,7 @@ packages:
   - lib/*
   - lib/integrations/*
   - scripts
+  - workers/*
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1

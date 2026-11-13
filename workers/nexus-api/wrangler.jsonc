@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration/",
+  "name": "nexus-api-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nexus-app-dev",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "nexus-uploads-dev" }],
+  "durable_objects": {
+    "bindings": [{ "name": "CIRCLE_ROOM", "class_name": "CircleRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CircleRoom"] }],
+  "vars": {
+    "APP_ORIGIN": "http://localhost:3000",
+    "AUTH_MODE": "development",
+    "ALLOW_DEV_AUTH": "false"
+  }
+}

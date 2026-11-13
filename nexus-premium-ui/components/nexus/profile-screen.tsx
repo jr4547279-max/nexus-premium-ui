@@ -51,7 +51,7 @@ export function ProfileScreen({ onBack: _onBack, onNavigate, onLogout }: Profile
   const emailPrefix = user?.email?.split('@')[0] ?? ''
   const displayName = profile?.display_name || (emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1))
   const userInitial = (displayName?.[0] ?? user?.email?.[0] ?? 'N').toUpperCase()
-  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null
+  const avatarUrl = profile?.avatar_url || null
   const currentLang = LANGUAGES.find(l => l.code === selectedLang) ?? LANGUAGES[0]
   const hasLocation = Boolean(profile?.formatted_address)
   const cityDisplay = extractCity(profile?.formatted_address)

@@ -1,7 +1,6 @@
-import { supabase } from './supabase'
+import { nexusApi } from './nexus-api'
 import type { PlanningLocation } from './types/planning-location'
 import type { PlanningLocationSource } from './types/planning-location'
-import { sendSystemMessage } from './message-service'
 
 export interface Group {
   id: string
@@ -89,10 +88,6 @@ export function extractPlanningLocation(group: Group): PlanningLocation | null {
 
 // ── Error formatter ───────────────────────────────────────────────────────────
 
-function formatError(error: { code?: string | null; message: string; hint?: string | null; details?: string | null }, status?: number) {
-  return `[${error.code ?? status}] ${error.message}${error.hint ? ` — hint: ${error.hint}` : ''}${error.details ? ` — details: ${error.details}` : ''}`
-}
-
 // ── Group CRUD ────────────────────────────────────────────────────────────────
 
 export async function createGroup(
@@ -100,122 +95,75 @@ export async function createGroup(
   emoji: string,
   activityId?: string,
 ): Promise<CreateGroupResult> {
-  // ── Step 1: create the group via stored procedure ──────────────────────────
-  // The RPC uses auth.uid() internally — no need to call getUser() here.
-  console.log('[createGroup] Step 1 — calling create_group RPC', { name, emoji, activityId })
-  const { data, error: rpcError, status } = await supabase
-    .rpc('create_group', { p_name: name.trim(), p_emoji: emoji || '👥' })
-
-  if (rpcError) {
-    const msg = formatError(rpcError, status)
-    console.error('[createGroup] Step 1 FAILED — RPC error', msg, rpcError)
-    return { group: null, errorMessage: msg }
+  try {
+    const { circle } = await nexusApi<{ circle: Group }>('/v1/circles', {
+      method: 'POST', body: JSON.stringify({ name: name.trim(), emoji: emoji || '👥', activityId }),
+    })
+    return { group: circle, errorMessage: null }
+  } catch (error) {
+    return { group: null, errorMessage: error instanceof Error ? error.message : 'Could not create the Circle.' }
   }
-
-  console.log('[createGroup] Step 1 OK — RPC returned', data)
-
-  if (!data) {
-    console.error('[createGroup] Step 1 FAILED — RPC returned null/empty data')
-    return { group: null, errorMessage: 'Group creation returned no data. Please try again.' }
-  }
-
-  const group = data as Group
-
-  if (!group.id) {
-    console.error('[createGroup] Step 1 FAILED — returned group has no id', group)
-    return { group: null, errorMessage: 'Group created but missing an ID. Please try again.' }
-  }
-
-  // ── Step 2: persist the activity (if one was chosen) ──────────────────────
-  if (activityId) {
-    console.log('[createGroup] Step 2 — updating activity_id', { groupId: group.id, activityId })
-    const { error: updateError, status: updateStatus } = await supabase
-      .from('groups')
-      .update({ activity_id: activityId })
-      .eq('id', group.id)
-
-    if (updateError) {
-      // Surface this as a real error — the group was created but activity was lost.
-      const msg = formatError(updateError, updateStatus)
-      console.error('[createGroup] Step 2 FAILED — activity_id UPDATE error', msg, updateError)
-      return { group, errorMessage: `Group created but activity could not be saved: ${msg}` }
-    }
-
-    console.log('[createGroup] Step 2 OK — activity_id persisted')
-    group.activity_id = activityId
-  }
-
-  console.log('[createGroup] Complete —', group)
-
-  // Fire-and-forget system message — does not block or affect the return value.
-  supabase.auth.getUser().then(({ data }) => {
-    const uid = data.user?.id
-    if (uid) {
-      sendSystemMessage(group.id, uid, 'created this group', { event: 'group_created' }).catch(() => {})
-    }
-  })
-
-  return { group, errorMessage: null }
 }
 
 export async function listMyGroups(): Promise<GroupSummary[]> {
-  const { data, error } = await supabase
-    .from('groups')
-    .select('id, name, emoji, activity_id, golden_window_data, group_members(count)')
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    console.error('[group-service] listMyGroups failed', error)
-    return []
-  }
-
-  return (data ?? []).map((row) => {
-    const countRow = (row.group_members as { count: number }[] | null)?.[0]
+  try {
+    const { circles } = await nexusApi<{ circles: Array<Group & { member_count: number }> }>('/v1/circles')
+    return circles.map((row) => {
     return {
       id: row.id,
       name: row.name,
       emoji: row.emoji ?? '👥',
-      activity_id: (row.activity_id as string | null) ?? null,
-      memberCount: countRow?.count ?? 0,
+      activity_id: row.activity_id ?? null,
+      memberCount: row.member_count,
       members: [],
       pendingConfirmations: 0,
-      hasGoldenWindow: !!(row.golden_window_data as unknown),
+      hasGoldenWindow: false,
     }
-  })
+    })
+  } catch (error) {
+    console.error('[group-service] listMyGroups failed', error)
+    return []
+  }
 }
 
 export async function getGroup(groupId: string): Promise<Group | null> {
-  const { data, error } = await supabase
-    .from('groups')
-    .select('*')
-    .eq('id', groupId)
-    .single()
-  if (error) {
+  try {
+    const { circle } = await nexusApi<{ circle: Group & { planning_location?: PlanningLocation | null } }>(`/v1/circles/${encodeURIComponent(groupId)}`)
+    if (circle.planning_location) Object.assign(circle, {
+      planning_location_lat: circle.planning_location.lat,
+      planning_location_lng: circle.planning_location.lng,
+      planning_location_name: circle.planning_location.name,
+      planning_location_address: circle.planning_location.address,
+      planning_location_source: circle.planning_location.source,
+      planning_radius_metres: circle.planning_location.planningRadiusMetres,
+      planning_area_type: circle.planning_location.areaType,
+      planning_neighborhood: circle.planning_location.neighborhood,
+      planning_city: circle.planning_location.planningCity,
+    })
+    return circle
+  } catch (error) {
     console.error('[group-service] getGroup failed', error)
     return null
   }
-  return data as Group
 }
 
 export async function listGroupMembers(groupId: string): Promise<GroupMember[]> {
-  const { data, error } = await supabase
-    .rpc('list_group_members', { p_group_id: groupId })
-  if (error) {
+  try {
+    const { members } = await nexusApi<{ members: GroupMember[] }>(`/v1/circles/${encodeURIComponent(groupId)}/members`)
+    return members
+  } catch (error) {
     console.error('[group-service] listGroupMembers failed', error)
     return []
   }
-  return (data ?? []) as GroupMember[]
 }
 
 export async function getGroupByInvite(code: string): Promise<InvitePreview | null> {
-  const { data, error } = await supabase
-    .rpc('get_group_by_invite', { p_code: code })
-  if (error) {
-    console.error('[group-service] getGroupByInvite failed', error)
+  try {
+    const { invitation } = await nexusApi<{ invitation: { circle_id: string; name: string; member_count: number } }>(`/v1/invitations/preview?token=${encodeURIComponent(code)}`)
+    return { id: invitation.circle_id, name: invitation.name, emoji: '👥', member_count: invitation.member_count }
+  } catch {
     return null
   }
-  const rows = data as InvitePreview[] | null
-  return rows && rows.length > 0 ? rows[0] : null
 }
 
 export interface JoinGroupResult {
@@ -224,24 +172,12 @@ export interface JoinGroupResult {
 }
 
 export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> {
-  const { data, error, status } = await supabase
-    .rpc('join_group_by_invite', { p_code: code })
-  if (error) {
-    const msg = formatError(error, status)
-    console.error('[group-service] joinGroupByInvite FAILED', msg, error)
-    return { groupId: null, errorMessage: msg }
+  try {
+    const result = await nexusApi<{ circle_id: string }>('/v1/invitations/accept', { method: 'POST', body: JSON.stringify({ token: code }) })
+    return { groupId: result.circle_id, errorMessage: null }
+  } catch (error) {
+    return { groupId: null, errorMessage: error instanceof Error ? error.message : 'Could not accept this invitation.' }
   }
-  const joinedGroupId = data as string
-
-  // Fire-and-forget system message — does not block or affect the return value.
-  supabase.auth.getUser().then(({ data: authData }) => {
-    const uid = authData.user?.id
-    if (uid && joinedGroupId) {
-      sendSystemMessage(joinedGroupId, uid, 'joined the group', { event: 'member_joined' }).catch(() => {})
-    }
-  })
-
-  return { groupId: joinedGroupId, errorMessage: null }
 }
 
 // ── Group deletion ────────────────────────────────────────────────────────────
@@ -260,35 +196,22 @@ export async function joinGroupByInvite(code: string): Promise<JoinGroupResult> 
 export async function deleteGroup(
   groupId: string,
 ): Promise<{ ok: boolean; errorMessage: string | null }> {
-  const { error, status } = await supabase.rpc('delete_group', {
-    p_group_id: groupId,
-  })
-
-  if (error) {
-    const msg = formatError(error, status)
-    console.error('[group-service] deleteGroup failed', msg, error)
-    return { ok: false, errorMessage: msg }
+  try {
+    await nexusApi(`/v1/circles/${encodeURIComponent(groupId)}`, { method: 'DELETE' })
+    return { ok: true, errorMessage: null }
+  } catch (error) {
+    return { ok: false, errorMessage: error instanceof Error ? error.message : 'Could not delete the Circle.' }
   }
-
-  return { ok: true, errorMessage: null }
 }
 
 export async function leaveGroup(groupId: string): Promise<boolean> {
-  const { data: userData } = await supabase.auth.getUser()
-  const uid = userData.user?.id
-  if (!uid) return false
-
-  const { error } = await supabase
-    .from('group_members')
-    .delete()
-    .eq('group_id', groupId)
-    .eq('user_id', uid)
-
-  if (error) {
+  try {
+    await nexusApi(`/v1/circles/${encodeURIComponent(groupId)}/members`, { method: 'DELETE' })
+    return true
+  } catch (error) {
     console.error('[group-service] leaveGroup failed', error)
     return false
   }
-  return true
 }
 
 // ── Planning Location ─────────────────────────────────────────────────────────
@@ -301,52 +224,24 @@ export async function saveGroupPlanningLocation(
   groupId: string,
   location: PlanningLocation,
 ): Promise<boolean> {
-  const { error } = await supabase
-    .from('groups')
-    .update({
-      planning_location_lat:     location.lat,
-      planning_location_lng:     location.lng,
-      planning_location_name:    location.name,
-      planning_location_address: location.address,
-      planning_location_source:  location.source,
-      // Intelligence fields — null when not yet resolved
-      planning_radius_metres:    location.planningRadiusMetres  ?? null,
-      planning_area_type:        location.areaType              ?? null,
-      planning_neighborhood:     location.neighborhood          ?? null,
-      planning_city:             location.planningCity          ?? null,
-    })
-    .eq('id', groupId)
-
-  if (error) {
+  try {
+    await nexusApi(`/v1/circles/${encodeURIComponent(groupId)}`, { method: 'PATCH', body: JSON.stringify({ planningLocation: location }) })
+    return true
+  } catch (error) {
     console.error('[group-service] saveGroupPlanningLocation failed', error)
     return false
   }
-  return true
 }
 
 /**
  * Remove the planning location from a group.
  */
 export async function clearGroupPlanningLocation(groupId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('groups')
-    .update({
-      planning_location_lat:     null,
-      planning_location_lng:     null,
-      planning_location_name:    null,
-      planning_location_address: null,
-      planning_location_source:  null,
-      // Clear intelligence fields too
-      planning_radius_metres:    null,
-      planning_area_type:        null,
-      planning_neighborhood:     null,
-      planning_city:             null,
-    })
-    .eq('id', groupId)
-
-  if (error) {
+  try {
+    await nexusApi(`/v1/circles/${encodeURIComponent(groupId)}`, { method: 'PATCH', body: JSON.stringify({ planningLocation: null }) })
+    return true
+  } catch (error) {
     console.error('[group-service] clearGroupPlanningLocation failed', error)
     return false
   }
-  return true
 }

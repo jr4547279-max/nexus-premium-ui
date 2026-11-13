@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local work. Never commit .dev.vars.
+APP_ORIGIN=http://localhost:3000
+PUBLIC_APP_URL=http://localhost:3000
+AUTH_MODE=development
+ALLOW_DEV_AUTH=false
+EMAIL_FROM="Nexus <hello@example.test>"
+# Configure a provider only in a local secret store or after approved infrastructure setup.
+EMAIL_API_URL=
+EMAIL_API_TOKEN=

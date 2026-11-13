@@ -31,7 +31,8 @@ export default function InvitePage() {
   const params = useParams<{ code: string }>()
   const router = useRouter()
   const { session, loading } = useAuth()
-  const code = (params?.code ?? '').toString().toUpperCase()
+  // New invitations are case-sensitive random tokens; never normalize them.
+  const code = (params?.code ?? '').toString()
 
   const [preview, setPreview] = useState<InvitePreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(true)

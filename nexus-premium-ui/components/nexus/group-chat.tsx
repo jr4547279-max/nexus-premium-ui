@@ -11,10 +11,12 @@ import {
   sendMessage,
   sendPoll,
   subscribeToMessages,
+  sendRichMessage,
+  uploadChatImage,
+  chatImageUrl,
   type GroupMessage,
   type PollMetadata,
 } from '@/lib/message-service'
-import { supabase } from '@/lib/supabase'
 
 interface GroupChatProps {
   groupId: string
@@ -50,27 +52,6 @@ function isGrouped(messages: GroupMessage[], index: number) {
 function needsDateDivider(messages: GroupMessage[], index: number) {
   if (index === 0) return true
   return new Date(messages[index - 1].created_at).toDateString() !== new Date(messages[index].created_at).toDateString()
-}
-
-async function sendRichMessage(
-  groupId: string,
-  userId: string,
-  message: string,
-  messageType: RichMessageType,
-  metadata: Record<string, unknown>,
-) {
-  const { error } = await supabase.from('group_messages').insert({
-    group_id: groupId,
-    user_id: userId,
-    message,
-    message_type: messageType,
-    metadata,
-  })
-  if (error) {
-    console.error('[group-chat] rich message failed:', error.message)
-    return false
-  }
-  return true
 }
 
 export function GroupChat({ groupId, groupName }: GroupChatProps) {
@@ -122,8 +103,10 @@ export function GroupChat({ groupId, groupName }: GroupChatProps) {
   }, [groupId, input, user?.id])
 
   const handleVote = useCallback(async (messageId: string, optionId: string) => {
-    if (user?.id) await castVote(messageId, optionId, user.id)
-  }, [user?.id])
+    if (!user?.id || !await castVote(messageId, optionId, user.id)) return
+    const refreshed = await fetchMessages(groupId)
+    setMessages(refreshed)
+  }, [groupId, user?.id])
 
   const shareLocation = useCallback(async () => {
     if (!user?.id) return
@@ -138,7 +121,7 @@ export function GroupChat({ groupId, groupName }: GroupChatProps) {
           const lat = coords.latitude
           const lng = coords.longitude
           const url = `https://www.google.com/maps?q=${lat},${lng}`
-          const ok = await sendRichMessage(groupId, user.id, 'Shared their location', 'location', {
+          const ok = await sendRichMessage(groupId, 'Shared their location', 'location', {
             location: { lat, lng },
             url,
           })
@@ -159,20 +142,20 @@ export function GroupChat({ groupId, groupName }: GroupChatProps) {
     const cleanDestination = destination.trim()
     if (!cleanDestination) return false
     const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanDestination)}`
-    const ok = await sendRichMessage(groupId, user.id, `Route to ${cleanDestination}`, 'route', {
+    const ok = await sendRichMessage(groupId, `Route to ${cleanDestination}`, 'route', {
       destination: cleanDestination,
       url,
     })
     if (!ok) window.alert('We could not share that route. Please try again.')
     if (ok) setRouteOpen(false)
-    return ok
+    return !!ok
   }, [groupId, user?.id])
 
   const uploadPhoto = useCallback(async (file: File) => {
     if (!user?.id || photoBusy) return
-    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    const allowed = ['image/jpeg', 'image/png', 'image/webp']
     if (!allowed.includes(file.type)) {
-      window.alert('Please choose a JPG, PNG, WebP or GIF.')
+      window.alert('Please choose a JPG, PNG or WebP image.')
       return
     }
     if (file.size > 10 * 1024 * 1024) {
@@ -182,21 +165,12 @@ export function GroupChat({ groupId, groupName }: GroupChatProps) {
 
     setPhotoBusy(true)
     try {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const path = `${groupId}/${user.id}/${crypto.randomUUID()}-${safeName}`
-      const { error } = await supabase.storage.from('group-chat-media').upload(path, file, {
-        contentType: file.type,
-        cacheControl: '3600',
-        upsert: false,
-      })
-      if (error) {
-        console.error('[group-chat] photo upload failed:', error.message)
-        window.alert('Photo upload failed. Please try again.')
-        return
-      }
-      const { data } = supabase.storage.from('group-chat-media').getPublicUrl(path)
-      const ok = await sendRichMessage(groupId, user.id, 'Shared a photo', 'image', { url: data.publicUrl, path })
-      if (!ok) window.alert('The photo uploaded but could not be shared in the chat.')
+      const key = await uploadChatImage(groupId, file)
+      const message = await sendRichMessage(groupId, 'Shared a photo', 'image', { key, url: chatImageUrl(key) })
+      if (!message) window.alert('The photo uploaded but could not be shared in the chat.')
+    } catch (error) {
+      console.error('[group-chat] photo upload failed:', error)
+      window.alert('Photo upload failed. Please try again.')
     } finally {
       setPhotoBusy(false)
     }
@@ -238,7 +212,7 @@ export function GroupChat({ groupId, groupName }: GroupChatProps) {
           <ActionIcon icon={<MapPin className="h-4 w-4" />} title="Share location" active={!!user?.id} onClick={() => setLocationOpen(true)} />
           <ActionIcon icon={<BarChart2 className="h-4 w-4" />} title="Create poll" active={!!user?.id} onClick={() => setPollOpen(true)} />
           <ActionIcon icon={photoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />} title="Share photo" active={!!user?.id && !photoBusy} onClick={() => fileRef.current?.click()} />
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (file) void uploadPhoto(file) }} />
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (file) void uploadPhoto(file) }} />
         </div>
 
         <div className="flex items-center gap-2 border-t border-border/20 bg-black/30 px-2 py-2">
