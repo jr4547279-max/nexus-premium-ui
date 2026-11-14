@@ -78,6 +78,7 @@ jobs:
           NEXUS_RESEND_API_KEY: ${{ secrets.NEXUS_RESEND_API_KEY }}
           NEXUS_EMAIL_FROM: ${{ vars.NEXUS_EMAIL_FROM }}
           NEXUS_EMAIL_SENDER_VERIFIED: ${{ vars.NEXUS_EMAIL_SENDER_VERIFIED }}
+          NEXUS_RESEND_TEST_MODE: ${{ vars.NEXUS_RESEND_TEST_MODE }}
           NEXUS_RESEND_OVERAGES_DISABLED: ${{ vars.NEXUS_RESEND_OVERAGES_DISABLED }}
           NEXUS_WORKERS_ADMIN_CONFIRMED: ${{ vars.NEXUS_WORKERS_ADMIN_CONFIRMED }}
           NEXUS_WORKERS_EDIT_CONFIRMED: ${{ vars.NEXUS_WORKERS_EDIT_CONFIRMED }}
@@ -143,7 +144,7 @@ jobs:
           EMAIL_API_TOKEN: ${{ secrets.NEXUS_RESEND_API_KEY }}
         run: printf '%s' "$EMAIL_API_TOKEN" | pnpm exec wrangler secret put EMAIL_API_TOKEN --config wrangler.jsonc
 
-      - name: Add the verified Nexus sender address
+      - name: Add the configured Nexus sender address
         working-directory: workers/nexus-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
