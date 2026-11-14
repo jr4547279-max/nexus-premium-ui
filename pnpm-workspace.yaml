@@ -50,6 +50,7 @@ onlyBuiltDependencies:
   - msw
   - sharp
   - unrs-resolver
+  - workerd
 
 # pnpm 11+ uses allowBuilds instead of onlyBuiltDependencies.
 # Keep both for compatibility across Vercel's pnpm versions.
@@ -61,6 +62,7 @@ allowBuilds:
   msw: true
   sharp: true
   unrs-resolver: true
+  workerd: true
 
 overrides:
   "esbuild>@esbuild/darwin-arm64": "-"

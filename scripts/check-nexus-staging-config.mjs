@@ -22,6 +22,8 @@ const checks = [
   ['no KV-backed Durable Object migration is configured', !/"new_classes"\s*:/.test(api)],
   ['API config retains the unprovisioned D1 placeholder', /00000000-0000-4000-8000-000000000000/.test(api)],
   ['workflow has no push, pull_request, or schedule trigger', !/^\s{2}(push|pull_request|schedule):/m.test(workflow)],
+  ['manual preflight includes Resend test-mode configuration', workflow.includes('NEXUS_RESEND_TEST_MODE: ${{ vars.NEXUS_RESEND_TEST_MODE }}')],
+  ['preflight inventories Durable Objects namespaces read-only', /workers\/durable_objects\/namespaces\?page=1&per_page=100/.test(await readFile('scripts/nexus-cloudflare-preflight.mjs', 'utf8'))],
   ['workflow deploy commands name only the three Nexus targets',
     workflow.includes('wrangler d1 create nexus-app-dev') &&
     workflow.includes('wrangler deploy --config wrangler.jsonc') &&
