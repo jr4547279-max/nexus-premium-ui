@@ -1,7 +1,7 @@
 {
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration/",
   "name": "nexus-api-dev",
-  "account_id": "4d654fd2fae39e00cc7e5a534cf6d741",
+  "account_id": "e2b44cf8f53c102a3442bd54d8f59f92",
   "main": "src/index.ts",
   "workers_dev": false,
   "compatibility_date": "2026-11-13",
@@ -24,8 +24,8 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CircleRoom"] }],
   "vars": {
-    "APP_ORIGIN": "https://nexus-web-dev.jayrusss98.workers.dev",
-    "PUBLIC_APP_URL": "https://nexus-web-dev.jayrusss98.workers.dev",
+    "APP_ORIGIN": "https://nexus-web-dev.jayrussell99999.workers.dev",
+    "PUBLIC_APP_URL": "https://nexus-web-dev.jayrussell99999.workers.dev",
     "AUTH_MODE": "production",
     "ALLOW_DEV_AUTH": "false",
     "ALLOW_UPLOADS": "false",
