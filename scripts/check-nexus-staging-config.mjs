@@ -8,12 +8,12 @@ try { frontendBuild = await readFile('nexus-premium-ui/dist/server/wrangler.json
 
 const checks = [
   ['frontend Worker is nexus-web-dev', /"name"\s*:\s*"nexus-web-dev"/.test(frontend)],
-  ['frontend is pinned to the intended Cloudflare account', /"account_id"\s*:\s*"4d654fd2fae39e00cc7e5a534cf6d741"/.test(frontend)],
+  ['frontend is pinned to the intended Cloudflare account', /"account_id"\s*:\s*"e2b44cf8f53c102a3442bd54d8f59f92"/.test(frontend)],
   ['frontend binds only nexus-api-dev', /"service"\s*:\s*"nexus-api-dev"/.test(frontend)],
   ['Vinext build output targets nexus-web-dev and nexus-api-dev',
     /"name":"nexus-web-dev"/.test(frontendBuild) && /"service":"nexus-api-dev"/.test(frontendBuild)],
   ['API Worker is nexus-api-dev', /"name"\s*:\s*"nexus-api-dev"/.test(api)],
-  ['API is pinned to the intended Cloudflare account', /"account_id"\s*:\s*"4d654fd2fae39e00cc7e5a534cf6d741"/.test(api)],
+  ['API is pinned to the intended Cloudflare account', /"account_id"\s*:\s*"e2b44cf8f53c102a3442bd54d8f59f92"/.test(api)],
   ['D1 target is nexus-app-dev', /"database_name"\s*:\s*"nexus-app-dev"/.test(api)],
   ['API is not directly exposed on workers.dev', /"workers_dev"\s*:\s*false/.test(api)],
   ['uploads remain disabled', /"ALLOW_UPLOADS"\s*:\s*"false"/.test(api)],
