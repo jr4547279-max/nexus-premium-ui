@@ -260,19 +260,19 @@ export function AvailabilityEditor({
                       <div className="space-y-2.5">
                         {daySlots.map((slot, index) => (
                           <div key={`${day.idx}-${index}`} className="rounded-xl border border-border/30 bg-background/50 p-3">
-                            <div className="grid grid-cols-[1fr_auto_1fr_auto] items-end gap-2">
+                            <div className="grid grid-cols-1 min-[400px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] [&>button]:justify-self-end items-end gap-2">
                               <div className="min-w-0">
                                 <label htmlFor={`availability-${day.idx}-${index}-start`} className="mb-1 block text-xs text-muted-foreground">From</label>
                                 <input id={`availability-${day.idx}-${index}-start`} type="time" value={slot.start_time} aria-label={`${day.long}, window ${index + 1}, start time`} onChange={(event) => setSlot(day.idx, index, { start_time: event.target.value })} className="h-11 w-full min-w-0 rounded-lg border border-border/40 bg-muted/30 px-2 text-base text-foreground touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
                                 <span className="mt-1 block text-xs tabular-nums text-primary">{formatTime12h(slot.start_time)}</span>
                               </div>
-                              <span className="pb-11 text-muted-foreground" aria-hidden="true">to</span>
+                              <span className="hidden min-[400px]:block pb-11 text-muted-foreground" aria-hidden="true">to</span>
                               <div className="min-w-0">
                                 <label htmlFor={`availability-${day.idx}-${index}-end`} className="mb-1 block text-xs text-muted-foreground">Until</label>
                                 <input id={`availability-${day.idx}-${index}-end`} type="time" value={slot.end_time} aria-label={`${day.long}, window ${index + 1}, end time`} onChange={(event) => setSlot(day.idx, index, { end_time: event.target.value })} className="h-11 w-full min-w-0 rounded-lg border border-border/40 bg-muted/30 px-2 text-base text-foreground touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
                                 <span className="mt-1 block text-xs tabular-nums text-primary">{formatTime12h(slot.end_time)}{slot.end_day_offset === 1 ? ' · next day' : ''}</span>
                               </div>
-                              <Button type="button" variant="ghost" onClick={() => removeSlot(day.idx, index)} aria-label={`Remove ${day.long} window ${index + 1}`} className="mb-7 h-11 w-11 p-0 text-muted-foreground hover:text-red-300"><Trash2 className="h-4 w-4" /></Button>
+                              <Button type="button" variant="ghost" onClick={() => removeSlot(day.idx, index)} aria-label={`Remove ${day.long} window ${index + 1}`} className="mb-7 h-11 w-11 shrink-0 p-0 text-muted-foreground hover:text-red-300"><Trash2 className="h-4 w-4" /></Button>
                             </div>
                             <label className="mt-3 flex min-h-11 items-center gap-2 rounded-lg text-xs text-muted-foreground touch-manipulation">
                               <input type="checkbox" checked={slot.end_day_offset === 1} onChange={(event) => setSlot(day.idx, index, { end_day_offset: event.target.checked ? 1 : 0 })} className="h-4 w-4 accent-[var(--primary)]" aria-label={`${day.long}, window ${index + 1}, ends the next day`} />
