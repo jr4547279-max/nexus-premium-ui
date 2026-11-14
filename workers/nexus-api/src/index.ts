@@ -1025,3 +1025,6 @@ export class CircleRoom {
       return new Response(null, { status: 204 });
     }
     return new Response("Not found", { status: 404 });
+  }
+
+}
