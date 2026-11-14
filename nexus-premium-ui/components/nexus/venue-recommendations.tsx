@@ -1,14 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { GlassCard } from './glass-card'
-import { Star, MapPin, Sparkles, ThumbsUp, ThumbsDown, ExternalLink, AlertTriangle, Check, Loader2 } from 'lucide-react'
+import { Star, MapPin, Sparkles, ThumbsUp, ThumbsDown, ExternalLink, Navigation, AlertTriangle, Check, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
   fetchVenues,
   computeMidpoint,
-  buildMapUrl,
+  buildDirectionsUrl,
   VIBE_LABEL,
   type Vibe,
   type Venue,
@@ -52,6 +53,7 @@ interface Props {
 }
 
 const VIBES: Vibe[] = ['pub', 'drinks', 'food', 'coffee', 'activity']
+const VenuesMap = dynamic(() => import('./venues-map'), { ssr: false, loading: () => <div className="h-[240px] animate-pulse rounded-2xl border border-white/10 bg-white/[0.03]" /> })
 
 const ACTIVITY_VIBE: Record<string, Vibe> = {
   'pub-crawl': 'pub',
@@ -133,8 +135,8 @@ export function VenueRecommendations({
   const [savingVote, setSavingVote] = useState<string | null>(null)
   const [confirmingPlan, setConfirmingPlan] = useState(false)
   const [confirmedVenueName, setConfirmedVenueName] = useState<string | null>(null)
-  const [mapFailed, setMapFailed] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
+  const [selectedMapVenueId, setSelectedMapVenueId] = useState<string | null>(null)
   const [recalibrationSeed, setRecalibrationSeed] = useState(0)
 
   useEffect(() => {
@@ -157,7 +159,8 @@ export function VenueRecommendations({
   //   2. memberCoords     — individual member coordinates (future feature)
   //   3. fallback         — no location set; show a prompt instead of silently searching Eastbourne
   const midpoint = useMemo(() => {
-    if (planningLocation) {
+    if (planningLocation && Number.isFinite(planningLocation.lat) && Number.isFinite(planningLocation.lng)
+      && planningLocation.lat >= -90 && planningLocation.lat <= 90 && planningLocation.lng >= -180 && planningLocation.lng <= 180) {
       return { lat: planningLocation.lat, lng: planningLocation.lng, fallback: false as const }
     }
     return computeMidpoint(memberCoords ?? [])
@@ -186,6 +189,8 @@ export function VenueRecommendations({
       lat: midpoint.lat,
       lng: midpoint.lng,
       limit: 8,
+      meetingDay: goldenWindow?.day_of_week,
+      meetingTime: goldenWindow?.start_time,
     }).then((result) => {
       if (cancelled) return
       if (result.error) setError(result.error)
@@ -199,32 +204,36 @@ export function VenueRecommendations({
     }
   }, [vibe, activityId, midpoint.lat, midpoint.lng, midpoint.fallback, goldenWindow?.day_of_week, goldenWindow?.start_time, goldenWindow?.end_time])
 
-  useEffect(() => {
-    setMapFailed(false)
-  }, [midpoint.lat, midpoint.lng])
-
   const rankedResults: ScoredVenueResult[] = useMemo(() => {
     const ranked = rankVenues(venues, weather ?? null, intent)
+    if (goldenWindow) {
+      ranked.sort((a, b) => {
+        const status = (venue: Venue) => venue.open_at_meeting_known ? (venue.open_at_meeting ? 0 : 2) : 1
+        return status(a.venue) - status(b.venue)
+      })
+    }
     if (!recalibrationSeed || ranked.length < 2) return ranked
     const headCount = Math.min(5, ranked.length)
     const head = ranked.slice(0, headCount)
     const tail = ranked.slice(headCount)
     const shift = recalibrationSeed % headCount
     return [...head.slice(shift), ...head.slice(0, shift), ...tail]
-  }, [venues, weather, intent, recalibrationSeed])
+  }, [venues, weather, intent, recalibrationSeed, goldenWindow])
 
-  const topPick = rankedResults[0]?.venue ?? null
   const listResults = rankedResults.slice(0, 5)
 
   const handleShowAlternatives = () => {
+    if (midpoint.fallback) return
     if (altVenues.length > 0) { setShowAlternatives(true); return }
     setAltLoading(true)
     setShowAlternatives(true)
     fetchVenues({
       vibe: weatherAlt.alternativeVibe,
-      lat: midpoint.fallback ? undefined : midpoint.lat,
-      lng: midpoint.fallback ? undefined : midpoint.lng,
+      lat: midpoint.lat,
+      lng: midpoint.lng,
       limit: 6,
+      meetingDay: goldenWindow?.day_of_week,
+      meetingTime: goldenWindow?.start_time,
     }).then((result) => {
       setAltVenues(result.venues)
       setAltLoading(false)
@@ -300,28 +309,7 @@ export function VenueRecommendations({
     }
   }
 
-  const mapUrl = useMemo(
-    () =>
-      buildMapUrl({
-        lat: midpoint.lat,
-        lng: midpoint.lng,
-        topPickCoord:
-          topPick && topPick.lat != null && topPick.lng != null
-            ? { lat: topPick.lat, lng: topPick.lng }
-            : null,
-        fitCoords: listResults
-          .slice(1)
-          .filter((r): r is ScoredVenueResult & { venue: Venue & { lat: number; lng: number } } =>
-            r.venue.lat != null && r.venue.lng != null,
-          )
-          .slice(0, 4)
-          .map((r) => ({ lat: r.venue.lat, lng: r.venue.lng })),
-        zoom: 14,
-        w: 640,
-        h: 320,
-      }),
-    [midpoint.lat, midpoint.lng, topPick, listResults],
-  )
+  const mapVenues = useMemo(() => venues.filter((venue) => venue.lat != null && venue.lng != null), [venues])
 
   return (
     <div className="mb-6 space-y-4">
@@ -349,43 +337,7 @@ export function VenueRecommendations({
         </div>
       )}
 
-      <GlassCard className="p-0 overflow-hidden relative">
-        <div className="relative w-full bg-[radial-gradient(ellipse_at_center,#0c1626,#05080f)]" style={{ aspectRatio: '2 / 1' }}>
-          {!mapFailed && (
-            <img src={mapUrl} alt="" className="absolute inset-0 w-full h-full object-cover" onError={() => setMapFailed(true)} />
-          )}
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(251,191,36,0.18),transparent_55%)]" />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/95 via-background/10 to-transparent" />
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="w-[68%] aspect-square rounded-full border border-amber-400/30 [box-shadow:0_0_60px_rgba(251,191,36,0.15)_inset,0_0_40px_rgba(251,191,36,0.10)]" />
-          </div>
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="relative">
-              <span className="absolute inset-0 w-3 h-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400/40 animate-ping" />
-              <span className="block w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.9)]" />
-            </span>
-          </div>
-          {topPick && (
-            <div className="pointer-events-none absolute top-[42%] left-[58%]">
-              <span className="block w-3 h-3 rounded-full bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.8)]" />
-            </div>
-          )}
-          {listResults.slice(1, 4).map((_, i) => (
-            <div key={i} className="pointer-events-none absolute" style={{ top: `${48 + (i % 2 === 0 ? -8 : 6)}%`, left: `${40 - i * 6}%` }}>
-              <span className="block w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
-            </div>
-          ))}
-          {midpoint.fallback && <span className="absolute bottom-12 left-3 text-[10px] text-muted-foreground/60 tracking-widest uppercase">No location set</span>}
-          {mapFailed && (
-            <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-full bg-background/70 backdrop-blur border border-border/40 text-[9px] text-muted-foreground">
-              Enable <strong className="text-foreground">Maps Static API</strong> for live map
-            </div>
-          )}
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-3 px-3 py-1.5 rounded-full bg-background/70 backdrop-blur border border-border/40 text-[10px] text-muted-foreground">
-            <LegendDot color="bg-amber-400" label="Midpoint" /><span className="opacity-30">·</span><LegendDot color="bg-emerald-400" label="Open now" /><span className="opacity-30">·</span><LegendDot color="bg-rose-500" label="Top pick" />
-          </div>
-        </div>
-      </GlassCard>
+      {!midpoint.fallback && <VenuesMap center={{ lat: midpoint.lat, lng: midpoint.lng }} venues={mapVenues} selectedId={selectedMapVenueId} onSelect={(venue) => { setSelectedMapVenueId(venue.id ?? `${venue.name}|${venue.lat}|${venue.lng}`); setSelectedVenue(venue) }} />}
 
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5">
         {VIBES.map((v) => {
@@ -404,14 +356,14 @@ export function VenueRecommendations({
       {loading ? (
         <GlassCard className="p-4"><div className="flex items-center gap-3" role="status" aria-live="polite"><span className="relative flex w-2.5 h-2.5"><span className="absolute inset-0 rounded-full bg-amber-400/50 animate-ping" /><span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.7)]" /></span><p className="text-sm text-muted-foreground">Searching nearby fits…</p></div></GlassCard>
       ) : error ? (
-        <GlassCard className="p-4"><div className="flex items-center gap-2 mb-1"><Sparkles className="w-4 h-4 text-muted-foreground" /><span className="text-sm font-medium">Couldn't load venues</span></div><p className="text-xs text-muted-foreground break-words">{error}</p><p className="text-[10px] text-muted-foreground mt-2">Make sure <code className="text-primary">GOOGLE_PLACES_API_KEY</code> is set and both <strong>Places API (New)</strong> and <strong>Maps Static API</strong> are enabled in Google Cloud Console.</p></GlassCard>
+        <GlassCard className="p-4"><div className="flex items-center gap-2 mb-1"><Sparkles className="w-4 h-4 text-muted-foreground" /><span className="text-sm font-medium">Couldn't load venues</span></div><p className="text-xs text-muted-foreground break-words">{error}</p><button type="button" onClick={() => { setError(null); setLoading(true); fetchVenues({ vibe, activityId, lat: midpoint.fallback ? undefined : midpoint.lat, lng: midpoint.fallback ? undefined : midpoint.lng, limit: 8, meetingDay: goldenWindow?.day_of_week, meetingTime: goldenWindow?.start_time }).then((result) => { setVenues(result.venues); setError(result.error ?? null); setVenueSource(result.provider ?? null); setLoading(false) }) }} className="mt-3 min-h-10 rounded-lg border border-primary/30 px-3 text-xs text-primary">Try again</button></GlassCard>
       ) : midpoint.fallback ? (
-        <GlassCard className="p-4"><div className="flex items-start gap-2"><MapPin className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" /><div><p className="text-sm font-medium text-foreground/80">No location set</p><p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Use the location picker above to set a meeting area — Nexus will search for real venues nearby using Google Places.</p></div></div></GlassCard>
+        <GlassCard className="p-4"><div className="flex items-start gap-2"><MapPin className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" /><div><p className="text-sm font-medium text-foreground/80">Choose your planning area</p><p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Set a Circle location to find real nearby venues on OpenStreetMap. Nexus never guesses the area.</p></div></div></GlassCard>
       ) : venues.length === 0 ? (
         <GlassCard className="p-4"><p className="text-xs text-muted-foreground">No venues found for this vibe in the search area.</p></GlassCard>
       ) : (
         <div className="space-y-2.5">
-          {listResults.map((result, idx) => <VenueCard key={`${result.venue.name}-${result.venue.address ?? idx}`} result={result} isTopPick={idx === 0} vote={votes[result.venue.name] ?? 0} onVote={(dir) => void handleVenueVote(result.venue, dir)} onOpen={() => setSelectedVenue(result.venue)} />)}
+          {listResults.map((result, idx) => <VenueCard key={`${result.venue.name}-${result.venue.address ?? idx}`} result={result} isTopPick={idx === 0} vote={votes[result.venue.name] ?? 0} onVote={(dir) => void handleVenueVote(result.venue, dir)} onOpen={() => { setSelectedMapVenueId(result.venue.id ?? `${result.venue.name}|${result.venue.lat}|${result.venue.lng}`); setSelectedVenue(result.venue) }} />)}
         </div>
       )}
 
@@ -453,14 +405,11 @@ export function VenueRecommendations({
   )
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return <span className="flex items-center gap-1.5"><span className={cn('w-2 h-2 rounded-full', color)} /><span>{label}</span></span>
-}
-
 function VenueCard({ result, isTopPick, isAlternative, vote, onVote, onOpen }: { result: ScoredVenueResult; isTopPick: boolean; isAlternative?: boolean; vote: 1 | -1 | 0; onVote: (dir: 1 | -1) => void; onOpen: () => void }) {
   const { venue, explanation } = result
   const isOpen = venue.open_now === true
   const distance = venue.distance_km != null ? venue.distance_km < 1 ? `${Math.round(venue.distance_km * 1000)}m` : `${venue.distance_km.toFixed(1)}km` : null
+  const directionsUrl = buildDirectionsUrl(venue)
   const isInteractiveChild = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest('a, button, input, textarea, select')
   const handleOpen = (e: React.MouseEvent | React.TouchEvent) => { if (isInteractiveChild(e.target)) return; onOpen() }
   const handleKey = (e: React.KeyboardEvent) => { if (e.key !== 'Enter' && e.key !== ' ') return; if (isInteractiveChild(e.target)) return; e.preventDefault(); onOpen() }
@@ -475,13 +424,14 @@ function VenueCard({ result, isTopPick, isAlternative, vote, onVote, onOpen }: {
           {venue.photo_url ? <img src={venue.photo_url} alt={venue.name} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { ;(e.currentTarget as HTMLImageElement).style.display = 'none' }} /> : <div className="w-full h-full flex items-center justify-center"><MapPin className="w-6 h-6 text-muted-foreground/40" aria-hidden="true" /></div>}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2"><h3 className="font-medium text-sm truncate flex-1">{venue.name}</h3>{isOpen && <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-400/50 text-emerald-400 shrink-0">OPEN</span>}</div>
+          <div className="flex items-start justify-between gap-2"><h3 className="font-medium text-sm truncate flex-1">{venue.name}</h3><div className="flex shrink-0 flex-wrap justify-end gap-1">{venue.open_at_meeting_known && <span className={cn('rounded-full border px-2 py-0.5 text-[9px]', venue.open_at_meeting ? 'border-emerald-400/40 text-emerald-300' : 'border-rose-400/40 text-rose-300')}>{venue.open_at_meeting ? 'OPEN AT PLAN TIME' : 'CLOSED AT PLAN TIME'}</span>}{isOpen && <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-400/50 text-emerald-400">OPEN NOW</span>}</div></div>
           <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{[venue.category, distance].filter(Boolean).join(' · ') || '—'}</p>
           {primaryExplanation && <p className="text-[11px] text-muted-foreground/90 mt-1 line-clamp-2 leading-relaxed">{primaryExplanation}</p>}
           <div className="flex items-center justify-between mt-1.5">
             {venue.rating != null ? <span className="text-[11px] text-amber-400 flex items-center gap-0.5" aria-label={`${venue.rating.toFixed(1)} out of 5 stars`}><Star className="w-3 h-3 fill-current" aria-hidden="true" />{venue.rating.toFixed(1)}</span> : <span />}
             <div className="flex items-center gap-1">
-              {venue.maps_url && <a href={venue.maps_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 px-2 py-1 rounded-md border border-border/40 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-all" aria-label={`Open ${venue.name} in Google Maps`}><ExternalLink className="w-3 h-3" aria-hidden="true" />Maps</a>}
+              {venue.maps_url && <a href={venue.maps_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex min-h-10 items-center gap-1 px-2 py-1 rounded-md border border-border/40 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-all" aria-label={`Open ${venue.name} on OpenStreetMap`}><ExternalLink className="w-3 h-3" aria-hidden="true" />Map</a>}
+              {directionsUrl && <a href={directionsUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex min-h-10 items-center gap-1 px-2 py-1 rounded-md border border-primary/30 text-[11px] text-primary" aria-label={`Get directions to ${venue.name}`}><Navigation className="w-3 h-3" aria-hidden="true" />Go</a>}
               <VoteButton active={vote === 1} onClick={(e) => { e.stopPropagation(); onVote(1) }} icon="up" venueName={venue.name} />
               <VoteButton active={vote === -1} onClick={(e) => { e.stopPropagation(); onVote(-1) }} icon="down" venueName={venue.name} />
             </div>

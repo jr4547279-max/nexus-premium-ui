@@ -6,8 +6,9 @@
  * never runs server-side.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Map as LMap, Marker as LMarker } from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 interface MapPickerProps {
   onLocationSelect: (lat: number, lng: number) => void
@@ -25,26 +26,16 @@ const PIN_HTML = `
 
 export default function MapPicker({
   onLocationSelect,
-  initialLat = 51.505,
-  initialLng = -0.09,
+  initialLat = 54.5,
+  initialLng = -2.5,
 }: MapPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef       = useRef<LMap | null>(null)
   const markerRef    = useRef<LMarker | null>(null)
+  const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-
-    // Inject Leaflet CSS once
-    if (!document.getElementById('leaflet-css')) {
-      const link  = document.createElement('link')
-      link.id     = 'leaflet-css'
-      link.rel    = 'stylesheet'
-      link.href   = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='
-      link.crossOrigin = ''
-      document.head.appendChild(link)
-    }
 
     import('leaflet').then((L) => {
       if (!containerRef.current || mapRef.current) return
@@ -53,12 +44,15 @@ export default function MapPicker({
         center:           [initialLat, initialLng],
         zoom:             10,
         zoomControl:      true,
-        attributionControl: false,
+        attributionControl: true,
       })
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
       }).addTo(map)
+      tiles.on('tileerror', () => setMapError('Map tiles are temporarily unavailable. Search or GPS still work.'))
+      tiles.on('tileload', () => setMapError(null))
 
       const icon = L.divIcon({
         html:       PIN_HTML,
@@ -81,7 +75,7 @@ export default function MapPicker({
 
       // Force a size recalculation after mount (fixes blank-tile issue in sheets)
       setTimeout(() => map.invalidateSize(), 200)
-    })
+    }).catch(() => setMapError('The map could not be loaded. Search or GPS still work.'))
 
     return () => {
       mapRef.current?.remove()
@@ -92,10 +86,10 @@ export default function MapPicker({
   }, [])
 
   return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%' }}
-      className="rounded-xl overflow-hidden"
-    />
+    <div className="relative h-full w-full overflow-hidden rounded-xl">
+      <div ref={containerRef} className="h-full w-full" />
+      <style jsx global>{`.leaflet-control-zoom a{width:44px!important;height:44px!important;line-height:44px!important;font-size:20px!important}.leaflet-control-attribution{font-size:10px!important;color:#eee!important;background:rgba(0,0,0,.72)!important}.leaflet-control-attribution a{color:#ffd2a1!important}`}</style>
+      {mapError && <div role="status" className="pointer-events-none absolute bottom-2 left-2 right-2 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-[11px] text-white/80">{mapError}</div>}
+    </div>
   )
 }

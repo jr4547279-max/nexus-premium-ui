@@ -17,6 +17,8 @@ export interface Venue {
   lng: number | null
   photo_url: string | null
   score: number
+  open_at_meeting?: boolean | null
+  open_at_meeting_known?: boolean
 }
 
 export interface VenuesResult {
@@ -28,18 +30,39 @@ export interface VenuesResult {
   error?: string
 }
 
-export const FALLBACK_LAT = 50.7686
-export const FALLBACK_LNG = 0.2906
+/** Provider-neutral request and contract; UI components consume only Venue. */
+export interface VenueSearchRequest {
+  vibe: Vibe
+  activityId?: string
+  lat?: number
+  lng?: number
+  radius?: number
+  limit?: number
+  meetingDay?: number
+  meetingTime?: string
+}
+
+export interface VenueProviderAdapter {
+  readonly id: string
+  search(request: VenueSearchRequest): Promise<VenuesResult>
+  /** Providers with a details API may enrich a selected normalized venue. */
+  getDetails?(providerId: string): Promise<Venue | null>
+}
+
+export type Midpoint =
+  | { lat: number; lng: number; fallback: false }
+  | { lat: null; lng: null; fallback: true }
 
 export function computeMidpoint(
   coords: Array<{ lat: number; lng: number } | null | undefined>,
-): { lat: number; lng: number; fallback: boolean } {
+): Midpoint {
   const valid = coords.filter(
     (c): c is { lat: number; lng: number } =>
-      !!c && Number.isFinite(c.lat) && Number.isFinite(c.lng),
+      !!c && Number.isFinite(c.lat) && Number.isFinite(c.lng)
+        && c.lat >= -90 && c.lat <= 90 && c.lng >= -180 && c.lng <= 180,
   )
   if (valid.length === 0) {
-    return { lat: FALLBACK_LAT, lng: FALLBACK_LNG, fallback: true }
+    return { lat: null, lng: null, fallback: true }
   }
   const lat = valid.reduce((s, c) => s + c.lat, 0) / valid.length
   const lng = valid.reduce((s, c) => s + c.lng, 0) / valid.length
@@ -86,94 +109,34 @@ async function requestJson(url: string): Promise<{ response: Response; json: Ven
   return { response, json: (await response.json()) as VenuesResult }
 }
 
-function mergeUniqueVenues(primary: Venue[], fallback: Venue[], limit: number): Venue[] {
-  const merged: Venue[] = []
-  const seen = new Set<string>()
-  for (const venue of [...primary, ...fallback]) {
-    const key = venue.id ?? `${venue.name.toLowerCase()}|${venue.lat}|${venue.lng}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push(venue)
-    if (merged.length >= limit) break
-  }
-  return merged
-}
-
 /**
- * Fetch real venues. Google Places remains the richer provider when configured,
- * but Nexus automatically supplements sparse Google results with OpenStreetMap
- * so one Google hit never collapses the whole nearby-venue experience.
+ * Fetch normalized venue data from the configured server-side provider.
+ * Provider selection and secrets stay on the server; coordinates are mandatory.
  */
-export async function fetchVenues(opts: {
-  vibe: Vibe
-  activityId?: string
-  lat?: number
-  lng?: number
-  radius?: number
-  limit?: number
-}): Promise<VenuesResult> {
+export async function fetchVenues(opts: VenueSearchRequest): Promise<VenuesResult> {
   const qs = new URLSearchParams({ vibe: opts.vibe })
   if (opts.activityId) qs.set('activity', opts.activityId)
   if (opts.lat != null) qs.set('lat', String(opts.lat))
   if (opts.lng != null) qs.set('lng', String(opts.lng))
   if (opts.radius != null) qs.set('radius', String(opts.radius))
   if (opts.limit != null) qs.set('limit', String(opts.limit))
+  if (Number.isInteger(opts.meetingDay) && opts.meetingDay! >= 0 && opts.meetingDay! <= 6 && opts.meetingTime) {
+    qs.set('meetingDay', String(opts.meetingDay))
+    qs.set('meetingTime', opts.meetingTime)
+  }
 
   const requestedLimit = Math.max(1, Math.min(opts.limit ?? 8, 18))
-  const supplementThreshold = Math.min(5, requestedLimit)
+  if (opts.lat == null || opts.lng == null || !Number.isFinite(opts.lat) || !Number.isFinite(opts.lng)
+    || opts.lat < -90 || opts.lat > 90 || opts.lng < -180 || opts.lng > 180) {
+    return { venues: [], vibe: opts.vibe, cached: false, error: 'Choose a planning location before searching nearby venues.' }
+  }
 
   try {
     const primary = await requestJson(`/nx/places?${qs.toString()}`)
     const primaryVenues = primary.response.ok && primary.json ? primary.json.venues : []
-
-    // If Google has enough results, keep its richer data. If it is sparse,
-    // supplement with real OSM data and merge without duplicates.
-    if (primary.response.ok && primary.json && primaryVenues.length >= supplementThreshold) {
-      return primary.json
-    }
-
-    if (opts.lat != null && opts.lng != null) {
-      const osm = await requestJson(`/nx/places/osm?${qs.toString()}`)
-      if (osm.response.ok && osm.json) {
-        const merged = mergeUniqueVenues(primaryVenues, osm.json.venues, requestedLimit)
-        return {
-          ...osm.json,
-          venues: merged,
-          provider: primaryVenues.length > 0 ? 'Google Places + OpenStreetMap' : (osm.json.provider ?? 'OpenStreetMap'),
-          fallback: primaryVenues.length > 0
-            ? `Google Places returned ${primaryVenues.length} result${primaryVenues.length === 1 ? '' : 's'}; Nexus filled the list with real OpenStreetMap venues.`
-            : (primary.json?.error ?? 'Using OpenStreetMap real-world venue data'),
-          error: undefined,
-        }
-      }
-      return {
-        venues: primaryVenues,
-        vibe: opts.vibe,
-        cached: false,
-        provider: primary.json?.provider,
-        error: primaryVenues.length > 0
-          ? undefined
-          : osm.json?.error ?? primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`,
-      }
-    }
-
-    return {
-      venues: primaryVenues,
-      vibe: opts.vibe,
-      cached: false,
-      provider: primary.json?.provider,
-      error: primaryVenues.length > 0 ? undefined : (primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})`),
-    }
+    if (primary.response.ok && primary.json) return { ...primary.json, venues: primaryVenues.slice(0, requestedLimit) }
+    return { venues: [], vibe: opts.vibe, cached: false, provider: primary.json?.provider, error: primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})` }
   } catch (err) {
-    if (opts.lat != null && opts.lng != null) {
-      try {
-        const osm = await requestJson(`/nx/places/osm?${qs.toString()}`)
-        if (osm.response.ok && osm.json) return osm.json
-      } catch {
-        // Fall through to the actionable error below.
-      }
-    }
-
     return {
       venues: [],
       vibe: opts.vibe,
@@ -181,6 +144,14 @@ export async function fetchVenues(opts: {
       error: (err as Error).message,
     }
   }
+}
+
+/** A directions deep-link, with coordinates supplied by the selected provider. */
+export function buildDirectionsUrl(venue: Pick<Venue, 'lat' | 'lng'>): string | null {
+  if (venue.lat == null || venue.lng == null || !Number.isFinite(venue.lat) || !Number.isFinite(venue.lng)
+    || venue.lat < -90 || venue.lat > 90 || venue.lng < -180 || venue.lng > 180) return null
+  const destination = `${venue.lat},${venue.lng}`
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`
 }
 
 export function buildMapUrl(opts: {

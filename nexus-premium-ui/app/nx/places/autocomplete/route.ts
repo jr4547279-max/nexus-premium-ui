@@ -29,6 +29,40 @@ export const dynamic = 'force-dynamic'
 
 const PLACES_BASE = 'https://places.googleapis.com/v1'
 const apiKey = process.env.GOOGLE_PLACES_API_KEY ?? ''
+const geocoder = (process.env.NEXUS_GEOCODER_PROVIDER ?? 'photon').toLowerCase()
+const photonCache = new Map<string, { expiresAt: number; suggestions: Array<{ placeId: string; mainText: string; secondaryText: string; latitude: number; longitude: number; address: string }> }>()
+
+async function photonSuggestions(q: string, bias?: { lat: number; lng: number }) {
+  const cacheKey = `${q.trim().toLowerCase()}|${bias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : ''}`
+  const cached = photonCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.suggestions
+  const params = new URLSearchParams({ q: q.trim(), limit: '6', lang: 'en' })
+  if (bias) { params.set('lat', String(bias.lat)); params.set('lon', String(bias.lng)) }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(`https://photon.komoot.io/api/?${params}`, {
+      headers: { Accept: 'application/json', 'User-Agent': 'NexusSocialPlanner/1.0 (+https://nexus-web-dev.jayrussell99999.workers.dev)' },
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error(`Location search returned HTTP ${response.status}.`)
+    const data = await response.json() as { features?: Array<{ geometry?: { coordinates?: [number, number] }; properties?: Record<string, unknown> }> }
+    const suggestions = (data.features ?? []).flatMap((feature) => {
+      const [longitude, latitude] = feature.geometry?.coordinates ?? []
+      const properties = feature.properties ?? {}
+      if (typeof latitude !== 'number' || typeof longitude !== 'number' || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return []
+      const mainText = String(properties.name ?? properties.street ?? properties.city ?? properties.country ?? '').trim()
+      if (!mainText) return []
+      const secondaryText = [properties.city, properties.state, properties.country].filter((part) => typeof part === 'string' && part !== mainText).join(', ')
+      const id = `${properties.osm_type ?? 'feature'}:${properties.osm_id ?? `${latitude},${longitude}`}`
+      return [{ placeId: `osm:${id}`, mainText, secondaryText, latitude, longitude, address: [mainText, secondaryText].filter(Boolean).join(', ') }]
+    })
+    // Keep the in-process cache bounded for long-lived workers.
+    if (photonCache.size >= 256) photonCache.delete(photonCache.keys().next().value!)
+    photonCache.set(cacheKey, { suggestions, expiresAt: Date.now() + 10 * 60_000 })
+    return suggestions
+  } finally { clearTimeout(timeout) }
+}
 
 // Google Places (New) API hard maximum for circle bias radius.
 const MAX_BIAS_RADIUS_M = 50_000   // 50 km
@@ -144,11 +178,27 @@ async function fetchSuggestions(
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
-  if (!apiKey) return noKey()
-
   const { searchParams } = new URL(req.url)
   const q       = searchParams.get('q')
   const placeId = searchParams.get('placeId')
+
+  if (geocoder !== 'google') {
+    if (placeId) return NextResponse.json({ error: { kind: 'not_found', message: 'Location details must be selected from the current search results.' } }, { status: 400 })
+    if (!q?.trim()) return NextResponse.json({ suggestions: [], attribution: '© OpenStreetMap contributors' })
+    const rawLat = searchParams.get('lat')
+    const rawLng = searchParams.get('lng')
+    const lat = rawLat == null ? NaN : Number(rawLat)
+    const lng = rawLng == null ? NaN : Number(rawLng)
+    const bias = Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180 ? { lat, lng } : undefined
+    try {
+      const suggestions = await photonSuggestions(q, bias)
+      return NextResponse.json({ suggestions, attribution: '© OpenStreetMap contributors', provider: 'Photon' }, { headers: { 'Cache-Control': 'private, max-age=300' } })
+    } catch {
+      return NextResponse.json({ suggestions: [], error: { kind: 'api_error', message: 'OpenStreetMap location search is temporarily unavailable.' }, attribution: '© OpenStreetMap contributors' }, { status: 502 })
+    }
+  }
+
+  if (!apiKey) return noKey()
 
   // ── Place Details ────────────────────────────────────────────────────────────
   if (placeId) {

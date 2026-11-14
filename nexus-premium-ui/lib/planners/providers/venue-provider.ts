@@ -29,6 +29,13 @@ export const ACTIVITY_OSM_TAGS: Record<string, OsmTagSet[]> = {
   'swimming':     [{ key: 'leisure', value: 'swimming_pool' }, { key: 'sport', value: 'swimming' }],
   'picnic':       [{ key: 'leisure', value: 'park' }, { key: 'leisure', value: 'garden' }, { key: 'leisure', value: 'picnic_table' }],
   'beach':        [{ key: 'natural', value: 'beach' }],
+  'arcade':       [{ key: 'leisure', value: 'amusement_arcade' }],
+  'theatre':      [{ key: 'amenity', value: 'theatre' }],
+  'museum':       [{ key: 'tourism', value: 'museum' }],
+  'gallery':      [{ key: 'tourism', value: 'gallery' }],
+  'park-walk':    [{ key: 'leisure', value: 'park' }, { key: 'leisure', value: 'garden' }],
+  'mini-golf':    [{ key: 'leisure', value: 'miniature_golf' }],
+  'climbing':     [{ key: 'leisure', value: 'climbing' }, { key: 'sport', value: 'climbing' }],
 }
 
 /** Returns only explicitly registered tags. Never substitute an unrelated activity. */

@@ -16,7 +16,7 @@ const VIBE_TO_ACTIVITY: Record<string, string> = {
   drinks: 'cocktail-bar',
   food: 'restaurant',
   coffee: 'coffee',
-  activity: 'pub-crawl',
+  activity: '',
 }
 
 const DEFAULT_RADIUS = 3500
@@ -24,11 +24,12 @@ const DEFAULT_RADIUS = 3500
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const vibe = (url.searchParams.get('vibe') ?? 'drinks').toLowerCase()
-  const activityId = VIBE_TO_ACTIVITY[vibe] ?? 'cocktail-bar'
+  const explicitActivity = (url.searchParams.get('activity') ?? '').toLowerCase()
+  const activityId = explicitActivity || VIBE_TO_ACTIVITY[vibe] || ''
 
   const lat = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lng = Number.parseFloat(url.searchParams.get('lng') ?? '')
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     return NextResponse.json(
       { venues: [], vibe, cached: false, error: 'A real search location is required.' },
       { status: 400 },
@@ -40,19 +41,32 @@ export async function GET(req: Request) {
     Math.max(500, Number.parseInt(url.searchParams.get('radius') ?? String(DEFAULT_RADIUS), 10) || DEFAULT_RADIUS),
   )
   const limit = Math.min(12, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '8', 10) || 8))
+  const dayRaw = url.searchParams.get('meetingDay')
+  const meetingTimeRaw = url.searchParams.get('meetingTime')
+  const meetingTime = meetingTimeRaw ?? ''
+  const meetingDay = dayRaw == null ? NaN : Number(dayRaw)
+  if ((dayRaw != null || meetingTimeRaw != null) && (!Number.isInteger(meetingDay) || meetingDay < 0 || meetingDay > 6 || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(meetingTime))) {
+    return NextResponse.json({ venues: [], vibe, cached: false, error: 'The Golden Window day or time is invalid.' }, { status: 400 })
+  }
+  const meeting = Number.isInteger(meetingDay) && meetingDay >= 0 && meetingDay <= 6 && /^([01]?\d|2[0-3]):[0-5]\d$/.test(meetingTime)
+    ? { dayOfWeek: meetingDay, startTime: meetingTime }
+    : undefined
 
   try {
     const provider = new OpenStreetMapVenueProvider(radius)
-    const venues = await provider.getVenues(activityId, { lat, lng })
+    const venues = await provider.getVenues(activityId, { lat, lng }, meeting)
 
     const payload = {
       venues: venues.slice(0, limit).map((venue) => ({
+        id: venue.id,
         name: venue.name,
         rating: null,
         rating_count: null,
         open_now: null,
         address: venue.address ?? null,
         category: venue.tags.find((tag) => ['pub', 'bar', 'restaurant', 'cafe', 'nightclub'].includes(tag)) ?? null,
+        open_at_meeting: venue.openAtMeetingKnown ? venue.openAtMeeting : null,
+        open_at_meeting_known: venue.openAtMeetingKnown ?? false,
         maps_url: venue.mapsUrl ?? null,
         price_level: null,
         distance_km: venue.distanceFromCentre,
@@ -67,7 +81,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json(payload, {
-      headers: { 'Cache-Control': 'public, max-age=300, s-maxage=300' },
+      headers: { 'Cache-Control': 'private, max-age=300' },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OpenStreetMap venue search failed.'

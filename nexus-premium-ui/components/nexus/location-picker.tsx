@@ -55,6 +55,9 @@ interface Suggestion {
   placeId:       string
   mainText:      string
   secondaryText: string
+  latitude?: number
+  longitude?: number
+  address?: string
 }
 
 export interface LocationPickerProps {
@@ -109,6 +112,7 @@ export function LocationPicker({
   // Distinguishes a genuine "0 results" from an API/network failure
   const [searchError,  setSearchError]   = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchSequenceRef = useRef(0)
   // Best-known device GPS position — used to bias autocomplete toward the user's
   // actual physical location so ambiguous place names (e.g. "Willingdon") resolve
   // to the correct country. Updated whenever the GPS tab succeeds; also attempted
@@ -121,6 +125,7 @@ export function LocationPicker({
   // ── Reset on close ──────────────────────────────────────────────────────────
   const handleOpenChange = (val: boolean) => {
     if (!val) {
+      searchSequenceRef.current += 1
       setTab('gps')
       setSelected(null)
       setGpsStatus('idle')
@@ -187,8 +192,9 @@ export function LocationPicker({
 
   const handleQueryChange = (val: string) => {
     setQuery(val)
+    const requestId = ++searchSequenceRef.current
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!val.trim()) { setSuggestions([]); return }
+    if (!val.trim()) { setSuggestions([]); setSearchError(null); setSearchLoading(false); return }
 
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true)
@@ -205,35 +211,35 @@ export function LocationPicker({
           error?: { kind: string; message: string }
         }
 
+        if (requestId !== searchSequenceRef.current) return
+
         if (!res.ok || data.error) {
           // Distinguish API failures from genuine zero results
           const err = data.error
-          if (err?.kind === 'quota') {
-            setSearchError('Location search quota exceeded — please try again later.')
-          } else if (err?.kind === 'invalid_key') {
-            setSearchError('Location search is temporarily unavailable (API key issue).')
-          } else if (err?.kind === 'no_key_configured') {
-            setSearchError('Location search is not configured on this server.')
-          } else {
-            setSearchError('Location search failed — check your connection and try again.')
-          }
+          setSearchError(err?.message ?? 'Location search failed — check your connection and try again.')
           setSuggestions([])
         } else {
           setSuggestions(data.suggestions ?? [])
         }
       } catch {
+        if (requestId !== searchSequenceRef.current) return
         setSearchError('Could not reach the search service — check your connection.')
         setSuggestions([])
       } finally {
-        setSearchLoading(false)
+        if (requestId === searchSequenceRef.current) setSearchLoading(false)
       }
     }, 350)
   }
 
   const handleSelectSuggestion = async (s: Suggestion) => {
+    searchSequenceRef.current += 1
     setSuggestions([])
     setSearchError(null)   // a result was found and selected — clear any prior error
     setQuery(`${s.mainText}${s.secondaryText ? `, ${s.secondaryText}` : ''}`)
+    if (Number.isFinite(s.latitude) && Number.isFinite(s.longitude)) {
+      setSelected({ lat: s.latitude!, lng: s.longitude!, address: s.address ?? `${s.mainText}${s.secondaryText ? `, ${s.secondaryText}` : ''}`, placeId: s.placeId })
+      return
+    }
     setDetailLoading(true)
     try {
       const res  = await fetch(`/nx/places/autocomplete?placeId=${encodeURIComponent(s.placeId)}`)
@@ -572,6 +578,7 @@ function SearchTab({
           Type a city, town, or full address to search.
         </p>
       )}
+      <p className="text-[10px] text-muted-foreground/70 text-center">Location results © OpenStreetMap contributors · Powered by Photon</p>
     </div>
   )
 }

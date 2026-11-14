@@ -6,7 +6,7 @@
  * embeds it via <img src="/api/places/map?...">.
  *
  * Query params:
- *   lat,lng        — center (default Eastbourne)
+ *   lat,lng        — required map center (valid only when optional Google adapter is enabled)
  *   zoom           — 1..20 (default 14)
  *   pins           — comma-separated lat,lng,role triples for venues.
  *                    role = "top" → red marker
@@ -17,9 +17,6 @@
  */
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const FALLBACK_LAT = 50.7686
-const FALLBACK_LNG = 0.2906
 
 // Dark style approximating Nexus' navy basemap. Repeated style= params are
 // concatenated by the Static Maps URL builder.
@@ -38,6 +35,9 @@ const DARK_STYLE: string[] = [
 ]
 
 export async function GET(req: Request) {
+  if ((process.env.NEXUS_MAP_PROVIDER ?? 'maplibre').toLowerCase() !== 'google') {
+    return new Response('The Google Static Maps adapter is disabled.', { status: 404 })
+  }
   const key = process.env.GOOGLE_PLACES_API_KEY
   if (!key) {
     return new Response('Missing GOOGLE_PLACES_API_KEY', { status: 500 })
@@ -46,8 +46,11 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const latRaw = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lngRaw = Number.parseFloat(url.searchParams.get('lng') ?? '')
-  const lat = Number.isFinite(latRaw) ? latRaw : FALLBACK_LAT
-  const lng = Number.isFinite(lngRaw) ? lngRaw : FALLBACK_LNG
+  if (!Number.isFinite(latRaw) || !Number.isFinite(lngRaw) || latRaw < -90 || latRaw > 90 || lngRaw < -180 || lngRaw > 180) {
+    return new Response('A valid map location is required.', { status: 400 })
+  }
+  const lat = latRaw
+  const lng = lngRaw
   const zoom = clampInt(url.searchParams.get('zoom'), 1, 20, 14)
   const w = clampInt(url.searchParams.get('w'), 200, 640, 600)
   const h = clampInt(url.searchParams.get('h'), 150, 640, 300)

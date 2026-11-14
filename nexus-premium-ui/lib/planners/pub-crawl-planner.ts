@@ -26,7 +26,6 @@ import type {
   BudgetPreference,
   MatchQuality,
 } from './types'
-import { MockVenueProvider } from './providers/mock-venue-provider'
 import { OpenStreetMapVenueProvider } from './providers/openstreetmap-venue-provider'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -38,14 +37,9 @@ const DEFAULT_BUDGET: BudgetPreference = 'medium'
 const PRICE_SYMBOLS              = ['', '£', '££', '£££', '££££'] as const
 /** Default search radius when no planning intelligence radius is stored */
 const DEFAULT_RADIUS_METRES      = 1500
-/** Minimum OSM results to prefer real data over mock fallback */
-const MIN_OSM_RESULTS            = 2
 
 // ── Singleton providers ───────────────────────────────────────────────────────
-// MockVenueProvider is location-agnostic, so a single instance is fine.
-// OSM provider is created per-request with the group's stored radius.
-
-const mockProvider = new MockVenueProvider()
+// OSM provider is created per request with the group's stored radius.
 
 // ── Time utilities ────────────────────────────────────────────────────────────
 
@@ -71,8 +65,12 @@ export function format12h(time: string): string {
 
 /** True if a venue is open at the given time (handles midnight-crossing) */
 function isOpenAt(venue: PlannerVenue, time: string): boolean {
+  if (venue.openAtMeetingKnown) return venue.openAtMeeting === true
+  // Unknown opening hours are not evidence that a venue is open or closed.
+  // Keep the real venue eligible without making an hours claim.
+  if (!venue.openingHoursKnown) return true
   const t = timeToMinutes(time)
-  let open = timeToMinutes(venue.openingTime)
+  const open = timeToMinutes(venue.openingTime)
   let close = timeToMinutes(venue.closingTime)
 
   // Handle next-day close (e.g. 01:30)
@@ -335,41 +333,22 @@ function deriveStopReason(
   return parts.join(' · ')
 }
 
-// ── Venue discovery (OSM-first, mock fallback) ────────────────────────────────
+// ── Venue discovery (real OSM data only) ─────────────────────────────────────
 
 /**
  * Fetch venue candidates using real OSM data when a location is available.
- * Falls back to mock data transparently when:
- *   - No groupLocation is provided (dev mode / no location set)
- *   - OSM returns fewer than MIN_OSM_RESULTS venues
- *   - The Overpass API call fails for any reason
- *
- * Returns { venues, dataSource, providerName } so the result can carry
- * accurate metadata for the UI data-source badge.
+ * Empty and failed searches stay empty and explain the limitation to the caller.
+ * Synthetic venues are never presented as nearby real-world places.
  */
 async function fetchVenues(
   groupLocation: { lat: number; lng: number; radiusMetres?: number } | undefined,
+  goldenWindow: { day_of_week: number; start_time: string },
 ): Promise<{ venues: PlannerVenue[]; dataSource: 'real' | 'mock'; providerName: string }> {
-  if (groupLocation) {
-    const radius = groupLocation.radiusMetres ?? DEFAULT_RADIUS_METRES
-    try {
-      // Overpass API — the correct OSM POI/venue discovery endpoint.
-      // Nominatim is NOT used here; it is only for address/area resolution.
-      const osmProvider = new OpenStreetMapVenueProvider(radius)
-      const osmVenues = await osmProvider.getVenues('pub-crawl', groupLocation)
-      if (osmVenues.length >= MIN_OSM_RESULTS) {
-        return { venues: osmVenues, dataSource: 'real', providerName: 'OpenStreetMap' }
-      }
-      console.warn(
-        `[pub-crawl-planner] OSM returned ${osmVenues.length} result(s) (< ${MIN_OSM_RESULTS}), using mock fallback`,
-      )
-    } catch (err) {
-      console.warn('[pub-crawl-planner] OSM/Overpass call failed, using mock fallback:', err)
-    }
-  }
-
-  const mockVenues = await mockProvider.getVenues('pub-crawl', groupLocation)
-  return { venues: mockVenues, dataSource: 'mock', providerName: 'Demo Venues' }
+  if (!groupLocation) throw new Error('Set a planning location before discovering real pubs nearby.')
+  const radius = groupLocation.radiusMetres ?? DEFAULT_RADIUS_METRES
+  const osmProvider = new OpenStreetMapVenueProvider(radius)
+  const osmVenues = await osmProvider.getVenues('pub-crawl', groupLocation, { dayOfWeek: goldenWindow.day_of_week, startTime: goldenWindow.start_time })
+  return { venues: osmVenues, dataSource: 'real', providerName: 'OpenStreetMap' }
 }
 
 // ── Planner ───────────────────────────────────────────────────────────────────
@@ -405,7 +384,7 @@ export const pubCrawlPlanner: PlannerDefinition = {
 
     // ── 2. Fetch candidates (OSM-first, mock fallback) ───────────────────────
     const { venues: allVenues, dataSource, providerName } =
-      await fetchVenues(groupLocation)
+      await fetchVenues(groupLocation, goldenWindow)
 
     // ── 3. Score and filter ──────────────────────────────────────────────────
     const startTime = goldenWindow.start_time
@@ -495,13 +474,6 @@ export const pubCrawlPlanner: PlannerDefinition = {
       gw.available_member_count !== undefined && gw.total_member_count
         ? Math.round((gw.available_member_count / gw.total_member_count) * 100)
         : undefined
-
-    const qualityLabel: Record<MatchQuality, string> = {
-      perfect: 'PERFECT MATCH',
-      strong: 'STRONG MATCH',
-      partial: 'PARTIAL MATCH',
-      compromise: 'BEST OPTION',
-    }
 
     // ── 9. Assemble result ───────────────────────────────────────────────────
     const warnings: string[] = []

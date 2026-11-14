@@ -12,8 +12,8 @@ import { NextResponse } from 'next/server'
  *      client by only editing this file.
  *
  * Query params:
- *   lat        — search latitude  (default: Eastbourne midpoint)
- *   lng        — search longitude (default: Eastbourne midpoint)
+ *   lat        — required search latitude
+ *   lng        — required search longitude
  *   day        — ISO date (YYYY-MM-DD) of the Golden Window day
  *   time       — start time HH:MM in 24h local — used to pick the hourly
  *                forecast slot closest to the Golden Window
@@ -28,17 +28,13 @@ import { NextResponse } from 'next/server'
  *     is_forecast:      boolean,         // true = matched target hour; false = current snapshot
  *     target_iso:       string | null,   // the exact hour we picked, ISO
  *     provider:         'open-meteo',
- *     fallback_location:boolean,         // true if lat/lng were missing → Eastbourne
+ *     fallback_location:boolean,         // always false; missing coordinates are rejected
  *     error?:           string,
  *   }
  */
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-// Mirror of the Places fallback so weather and venues share a centre point.
-const FALLBACK_LAT = 50.7686
-const FALLBACK_LNG = 0.2906
 
 interface CacheEntry {
   expiresAt: number
@@ -76,12 +72,13 @@ export async function GET(req: Request) {
   const day = url.searchParams.get('day')   // YYYY-MM-DD
   const time = url.searchParams.get('time') // HH:MM
 
-  const latValid = latRaw != null && Number.isFinite(Number(latRaw))
-  const lngValid = lngRaw != null && Number.isFinite(Number(lngRaw))
-  const lat = latValid ? Number(latRaw) : FALLBACK_LAT
-  const lng = lngValid ? Number(lngRaw) : FALLBACK_LNG
-  // Truthful: any time we substituted the fallback (missing OR invalid input).
-  const fallbackLocation = !latValid || !lngValid
+  const lat = latRaw == null ? NaN : Number(latRaw)
+  const lng = lngRaw == null ? NaN : Number(lngRaw)
+  const locationValid = Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180
+  if (!locationValid) {
+    return jsonError('A valid planning location is required for weather.', false, 400)
+  }
+  const fallbackLocation = false
 
   const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)}|${day ?? ''}|${time ?? ''}`
   const cached = CACHE.get(cacheKey)
@@ -122,7 +119,7 @@ export async function GET(req: Request) {
   }
 }
 
-function jsonError(message: string, fallbackLocation: boolean) {
+function jsonError(message: string, fallbackLocation: boolean, status = 200) {
   const payload: WeatherPayload = {
     condition: 'cloudy',
     temperature_c: null,
@@ -135,7 +132,7 @@ function jsonError(message: string, fallbackLocation: boolean) {
     fallback_location: fallbackLocation,
     error: message,
   }
-  return NextResponse.json(payload, { status: 200 })
+  return NextResponse.json(payload, { status })
 }
 
 interface OpenMeteoResponse {

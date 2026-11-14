@@ -9,7 +9,7 @@ import { Clock, ExternalLink, MapPin, RefreshCw, Star, Footprints, Sparkles, X }
 import type { PlannerResult, MatchQuality } from '@/lib/planners/planner-engine'
 import type { PlannerVenue } from '@/lib/planners/types'
 import { format12h } from '@/lib/planners/pub-crawl-planner'
-import { buildMapUrl } from '@/lib/venue-service'
+import { buildDirectionsUrl } from '@/lib/venue-service'
 
 const QUALITY: Record<MatchQuality, { label: string; className: string }> = {
   perfect: { label: 'PERFECT MATCH', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
@@ -164,16 +164,7 @@ export function PubCrawlPlanV2({ plan, onRecalculate }: { plan: PlannerResult; o
       ? `A real ${selectedVenue.atmosphere.slice(0, 2).join(' and ')} pub selected for this crawl, with the route, Golden Window and venue quality all considered.`
       : ''
   )
-  const selectedMapUrl = selectedVenue
-    ? buildMapUrl({
-        lat: selectedVenue.lat,
-        lng: selectedVenue.lng,
-        topPickCoord: { lat: selectedVenue.lat, lng: selectedVenue.lng },
-        zoom: 16,
-        w: 640,
-        h: 320,
-      })
-    : null
+  const selectedDirectionsUrl = selectedVenue ? buildDirectionsUrl({ lat: selectedVenue.lat, lng: selectedVenue.lng }) : null
 
   return (
     <GlassCard glow className="mb-6 p-5 animate-scale-in">
@@ -264,26 +255,29 @@ export function PubCrawlPlanV2({ plan, onRecalculate }: { plan: PlannerResult; o
                 </div>
               )}
 
-              {selectedMapUrl && (
+              {(selectedVenue.mapsUrl || selectedDirectionsUrl) && (
                 <section className="overflow-hidden rounded-xl border border-primary/15 bg-white/[0.02]">
                   <div className="flex items-center justify-between px-4 py-3">
                     <div>
                       <h3 className="text-[11px] font-semibold tracking-widest uppercase text-muted-foreground">Where it is</h3>
-                      <p className="text-[11px] text-muted-foreground/70 mt-0.5">Venue location</p>
+                      <p className="text-[11px] text-muted-foreground/70 mt-0.5">OpenStreetMap venue location</p>
                     </div>
+                    <div className="flex gap-2">
                     {selectedVenue.mapsUrl && (
                       <a
                         href={selectedVenue.mapsUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-white/15 px-3 text-[11px] font-medium text-white/75"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
-                        Directions
+                        Map
                       </a>
                     )}
+                    {selectedDirectionsUrl && <a href={selectedDirectionsUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-3 text-[11px] font-medium text-primary"><ExternalLink className="w-3.5 h-3.5" />Directions</a>}
+                    </div>
                   </div>
-                  <img src={selectedMapUrl} alt={`Map showing ${selectedVenue.name}`} className="block w-full aspect-[2/1] object-cover bg-[#08111d]" loading="lazy" />
+                  <p className="px-4 pb-3 text-[10px] text-muted-foreground/70">© OpenStreetMap contributors</p>
                 </section>
               )}
 

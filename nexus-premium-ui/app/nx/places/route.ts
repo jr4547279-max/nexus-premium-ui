@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { hasValidProviderLocation, venueDistanceKm } from '@/lib/venue-location'
+import { GET as getOpenStreetMapVenues } from './osm/route'
 
 /**
  * Phase 5: Google Places (New) text-search proxy.
@@ -9,17 +10,14 @@ import { hasValidProviderLocation, venueDistanceKm } from '@/lib/venue-location'
  *
  * Query params:
  *   vibe       — pub | drinks | food | coffee | activity   (default: drinks)
- *   lat        — search center latitude                    (default: Eastbourne midpoint)
- *   lng        — search center longitude                   (default: Eastbourne midpoint)
+ *   lat        — required search center latitude
+ *   lng        — required search center longitude
  *   radius     — search radius in meters                   (default: 5000)
  *   limit      — venues to return                          (default: 8, max: 12)
  */
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const FALLBACK_LAT = 50.7686
-const FALLBACK_LNG = 0.2906
 
 const ACTIVITY_SEARCH: Record<string, { query: string; type?: string }> = {
   'gym': { query: 'gyms', type: 'gym' },
@@ -58,6 +56,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000
 
 interface PlaceApiResponse {
   places?: Array<{
+    id?: string
     displayName?: { text?: string }
     rating?: number
     userRatingCount?: number
@@ -76,13 +75,18 @@ interface PlaceApiResponse {
 }
 
 export async function GET(req: Request) {
+  // OSM is the safe, keyless default. Google Places is retained as an explicit
+  // opt-in adapter and is never activated merely because a secret exists.
+  if ((process.env.NEXUS_VENUE_PROVIDER ?? 'openstreetmap').toLowerCase() !== 'google') {
+    return getOpenStreetMapVenues(req)
+  }
+
   const key = process.env.GOOGLE_PLACES_API_KEY
   if (!key) {
     return NextResponse.json(
       {
         venues: [],
-        error:
-          'Missing GOOGLE_PLACES_API_KEY. Add it to Secrets and enable "Places API (New)" + "Maps Static API" in Google Cloud Console.',
+        error: 'The optional Google Places provider is not configured. OpenStreetMap remains the default.',
       },
       { status: 500 },
     )
@@ -96,18 +100,18 @@ export async function GET(req: Request) {
   const searchQuery = activitySearch?.query ?? VIBE_QUERIES[vibe]
   const latRaw = Number.parseFloat(url.searchParams.get('lat') ?? '')
   const lngRaw = Number.parseFloat(url.searchParams.get('lng') ?? '')
-  const lat = Number.isFinite(latRaw) ? latRaw : FALLBACK_LAT
-  const lng = Number.isFinite(lngRaw) ? lngRaw : FALLBACK_LNG
+  if (!Number.isFinite(latRaw) || !Number.isFinite(lngRaw) || latRaw < -90 || latRaw > 90 || lngRaw < -180 || lngRaw > 180) {
+    return NextResponse.json({ venues: [], vibe, error: 'A valid planning location is required.' }, { status: 400 })
+  }
+  const lat = latRaw
+  const lng = lngRaw
   const radius = Math.min(
     20000,
     Math.max(500, Number.parseInt(url.searchParams.get('radius') ?? '5000', 10) || 5000),
   )
   const limit = Math.min(12, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '8', 10) || 8))
 
-  const usedFallback =
-    !Number.isFinite(latRaw) || !Number.isFinite(lngRaw)
-      ? 'Eastbourne (default search area — member locations not set up yet)'
-      : undefined
+  const usedFallback = undefined
 
   const cacheKey = `${activityId || vibe}|${lat.toFixed(3)}|${lng.toFixed(3)}|${radius}|${limit}`
   const cached = CACHE.get(cacheKey)
@@ -132,15 +136,6 @@ export async function GET(req: Request) {
     }
 
     if (activitySearch?.type) {
-      body.includedType = activitySearch.type
-      body.strictTypeFiltering = true
-    } else if (activitySearch?.type) {
-      body.includedType = activitySearch.type
-      body.strictTypeFiltering = true
-    } else if (activitySearch?.type) {
-      body.includedType = activitySearch.type
-      body.strictTypeFiltering = true
-    } else if (activitySearch?.type) {
       body.includedType = activitySearch.type
       body.strictTypeFiltering = true
     } else if (vibe === 'pub') {
@@ -253,6 +248,7 @@ export async function GET(req: Request) {
       : null
 
     return [{
+      id: p.id ?? undefined,
       name,
       rating: rating || null,
       rating_count: ratingCount || null,

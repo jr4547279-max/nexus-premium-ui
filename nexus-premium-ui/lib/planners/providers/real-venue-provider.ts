@@ -3,6 +3,7 @@ import { hasValidProviderLocation, venueDistanceKm } from '../../venue-location'
 import { OpenStreetMapVenueProvider } from './openstreetmap-venue-provider'
 
 interface GooglePlace {
+  id?: string
   displayName?: { text?: string }
   rating?: number
   userRatingCount?: number
@@ -21,6 +22,7 @@ interface GooglePlacesResponse {
 
 interface BrowserVenueResponse {
   venues?: Array<{
+    id?: string
     name?: string
     rating?: number | null
     rating_count?: number | null
@@ -32,6 +34,8 @@ interface BrowserVenueResponse {
     lat?: number
     lng?: number
     photo_url?: string | null
+    open_at_meeting?: boolean | null
+    open_at_meeting_known?: boolean
   }>
   error?: string
 }
@@ -92,7 +96,7 @@ function mapBrowserVenue(
   const distance = venue.distance_km ?? venueDistanceKm(location, { lat, lng })
 
   return {
-    id: `google-proxy-${activityId}-${index}-${lat}-${lng}`,
+    id: venue.id ?? `venue-${activityId}-${index}-${lat}-${lng}`,
     name,
     lat,
     lng,
@@ -105,7 +109,10 @@ function mapBrowserVenue(
     features: [],
     openingTime: '00:00',
     closingTime: '23:59',
-    openingHoursKnown: openNow !== null,
+    // Google Places' openNow field is only current status, not weekly hours.
+    openingHoursKnown: false,
+    openAtMeeting: venue.open_at_meeting ?? null,
+    openAtMeetingKnown: venue.open_at_meeting_known ?? false,
     capacity: 'medium',
     tags: openNow === true ? ['open-now'] : [],
     distanceFromCentre: Math.round((distance ?? 0) * 100) / 100,
@@ -216,7 +223,7 @@ async function searchGoogleVenues(
         : null
 
       return {
-        id: `google-${activityId}-${index}-${lat}-${lng}`,
+    id: place.id ?? `google-${activityId}-${index}-${lat}-${lng}`,
         name,
         lat,
         lng,
@@ -229,7 +236,8 @@ async function searchGoogleVenues(
         features: [],
         openingTime: '00:00',
         closingTime: '23:59',
-        openingHoursKnown: openNow !== null,
+    // The selected fields do not include reliable intervals for the requested date.
+    openingHoursKnown: false,
         capacity: 'medium',
         tags: openNow === true ? ['open-now'] : [],
         distanceFromCentre: Math.round(venueDistanceKm(location, { lat, lng }) * 100) / 100,
@@ -272,17 +280,19 @@ export class RealVenueProvider {
     activityId: string,
     location?: { lat: number; lng: number },
   ): Promise<PlannerVenue[]> {
-    if (!location) return []
+    if (!location || !hasValidProviderLocation({ name: 'planning location', lat: location.lat, lng: location.lng }, location, 0)) return []
 
     if (typeof window !== 'undefined') {
       return searchBrowserProxyVenues(activityId, this.radiusMetres, location)
     }
 
-    try {
-      const googleVenues = await searchGoogleVenues(activityId, this.radiusMetres, location)
-      if (googleVenues.length > 0) return googleVenues.slice(0, 30)
-    } catch (error) {
-      console.warn(`[${activityId}] Google Places failed; falling back to OSM:`, error)
+    if ((process.env.NEXUS_VENUE_PROVIDER ?? 'openstreetmap').toLowerCase() === 'google') {
+      try {
+        const googleVenues = await searchGoogleVenues(activityId, this.radiusMetres, location)
+        if (googleVenues.length > 0) return googleVenues.slice(0, 30)
+      } catch (error) {
+        console.warn(`[${activityId}] configured Google provider failed; using real OSM data:`, error)
+      }
     }
 
     return this.osm.getVenues(activityId, location)

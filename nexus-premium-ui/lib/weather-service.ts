@@ -61,6 +61,7 @@ export async function fetchWeather(opts: FetchWeatherOpts): Promise<Weather | nu
   }
   try {
     const res = await fetch(`/nx/weather?${qs.toString()}`)
+    if (!res.ok) return null
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('application/json')) return null
     const data = (await res.json()) as Weather

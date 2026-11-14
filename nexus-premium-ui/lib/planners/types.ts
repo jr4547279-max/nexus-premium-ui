@@ -102,6 +102,9 @@ export interface PlannerVenue {
   priceLevelKnown?: boolean
   /** false = opening hours were not available or could not be parsed */
   openingHoursKnown?: boolean
+  /** Meeting-time opening status is present only when provider hours are reliable for that weekday. */
+  openAtMeeting?: boolean | null
+  openAtMeetingKnown?: boolean
 }
 
 // ── Route / Waypoint ──────────────────────────────────────────────────────────
@@ -483,6 +486,7 @@ export interface VenueProvider {
   getVenues(
     activityId: string,
     location?: { lat: number; lng: number },
+    meeting?: { dayOfWeek: number; startTime: string },
   ): Promise<PlannerVenue[]>
 }
 

@@ -56,6 +56,18 @@ const ADMIN_TYPES   = new Set([
 // Simple in-memory cache (keyed by rounded lat/lng)
 const cache = new Map<string, { address: string; city: string; country: string; expiresAt: number }>()
 const CACHE_TTL = 60 * 60 * 1000 // 1 hour
+let nominatimQueue: Promise<void> = Promise.resolve()
+let lastNominatimRequestAt = 0
+
+async function waitForNominatimSlot() {
+  const slot = nominatimQueue.then(async () => {
+    const wait = Math.max(0, 1100 - (Date.now() - lastNominatimRequestAt))
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait))
+    lastNominatimRequestAt = Date.now()
+  })
+  nominatimQueue = slot.catch(() => undefined)
+  await slot
+}
 
 function cacheKey(lat: number, lng: number) {
   // Round to 2 decimal places (~1 km accuracy)
@@ -79,6 +91,8 @@ export async function GET(req: Request) {
   }
 
   try {
+    // Respect the public Nominatim limit for requests handled by this isolate.
+    await waitForNominatimSlot()
     // zoom=14 returns settlement-level detail (village/suburb/town) rather than
     // the administrative district (zoom=10 gives "Wealden" for rural East Sussex
     // because it surfaces the district boundary instead of the nearest place).
@@ -88,7 +102,7 @@ export async function GET(req: Request) {
 
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'NexusApp/1.0 (contact@nexus.app)',
+        'User-Agent': 'NexusSocialPlanner/1.0 (+https://nexus-web-dev.jayrussell99999.workers.dev)',
         'Accept-Language': 'en',
       },
     })
