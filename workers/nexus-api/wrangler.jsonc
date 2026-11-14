@@ -23,8 +23,8 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CircleRoom"] }],
   "vars": {
-    "APP_ORIGIN": "https://nexus-web-dev.workers.dev",
-    "PUBLIC_APP_URL": "https://nexus-web-dev.workers.dev",
+    "APP_ORIGIN": "https://nexus-web-dev.jayrusss98.workers.dev",
+    "PUBLIC_APP_URL": "https://nexus-web-dev.jayrusss98.workers.dev",
     "AUTH_MODE": "production",
     "ALLOW_DEV_AUTH": "false",
     "ALLOW_UPLOADS": "false",
