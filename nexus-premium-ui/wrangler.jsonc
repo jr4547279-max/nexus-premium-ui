@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nexus-web-dev",
+  "account_id": "4d654fd2fae39e00cc7e5a534cf6d741",
+  "workers_dev": true,
   "compatibility_date": "2026-11-14",
   "main": "./cloudflare-entry.ts",
   "services": [{ "binding": "NEXUS_API", "service": "nexus-api-dev" }],

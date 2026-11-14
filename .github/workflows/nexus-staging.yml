@@ -1,0 +1,160 @@
+name: Nexus staging (manual only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Run read-only readiness checks, or deploy after every gate passes
+        required: true
+        type: choice
+        options:
+          - preflight
+          - deploy
+        default: preflight
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Build, test, and dry-run Nexus only
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the locked workspace dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Test and type-check the API Worker
+        run: |
+          pnpm --dir workers/nexus-api run typecheck
+          pnpm --dir workers/nexus-api run test
+
+      - name: Build the existing Next.js app with Vinext
+        working-directory: nexus-premium-ui
+        run: pnpm run build:vinext
+
+      - name: Dry-run the API Worker package
+        working-directory: workers/nexus-api
+        run: pnpm exec wrangler deploy --dry-run --config wrangler.jsonc
+
+      - name: Dry-run the frontend Worker package
+        working-directory: nexus-premium-ui
+        run: pnpm exec wrangler deploy --dry-run --config dist/server/wrangler.json
+
+      - name: Assert Nexus-only staging configuration
+        run: node scripts/check-nexus-staging-config.mjs
+
+  cloudflare-preflight:
+    name: Read-only Cloudflare and email readiness checks
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.preflight.outputs.ready }}
+      database_id: ${{ steps.preflight.outputs.database_id }}
+      database_exists: ${{ steps.preflight.outputs.database_exists }}
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@v4
+
+      - name: Verify all deployment prerequisites without printing secrets
+        id: preflight
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEXUS_RESEND_API_KEY: ${{ secrets.NEXUS_RESEND_API_KEY }}
+          NEXUS_EMAIL_FROM: ${{ vars.NEXUS_EMAIL_FROM }}
+          NEXUS_EMAIL_SENDER_VERIFIED: ${{ vars.NEXUS_EMAIL_SENDER_VERIFIED }}
+          NEXUS_RESEND_OVERAGES_DISABLED: ${{ vars.NEXUS_RESEND_OVERAGES_DISABLED }}
+          NEXUS_WORKERS_ADMIN_CONFIRMED: ${{ vars.NEXUS_WORKERS_ADMIN_CONFIRMED }}
+          NEXUS_WORKERS_EDIT_CONFIRMED: ${{ vars.NEXUS_WORKERS_EDIT_CONFIRMED }}
+          NEXUS_BILLING_READ_CONFIRMED: ${{ vars.NEXUS_BILLING_READ_CONFIRMED }}
+          NEXUS_FREE_PLAN_CONFIRMED: ${{ vars.NEXUS_FREE_PLAN_CONFIRMED }}
+          NEXUS_RESOURCE_USAGE_REVIEWED: ${{ vars.NEXUS_RESOURCE_USAGE_REVIEWED }}
+        run: node scripts/nexus-cloudflare-preflight.mjs
+
+  deploy:
+    name: Deploy isolated Nexus staging
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/cloudflare-recovery-2026-11' && inputs.operation == 'deploy' && needs.cloudflare-preflight.outputs.ready == 'true' }}
+    needs: [validate, cloudflare-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: nexus-staging
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the locked workspace dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build the frontend Worker bundle
+        working-directory: nexus-premium-ui
+        run: pnpm run build:vinext
+
+      - name: Create or bind only nexus-app-dev
+        if: ${{ needs.cloudflare-preflight.outputs.database_exists != 'true' }}
+        working-directory: workers/nexus-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec wrangler d1 create nexus-app-dev --location weur --binding DB --update-config --config wrangler.jsonc
+
+      - name: Bind the verified Nexus D1 database ID
+        if: ${{ needs.cloudflare-preflight.outputs.database_id != '' }}
+        env:
+          NEXUS_DATABASE_ID: ${{ needs.cloudflare-preflight.outputs.database_id }}
+        run: node scripts/set-nexus-staging-d1-id.mjs
+
+      - name: Apply the existing Nexus migrations
+        working-directory: workers/nexus-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec wrangler d1 migrations apply nexus-app-dev --remote --config wrangler.jsonc
+
+      - name: Deploy only nexus-api-dev
+        working-directory: workers/nexus-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec wrangler deploy --config wrangler.jsonc
+
+      - name: Add the Nexus-only email sender secret
+        working-directory: workers/nexus-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          EMAIL_API_TOKEN: ${{ secrets.NEXUS_RESEND_API_KEY }}
+        run: printf '%s' "$EMAIL_API_TOKEN" | pnpm exec wrangler secret put EMAIL_API_TOKEN --config wrangler.jsonc
+
+      - name: Add the verified Nexus sender address
+        working-directory: workers/nexus-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          EMAIL_FROM: ${{ vars.NEXUS_EMAIL_FROM }}
+        run: printf '%s' "$EMAIL_FROM" | pnpm exec wrangler secret put EMAIL_FROM --config wrangler.jsonc
+
+      - name: Deploy only nexus-web-dev
+        working-directory: nexus-premium-ui
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec wrangler deploy --config dist/server/wrangler.json
+
+      - name: Verify the public staging health endpoint
+        run: node scripts/verify-nexus-staging.mjs
