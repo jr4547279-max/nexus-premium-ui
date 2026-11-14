@@ -58,3 +58,30 @@ test('strict Golden Window mode never returns a synthesized same-day compromise'
   assert.equal(computeGoldenWindows(members, slots, { allowCompromise: false }).length, 0)
   assert.equal(computeGoldenWindows(members, slots)[0]?.match_quality, 'compromise', 'legacy engine behavior remains available to other callers')
 })
+
+test('overnight availability overlaps the following weekday without inventing time', () => {
+  const members = [{ id: 'overnight' }, { id: 'early' }]
+  const slots = [
+    { user_id: 'overnight', day_of_week: 2, start_time: '22:30', end_time: '01:00', end_day_offset: 1 },
+    { user_id: 'early', day_of_week: 3, start_time: '00:15', end_time: '02:00' },
+  ]
+  const [best] = computeGoldenWindows(members, slots, { allowCompromise: false })
+  assert.ok(best)
+  assert.equal(best.day_of_week, 3)
+  assert.equal(best.start_time, '00:15')
+  assert.equal(best.end_time, '01:00')
+  assert.equal(best.available_member_count, 2)
+})
+
+test('Circle timezone determines the current weekday for Golden Window dates', () => {
+  const members = [{ id: 'one' }, { id: 'two' }]
+  const slots = [
+    { user_id: 'one', day_of_week: 6, start_time: '18:00', end_time: '20:00' },
+    { user_id: 'two', day_of_week: 6, start_time: '18:30', end_time: '19:30' },
+  ]
+  const [best] = computeGoldenWindows(members, slots, {
+    now: new Date('2026-11-15T00:30:00Z'), timeZone: 'America/Los_Angeles', allowCompromise: false,
+  })
+  assert.ok(best)
+  assert.equal(best.days_until, 0, 'it is still Saturday evening in Los Angeles')
+})

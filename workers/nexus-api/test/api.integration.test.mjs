@@ -37,7 +37,7 @@ function localD1(database) {
 function testEnvironment() {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA foreign_keys = ON')
-  for (const file of ['0001_initial.sql', '0002_social_live.sql', '0003_golden_plan_idempotency.sql']) {
+  for (const file of ['0001_initial.sql', '0002_social_live.sql', '0003_golden_plan_idempotency.sql', '0004_circle_timezone_overnight.sql', '0005_availability_submission_status.sql']) {
     sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), 'utf8'))
   }
   const room = { idFromName: (name) => name, get: () => ({ fetch: async () => new Response(null, { status: 204 }) }) }
@@ -68,6 +68,25 @@ function testEnvironment() {
     },
   }
 }
+
+test('Circle timezone and overnight migration preserves existing availability', () => {
+  const database = new DatabaseSync(':memory:')
+  database.exec('PRAGMA foreign_keys = ON')
+  for (const file of ['0001_initial.sql', '0002_social_live.sql', '0003_golden_plan_idempotency.sql']) {
+    database.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), 'utf8'))
+  }
+  database.prepare("INSERT INTO users(id,email,email_verified_at) VALUES('u1','u1@nexus.test','2026-01-01T00:00:00Z')").run()
+  database.prepare("INSERT INTO circles(id,name,created_by) VALUES('c1','Existing','u1')").run()
+  database.prepare("INSERT INTO circle_members(circle_id,user_id,role) VALUES('c1','u1','owner')").run()
+  database.prepare("INSERT INTO availability(id,circle_id,user_id,day_of_week,start_time,end_time) VALUES('a1','c1','u1',1,'18:00','22:00')").run()
+  database.exec(readFileSync(new URL('../migrations/0004_circle_timezone_overnight.sql', import.meta.url), 'utf8'))
+  database.exec(readFileSync(new URL('../migrations/0005_availability_submission_status.sql', import.meta.url), 'utf8'))
+  assert.equal(database.prepare("SELECT timezone FROM circles WHERE id='c1'").get().timezone, 'Europe/London')
+  assert.equal(database.prepare("SELECT end_day_offset FROM availability WHERE id='a1'").get().end_day_offset, 0)
+  database.prepare("INSERT INTO availability(id,circle_id,user_id,day_of_week,start_time,end_time,end_day_offset) VALUES('a2','c1','u1',1,'22:00','01:00',1)").run()
+  assert.equal(database.prepare('PRAGMA foreign_key_check').all().length, 0)
+  database.close()
+})
 
 test('authenticated Circle planning journey uses saved availability and enforces membership', async (t) => {
   const { env, sqlite, objects } = testEnvironment()
@@ -131,17 +150,33 @@ test('authenticated Circle planning journey uses saved availability and enforces
   assert.equal(aliceProfile.response.status, 200)
   assert.equal(bobProfile.response.status, 200)
 
-  const soloCircle = await request('/v1/circles', { method: 'POST', cookie: alice, body: { name: 'Personal planning', emoji: '🧡' } })
+  const soloCircle = await request('/v1/circles', { method: 'POST', cookie: alice, body: { name: 'Personal planning', emoji: '🧡', timezone: 'America/Los_Angeles' } })
   assert.equal(soloCircle.response.status, 201)
+  assert.equal(soloCircle.data.circle.timezone, 'America/Los_Angeles')
+  const fetchedSoloCircle = await request(`/v1/circles/${soloCircle.data.circle.id}`, { cookie: alice })
+  assert.equal(fetchedSoloCircle.data.circle.timezone, 'America/Los_Angeles', 'Circle timezone is returned to authorized members')
   const soloAvailability = await request(`/v1/circles/${soloCircle.data.circle.id}/availability`, {
     method: 'PUT', cookie: alice,
-    body: { slots: [{ dayOfWeek: 2, startTime: '18:30', endTime: '21:00' }] },
+    body: { slots: [{ dayOfWeek: 2, startTime: '22:30', endTime: '01:00', endDayOffset: 1 }] },
   })
   assert.equal(soloAvailability.response.status, 200)
+  const soloAvailabilityRows = await request(`/v1/circles/${soloCircle.data.circle.id}/availability`, { cookie: alice })
+  assert.equal(soloAvailabilityRows.data.slots[0].end_day_offset, 1, 'overnight offset persists in D1 and reads back')
+  assert.equal(sqlite.prepare('SELECT end_day_offset FROM availability WHERE circle_id=?').get(soloCircle.data.circle.id).end_day_offset, 1)
   const soloWindow = await request(`/v1/circles/${soloCircle.data.circle.id}/golden-window`, { cookie: alice })
   assert.equal(soloWindow.response.status, 200)
   assert.equal(soloWindow.data.windows[0]?.available_member_count, 1, 'single-member Circles can find a personal window')
   assert.equal(soloWindow.data.windows[0]?.total_member_count, 1)
+  const invalidOvernight = await request(`/v1/circles/${soloCircle.data.circle.id}/availability`, {
+    method: 'PUT', cookie: alice,
+    body: { slots: [{ dayOfWeek: 2, startTime: '18:00', endTime: '20:00', endDayOffset: 1 }] },
+  })
+  assert.equal(invalidOvernight.response.status, 400, 'overnight ranges must actually cross midnight')
+  const clearedSoloAvailability = await request(`/v1/circles/${soloCircle.data.circle.id}/availability`, { method: 'PUT', cookie: alice, body: { slots: [] } })
+  assert.equal(clearedSoloAvailability.response.status, 200)
+  const clearedSnapshot = await request(`/v1/circles/${soloCircle.data.circle.id}/availability`, { cookie: alice })
+  assert.deepEqual(clearedSnapshot.data.slots, [])
+  assert.ok(clearedSnapshot.data.submitted_user_ids.includes(sqlite.prepare('SELECT id FROM users WHERE email=?').get('alice@nexus.test').id), 'a member who saved an empty schedule remains distinct from a non-submitter')
 
   const created = await request('/v1/circles', { method: 'POST', cookie: alice, body: { name: 'Friday plans', emoji: '🧡' } })
   assert.equal(created.response.status, 201)
@@ -243,6 +278,10 @@ test('authenticated Circle planning journey uses saved availability and enforces
   const chat = await request(`/v1/circles/${circleId}/messages`, { method: 'POST', cookie: bob, body: { body: 'See you there!' } })
   assert.equal(chat.response.status, 201)
   assert.equal((await request(`/v1/circles/${circleId}/messages`, { cookie: alice })).data.messages.at(-1).body, 'See you there!')
+  assert.equal((await request(`/v1/circles/${circleId}/members`, { method: 'DELETE', cookie: bob })).response.status, 200)
+  const afterLeave = await request(`/v1/circles/${circleId}/availability`, { cookie: alice })
+  assert.ok(afterLeave.data.slots.every((slot) => slot.user_id !== sqlite.prepare('SELECT id FROM users WHERE email=?').get('bob@nexus.test').id), 'a former member schedule is removed from Circle results')
+  assert.ok(!afterLeave.data.submitted_user_ids.includes(sqlite.prepare('SELECT id FROM users WHERE email=?').get('bob@nexus.test').id), 'a former member submission status is no longer exposed')
 
   const charlie = await signIn('charlie@nexus.test')
   assert.equal((await request(`/v1/circles/${circleId}/availability`, { cookie: charlie })).response.status, 404, 'non-members cannot read private availability')

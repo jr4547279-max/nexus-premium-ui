@@ -28,12 +28,15 @@ export interface GoldenWindowAvailabilityRow {
   day_of_week: number   // 0 = Sun .. 6 = Sat
   start_time: string    // "HH:MM"
   end_time: string      // "HH:MM"
+  /** 1 when end_time is on the following weekday (overnight range). */
+  end_day_offset?: number
 }
 
 export interface GoldenWindow {
   day_of_week: number
   start_time: string
   end_time: string
+  end_day_offset?: number
   duration_minutes: number
   available_member_count: number
   total_member_count: number
@@ -62,6 +65,8 @@ export interface ComputeOptions {
   minMembers?: number
   /** Only return real shared intervals. When false, do not synthesize compromise times. */
   allowCompromise?: boolean
+  /** Circle's shared IANA timezone, used for weekday/date calculations. */
+  timeZone?: string
 }
 
 /** Minimum data required to attempt a Golden Window computation. */
@@ -83,10 +88,33 @@ function toMinutes(hhmm: string): number {
 }
 
 function fromMinutes(min: number): string {
+  if (min === 24 * 60) return '00:00'
   const clamped = Math.max(0, Math.min(min, 23 * 60 + 59))
   const h = Math.floor(clamped / 60).toString().padStart(2, '0')
   const m = (clamped % 60).toString().padStart(2, '0')
   return `${h}:${m}`
+}
+
+function weekdayInTimeZone(now: Date, timeZone?: string): number {
+  if (!timeZone) return now.getDay()
+  try {
+    const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(now)
+    return ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[weekday] ?? now.getDay()
+  } catch {
+    return now.getDay()
+  }
+}
+
+function minuteInTimeZone(now: Date, timeZone?: string): number {
+  if (!timeZone) return now.getHours() * 60 + now.getMinutes()
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now)
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value)
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value)
+    return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : now.getHours() * 60 + now.getMinutes()
+  } catch {
+    return now.getHours() * 60 + now.getMinutes()
+  }
 }
 
 /** Convert "HH:MM" 24-hour to a friendly "7:00 PM" 12-hour string. */
@@ -99,6 +127,16 @@ export function formatTime12h(hhmm: string): string {
   h = h % 12
   if (h === 0) h = 12
   return `${h}:${m.toString().padStart(2, '0')} ${suffix}`
+}
+
+export function formatTimeZoneLabel(timeZone: string): string {
+  try {
+    const name = new Intl.DateTimeFormat('en-GB', { timeZone, timeZoneName: 'long' })
+      .formatToParts(new Date()).find((part) => part.type === 'timeZoneName')?.value
+    return name ? `${name} · ${timeZone}` : timeZone
+  } catch {
+    return timeZone
+  }
 }
 
 export function formatDuration(minutes: number): string {
@@ -264,7 +302,8 @@ export function computeGoldenWindows(
   if (total === 0) return []
 
   const now         = options.now ?? new Date()
-  const todayDow    = now.getDay()
+  const todayDow    = weekdayInTimeZone(now, options.timeZone)
+  const currentMinute = minuteInTimeZone(now, options.timeZone)
   const minDuration = options.minDurationMinutes ?? 1  // any genuine overlap
   // For a single-member group the only requirement is that the member is available.
   // For 2+ members we require at least 2 to overlap (the classic group behaviour).
@@ -273,13 +312,25 @@ export function computeGoldenWindows(
 
   const memberIdSet = new Set(members.map((m) => m.id))
 
-  const rowsByDay = new Map<number, GoldenWindowAvailabilityRow[]>()
+  const rowsByDay = new Map<number, Array<{ user_id: string; start: number; end: number }>>()
   for (const r of rows) {
     if (!memberIdSet.has(r.user_id)) continue
     if (r.day_of_week < 0 || r.day_of_week > 6) continue
-    const list = rowsByDay.get(r.day_of_week) ?? []
-    list.push(r)
-    rowsByDay.set(r.day_of_week, list)
+    const start = toMinutes(r.start_time)
+    const end = toMinutes(r.end_time)
+    const offset = r.end_day_offset ?? 0
+    if (start < 0 || end < 0 || (offset !== 0 && offset !== 1)) continue
+    if (offset === 0 ? end <= start : end >= start) continue
+    const endAbsolute = end + offset * 1440
+    const firstDay = rowsByDay.get(r.day_of_week) ?? []
+    firstDay.push({ user_id: r.user_id, start, end: Math.min(endAbsolute, 1440) })
+    rowsByDay.set(r.day_of_week, firstDay)
+    if (endAbsolute > 1440) {
+      const nextDay = (r.day_of_week + 1) % 7
+      const nextRows = rowsByDay.get(nextDay) ?? []
+      nextRows.push({ user_id: r.user_id, start: 0, end: endAbsolute - 1440 })
+      rowsByDay.set(nextDay, nextRows)
+    }
   }
 
   const windows: GoldenWindow[] = []
@@ -288,11 +339,9 @@ export function computeGoldenWindows(
     type Ev = { t: number; kind: 0 | 1; uid: string }
     const events: Ev[] = []
     for (const r of dayRows) {
-      const s = toMinutes(r.start_time)
-      const e = toMinutes(r.end_time)
-      if (s < 0 || e < 0 || e <= s) continue
-      events.push({ t: s, kind: 1, uid: r.user_id })
-      events.push({ t: e, kind: 0, uid: r.user_id })
+      if (r.end <= r.start) continue
+      events.push({ t: r.start, kind: 1, uid: r.user_id })
+      events.push({ t: r.end, kind: 0, uid: r.user_id })
     }
     if (events.length === 0) continue
 
@@ -307,19 +356,20 @@ export function computeGoldenWindows(
 
     const flushUpTo = (endT: number) => {
       if (segStart < 0 || active.size === 0) return
-      const dur       = endT - segStart
+      const daysUntil = (day - todayDow + 7) % 7
+      const realStart = daysUntil === 0 ? Math.max(segStart, currentMinute) : segStart
+      const dur       = endT - realStart
       const memberIds = Array.from(active.keys())
-      if (memberIds.length < minMembers || dur < minDuration) return
+      if (realStart >= endT || memberIds.length < minMembers || dur < minDuration) return
 
       foundDirectOverlap = true
       const count     = memberIds.length
       const quality   = assignMatchQuality(count, total)
-      const daysUntil = (day - todayDow + 7) % 7
-
       windows.push({
         day_of_week:            day,
-        start_time:             fromMinutes(segStart),
+        start_time:             fromMinutes(realStart),
         end_time:               fromMinutes(endT),
+        end_day_offset:         endT === 1440 ? 1 : 0,
         duration_minutes:       dur,
         available_member_count: count,
         total_member_count:     total,
@@ -358,9 +408,9 @@ export function computeGoldenWindows(
     // If this day had 2+ members' availability but zero qualifying direct
     // overlaps, generate a compromise window so the day isn't left blank.
     if (allowCompromise && !foundDirectOverlap) {
-      const uniqueMembers = new Set(dayRows.map((r) => r.user_id)).size
+        const uniqueMembers = new Set(dayRows.map((r) => r.user_id)).size
       if (uniqueMembers >= 2) {
-        const compromise = buildCompromiseWindow(day, dayRows, total, todayDow)
+        const compromise = buildCompromiseWindow(day, rows.filter((r) => r.day_of_week === day && (r.end_day_offset ?? 0) === 0), total, todayDow)
         if (compromise) windows.push(compromise)
       }
     }
@@ -430,7 +480,7 @@ export function checkGoldenWindowRequirements(
     return {
       canCompute: false,
       missingExplanation:
-        'No members have added their availability yet. Go to the Availability tab to add yours.',
+        'No Circle members have active times yet. Add yours in Availability to get started.',
     }
   }
 
@@ -438,7 +488,7 @@ export function checkGoldenWindowRequirements(
     return {
       canCompute: false,
       missingExplanation:
-        'Only 1 member has added their availability. Waiting for at least 1 more to get started.',
+        'Only 1 member has active times. Invite your Circle to add theirs before searching.',
     }
   }
 

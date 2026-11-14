@@ -1,377 +1,351 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { GlassCard } from './glass-card'
-import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Check } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Check, Clock3, Copy, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { formatTime12h, formatTimeZoneLabel } from '@/lib/golden-window'
+import { type GroupMember } from '@/lib/group-service'
 import {
+  getGroupAvailabilitySnapshot,
   saveAvailability,
-  getGroupAvailability,
   type AvailabilitySlot,
   type GroupAvailabilityRow,
 } from '@/lib/availability-service'
+import { GlassCard } from './glass-card'
 
 interface AvailabilityEditorProps {
   groupId: string
   currentUserId: string | null
+  members: GroupMember[]
+  timezone: string
   canFindGoldenWindow: boolean
   findingGoldenWindow: boolean
   goldenWindowHelp: string | null
   onSaved: (slots: AvailabilitySlot[]) => void
+  onDirtyChange: (dirty: boolean) => void
   onFindGoldenWindow: () => void
 }
 
-const DAYS: { idx: number; short: string; long: string }[] = [
-  { idx: 1, short: 'Mon', long: 'Monday' },
-  { idx: 2, short: 'Tue', long: 'Tuesday' },
-  { idx: 3, short: 'Wed', long: 'Wednesday' },
-  { idx: 4, short: 'Thu', long: 'Thursday' },
-  { idx: 5, short: 'Fri', long: 'Friday' },
-  { idx: 6, short: 'Sat', long: 'Saturday' },
+const DAYS = [
+  { idx: 1, short: 'Mon', long: 'Monday' }, { idx: 2, short: 'Tue', long: 'Tuesday' },
+  { idx: 3, short: 'Wed', long: 'Wednesday' }, { idx: 4, short: 'Thu', long: 'Thursday' },
+  { idx: 5, short: 'Fri', long: 'Friday' }, { idx: 6, short: 'Sat', long: 'Saturday' },
   { idx: 0, short: 'Sun', long: 'Sunday' },
 ]
 
-const dayLabelByIdx = new Map(DAYS.map((d) => [d.idx, d.short]))
-
-function makeSlot(day: number, start = '18:00', end = '22:00'): AvailabilitySlot {
-  return { day_of_week: day, start_time: start, end_time: end }
+const dayLabelByIdx = new Map(DAYS.map((day) => [day.idx, day.short]))
+const sortSlots = (slots: AvailabilitySlot[]) => [...slots].sort((a, b) =>
+  a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time),
+)
+const slotsKey = (slots: AvailabilitySlot[]) => JSON.stringify(sortSlots(slots).map((slot) => [
+  slot.day_of_week, slot.start_time, slot.end_time, slot.end_day_offset ?? 0,
+]))
+const displayName = (member: GroupMember) => member.display_name || member.email?.split('@')[0] || 'Circle member'
+const makeSlot = (day: number): AvailabilitySlot => ({ day_of_week: day, start_time: '18:00', end_time: '22:00', end_day_offset: 0 })
+const validTime = (value: string) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)
+const slotIsValid = (slot: AvailabilitySlot) => {
+  if (!validTime(slot.start_time) || !validTime(slot.end_time)) return false
+  return slot.end_day_offset === 1 ? slot.end_time < slot.start_time : slot.start_time < slot.end_time
 }
 
-function displayName(row: { display_name: string | null; email: string | null }) {
-  return row.display_name || row.email?.split('@')[0] || 'Member'
-}
-
-export function AvailabilityEditor({ groupId, currentUserId, canFindGoldenWindow, findingGoldenWindow, goldenWindowHelp, onSaved, onFindGoldenWindow }: AvailabilityEditorProps) {
+export function AvailabilityEditor({
+  groupId, currentUserId, members, timezone, canFindGoldenWindow, findingGoldenWindow,
+  goldenWindowHelp, onSaved, onDirtyChange, onFindGoldenWindow,
+}: AvailabilityEditorProps) {
   const [mySlots, setMySlots] = useState<AvailabilitySlot[]>([])
+  const [savedSlots, setSavedSlots] = useState<AvailabilitySlot[]>([])
+  const [groupRows, setGroupRows] = useState<GroupAvailabilityRow[]>([])
+  const [submittedMemberIds, setSubmittedMemberIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [dirty, setDirty] = useState(false)
-  const [groupRows, setGroupRows] = useState<GroupAvailabilityRow[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const [copyFromDay, setCopyFromDay] = useState<number | null>(null)
+  const [copyTargets, setCopyTargets] = useState<Set<number>>(new Set())
+
+  const dirty = slotsKey(mySlots) !== slotsKey(savedSlots)
+  const isValid = mySlots.every(slotIsValid)
+  const invalidCount = mySlots.filter((slot) => !slotIsValid(slot)).length
+
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setLoadError(null)
     setRefreshWarning(null)
-    ;(async () => {
-      try {
-        // One authorized Circle read provides both the member summary and the
-        // current user's editable rows, avoiding two competing snapshots.
-        const group = await getGroupAvailability(groupId)
-        if (cancelled) return
-        setGroupRows(group)
-        setMySlots(group
-          .filter((slot) => slot.user_id === currentUserId)
-          .map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time })))
-        setDirty(false)
-      } catch (error) {
-        if (cancelled) return
-        setLoadError(error instanceof Error ? error.message : 'Could not load availability. Try again.')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    setSuccessMessage(null)
+    getGroupAvailabilitySnapshot(groupId).then((snapshot) => {
+      if (cancelled) return
+      const rows = snapshot.slots
+      const ownSlots = rows
+        .filter((row) => row.user_id === currentUserId)
+        .map(({ day_of_week, start_time, end_time, end_day_offset }) => ({ day_of_week, start_time, end_time, end_day_offset: end_day_offset ?? 0 }))
+      setGroupRows(rows)
+      setSubmittedMemberIds(new Set(snapshot.submittedUserIds))
+      setMySlots(ownSlots)
+      setSavedSlots(ownSlots)
+    }).catch((error) => {
+      if (!cancelled) setLoadError(error instanceof Error ? error.message : 'Could not load your saved availability. Try again.')
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
   }, [groupId, currentUserId, loadAttempt])
 
-  const slotsByDay = useMemo(() => {
-    const map = new Map<number, AvailabilitySlot[]>()
-    for (const s of mySlots) {
-      const arr = map.get(s.day_of_week) ?? []
-      arr.push(s)
-      map.set(s.day_of_week, arr)
+  useEffect(() => {
+    if (!dirty) return
+    const warnBeforeClose = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
     }
-    return map
-  }, [mySlots])
+    window.addEventListener('beforeunload', warnBeforeClose)
+    return () => window.removeEventListener('beforeunload', warnBeforeClose)
+  }, [dirty])
 
-  const activeDays = useMemo(() => new Set(mySlots.map((s) => s.day_of_week)), [mySlots])
+  const slotsByDay = useMemo(() => {
+    const result = new Map<number, AvailabilitySlot[]>()
+    for (const slot of mySlots) result.set(slot.day_of_week, [...(result.get(slot.day_of_week) ?? []), slot])
+    return result
+  }, [mySlots])
+  const activeDays = useMemo(() => new Set(mySlots.map((slot) => slot.day_of_week)), [mySlots])
+  const savedMemberIds = submittedMemberIds
+
+  const setSlot = (day: number, index: number, patch: Partial<AvailabilitySlot>) => {
+    setSuccessMessage(null)
+    setMySlots((current) => {
+      let position = -1
+      return current.map((slot) => {
+        if (slot.day_of_week !== day) return slot
+        position += 1
+        return position === index ? { ...slot, ...patch } : slot
+      })
+    })
+  }
 
   const toggleDay = (day: number) => {
-    setDirty(true)
-    if (activeDays.has(day)) {
-      setMySlots((prev) => prev.filter((s) => s.day_of_week !== day))
-    } else {
-      setMySlots((prev) => [...prev, makeSlot(day)])
-    }
+    setSuccessMessage(null)
+    setMySlots((current) => activeDays.has(day) ? current.filter((slot) => slot.day_of_week !== day) : [...current, makeSlot(day)])
   }
 
-  const updateSlot = (oldSlot: AvailabilitySlot, idx: number, patch: Partial<AvailabilitySlot>) => {
-    setDirty(true)
-    setMySlots((prev) => {
-      // Build a fresh list, swapping only the n-th slot for this day.
-      let dayN = -1
-      return prev.map((s) => {
-        if (s.day_of_week !== oldSlot.day_of_week) return s
-        dayN += 1
-        if (dayN === idx) return { ...s, ...patch }
-        return s
-      })
+  const addSlot = (day: number) => setMySlots((current) => [...current, makeSlot(day)])
+
+  const removeSlot = (day: number, index: number) => {
+    setMySlots((current) => {
+      let position = -1
+      return current.filter((slot) => slot.day_of_week !== day || ++position !== index)
     })
   }
 
-  const removeSlot = (day: number, idx: number) => {
-    setDirty(true)
-    setMySlots((prev) => {
-      let dayN = -1
-      return prev.filter((s) => {
-        if (s.day_of_week !== day) return true
-        dayN += 1
-        return dayN !== idx
-      })
-    })
-  }
+  const toggleCopyTarget = (day: number) => setCopyTargets((current) => {
+    const next = new Set(current)
+    if (next.has(day)) next.delete(day)
+    else next.add(day)
+    return next
+  })
 
-  const addSlot = (day: number) => {
-    setDirty(true)
-    setMySlots((prev) => [...prev, makeSlot(day)])
+  const applyCopy = () => {
+    if (copyFromDay === null || copyTargets.size === 0) return
+    const source = slotsByDay.get(copyFromDay) ?? []
+    setMySlots((current) => {
+      const kept = current.filter((slot) => !copyTargets.has(slot.day_of_week))
+      return [...kept, ...Array.from(copyTargets).flatMap((day) => source.map((slot) => ({ ...slot, day_of_week: day })))]
+    })
+    setSuccessMessage(null)
+    setCopyFromDay(null)
+    setCopyTargets(new Set())
+    toast.success('Times copied. Save to share the changes with your Circle.')
   }
 
   const handleSave = async () => {
-    // Strip invalid rows before sending; surface a helpful toast.
-    const cleaned = mySlots.filter((s) => s.start_time && s.end_time && s.start_time < s.end_time)
-    if (cleaned.length !== mySlots.length) {
-      toast.error('Each slot needs a start time earlier than its end time.')
-      return
-    }
+    if (!dirty || !isValid || saving) return
     setSaving(true)
-    const { inserted, errorMessage } = await saveAvailability(groupId, cleaned)
+    setSuccessMessage(null)
+    setSaveError(null)
+    const { inserted, errorMessage } = await saveAvailability(groupId, sortSlots(mySlots))
     setSaving(false)
     if (errorMessage) {
+      setSaveError(errorMessage)
       toast.error(errorMessage)
       return
     }
-    toast.success(
-      inserted === 0 ? 'Availability cleared' : `Saved ${inserted} slot${inserted === 1 ? '' : 's'}`,
-    )
-    setDirty(false)
-    onSaved(cleaned)
-    // The write is already confirmed. Refresh the summary, but never turn a
-    // successful save into a silent failure if this optional follow-up read
-    // has a transient network error.
+    const committed = sortSlots(mySlots)
+    setSavedSlots(committed)
+    setSuccessMessage(`${inserted === 0 ? 'Availability cleared' : `${inserted} time window${inserted === 1 ? '' : 's'} saved`} for your Circle.`)
+    if (currentUserId) setSubmittedMemberIds((current) => new Set([...current, currentUserId]))
+    toast.success('Availability saved')
+    onSaved(committed)
     try {
-      const fresh = await getGroupAvailability(groupId)
-      setGroupRows(fresh)
+      const snapshot = await getGroupAvailabilitySnapshot(groupId)
+      setGroupRows(snapshot.slots)
+      setSubmittedMemberIds(new Set(snapshot.submittedUserIds))
       setRefreshWarning(null)
     } catch {
       setGroupRows((current) => [
         ...current.filter((row) => row.user_id !== currentUserId),
-        ...cleaned.map((slot) => ({
-          ...slot,
-          user_id: currentUserId ?? '',
-          display_name: null,
-          email: null,
-        })),
+        ...committed.map((slot) => ({ ...slot, user_id: currentUserId ?? '', display_name: null, email: null })),
       ])
-      setRefreshWarning('Saved successfully. The Circle summary could not refresh; retry when your connection is back.')
+      setRefreshWarning('Your changes are saved. The Circle status could not refresh just now.')
     }
   }
 
-  // ── Group summary: aggregate slots per member.
-  const summaryByMember = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; days: Set<number>; count: number }
-    >()
-    for (const r of groupRows) {
-      const key = r.user_id
-      const entry = map.get(key) ?? { name: displayName(r), days: new Set<number>(), count: 0 }
-      entry.days.add(r.day_of_week)
-      entry.count += 1
-      map.set(key, entry)
-    }
-    return Array.from(map.entries()).map(([user_id, v]) => ({ user_id, ...v }))
-  }, [groupRows])
-
   return (
     <div className="space-y-4">
-      {/* Editor */}
-      <GlassCard className="p-4 space-y-4">
+      <GlassCard className="space-y-5 p-4 sm:p-5">
         <div>
-          <p className="font-medium">Your availability</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Tap the days you're free, then add the time windows that work for you.
-          </p>
+          <div className="flex items-center gap-2">
+            <Clock3 className="h-4 w-4 text-primary" aria-hidden="true" />
+            <h2 className="text-base font-medium text-foreground">When are you free?</h2>
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">Choose the days and times that work for you.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Times shown in <span className="text-foreground/80">{formatTimeZoneLabel(timezone)}</span>.</p>
         </div>
 
-        {refreshWarning && (
-          <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-amber-100" role="status">
-            {refreshWarning}
-          </p>
-        )}
+        {dirty && <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary" role="status">Unsaved edits</p>}
+        {successMessage && <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300" role="status" aria-live="polite">{successMessage}</p>}
+        {refreshWarning && <p className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs leading-relaxed text-amber-100" role="status">{refreshWarning}</p>}
+        {saveError && <div className="rounded-lg border border-red-400/20 bg-red-400/5 px-3 py-3" role="alert"><p className="text-xs leading-relaxed text-red-100">{saveError}</p><Button type="button" onClick={() => void handleSave()} disabled={saving || !isValid} className="mt-2 min-h-10 rounded-lg bg-red-400/10 px-3 text-xs text-red-100">{saving ? 'Retrying…' : 'Retry save'}</Button></div>}
 
-        {/* Day chips */}
         {loading ? (
-          <p className="text-sm text-muted-foreground" role="status" aria-live="polite">Loading saved availability…</p>
+          <p className="py-4 text-sm text-muted-foreground" role="status" aria-live="polite">Loading your saved times…</p>
         ) : loadError ? (
           <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3" role="alert">
             <p className="text-sm text-amber-100">{loadError}</p>
-            <button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)} className="mt-2 min-h-11 rounded-lg px-3 text-sm font-medium text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-              Retry loading
-            </button>
+            <Button type="button" onClick={() => setLoadAttempt((n) => n + 1)} className="mt-2 min-h-11 rounded-lg bg-muted/30 px-3 text-sm">Try again</Button>
           </div>
         ) : (
-        <>
-        <div className="flex flex-wrap gap-2" aria-label="Days of the week">
-          {DAYS.map((d) => {
-            const on = activeDays.has(d.idx)
-            return (
-              <button
-                key={d.idx}
-                type="button"
-                onClick={() => toggleDay(d.idx)}
-                aria-pressed={on}
-                aria-label={`${d.long}, ${on ? 'selected' : 'not selected'}`}
-                className={cn(
-                  'min-h-11 min-w-11 px-3 py-2 rounded-xl text-sm font-medium transition-all touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                  on
-                    ? 'bg-primary/15 text-primary border border-primary/40'
-                    : 'bg-muted/30 text-muted-foreground border border-transparent hover:bg-muted/50',
-                )}
-              >
-                {d.short}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Per-day time slots */}
-        {activeDays.size === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No days selected — tap a day above to add time windows.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {DAYS.filter((d) => activeDays.has(d.idx)).map((d) => {
-              const slots = slotsByDay.get(d.idx) ?? []
-              return (
-                <div key={d.idx} className="space-y-2">
-                  <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                    {d.long}
-                  </p>
-                  {slots.map((slot, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <label className="sr-only" htmlFor={`availability-${d.idx}-${i}-start`}>Start time for {d.long}, slot {i + 1}</label>
-                      <input
-                        id={`availability-${d.idx}-${i}-start`}
-                        type="time"
-                        value={slot.start_time}
-                        aria-label={`Start time for ${d.long}, slot ${i + 1}`}
-                        onChange={(e) => updateSlot(slot, i, { start_time: e.target.value })}
-                        className="flex-1 min-w-0 h-11 px-3 rounded-lg bg-muted/40 border border-border/40 text-base sm:text-sm touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      />
-                      <span className="text-muted-foreground text-sm">→</span>
-                      <label className="sr-only" htmlFor={`availability-${d.idx}-${i}-end`}>End time for {d.long}, slot {i + 1}</label>
-                      <input
-                        id={`availability-${d.idx}-${i}-end`}
-                        type="time"
-                        value={slot.end_time}
-                        aria-label={`End time for ${d.long}, slot ${i + 1}`}
-                        onChange={(e) => updateSlot(slot, i, { end_time: e.target.value })}
-                        className="flex-1 min-w-0 h-11 px-3 rounded-lg bg-muted/40 border border-border/40 text-base sm:text-sm touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeSlot(d.idx, i)}
-                        className="h-11 w-11 shrink-0 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary touch-manipulation"
-                        aria-label={`Remove ${d.long} time slot ${i + 1}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+          <>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7" role="group" aria-label="Choose days you are available">
+              {DAYS.map((day) => {
+                const selected = activeDays.has(day.idx)
+                const daySlots = slotsByDay.get(day.idx) ?? []
+                return (
                   <button
+                    key={day.idx}
                     type="button"
-                    onClick={() => addSlot(d.idx)}
-                    className="min-h-11 flex items-center gap-1.5 rounded-lg pr-3 text-sm text-primary hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary touch-manipulation"
+                    aria-pressed={selected}
+                    aria-label={`${day.long}${selected ? `, ${daySlots.length} time window${daySlots.length === 1 ? '' : 's'}` : ', not selected'}`}
+                    onClick={() => toggleDay(day.idx)}
+                    className={cn(
+                      'min-h-12 rounded-xl border px-2 text-sm font-medium transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                      selected ? 'border-primary/50 bg-primary/10 text-primary shadow-[0_0_18px_rgba(255,91,48,0.08)]' : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40',
+                    )}
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add another time
+                    <span>{day.short}</span>
+                    {selected && <span className="mt-0.5 block text-[10px] font-normal opacity-80">{daySlots.length} window{daySlots.length === 1 ? '' : 's'}</span>}
                   </button>
-                </div>
-              )
-            })}
-          </div>
-        )}
+                )
+              })}
+            </div>
 
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || loading || !dirty}
-          className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl"
-        >
-          {saving ? 'Saving…' : dirty ? 'Save availability' : 'Saved'}
-          {!saving && !dirty && <Check className="w-4 h-4 ml-2" />}
-        </Button>
-        </>
-        )}
-        {!loading && !loadError && !dirty && mySlots.length > 0 && canFindGoldenWindow && (
-          <div className="space-y-2" aria-live="polite">
-            <Button type="button" onClick={onFindGoldenWindow} disabled={findingGoldenWindow} aria-busy={findingGoldenWindow} className="w-full min-h-11 rounded-xl bg-primary text-primary-foreground glow-gold">
-              <Check className="h-4 w-4" /> {findingGoldenWindow ? 'Checking saved availability…' : 'Find Golden Window'}
-            </Button>
-          </div>
-        )}
-        {!loading && !loadError && !dirty && mySlots.length > 0 && !canFindGoldenWindow && goldenWindowHelp && (
-          <p className="rounded-xl border border-border/30 bg-muted/20 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground" role="status">
-            {goldenWindowHelp}
-          </p>
+            {activeDays.size === 0 ? (
+              <p className="rounded-xl border border-border/30 bg-muted/10 px-3 py-4 text-sm text-muted-foreground">Tap a day to add your first time window.</p>
+            ) : (
+              <div className="space-y-3">
+                {DAYS.filter((day) => activeDays.has(day.idx)).map((day) => {
+                  const daySlots = slotsByDay.get(day.idx) ?? []
+                  return (
+                    <section key={day.idx} className="rounded-2xl border border-border/35 bg-black/20 p-3" aria-labelledby={`availability-day-${day.idx}`}>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 id={`availability-day-${day.idx}`} className="text-sm font-medium text-foreground">{day.long}</h3>
+                        <Button type="button" variant="ghost" onClick={() => { setCopyFromDay(copyFromDay === day.idx ? null : day.idx); setCopyTargets(new Set()) }} className="min-h-10 gap-1.5 px-2 text-xs text-muted-foreground hover:text-primary" aria-expanded={copyFromDay === day.idx}>
+                          <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy to…
+                        </Button>
+                      </div>
+                      <div className="space-y-2.5">
+                        {daySlots.map((slot, index) => (
+                          <div key={`${day.idx}-${index}`} className="rounded-xl border border-border/30 bg-background/50 p-3">
+                            <div className="grid grid-cols-[1fr_auto_1fr_auto] items-end gap-2">
+                              <div className="min-w-0">
+                                <label htmlFor={`availability-${day.idx}-${index}-start`} className="mb-1 block text-xs text-muted-foreground">From</label>
+                                <input id={`availability-${day.idx}-${index}-start`} type="time" value={slot.start_time} aria-label={`${day.long}, window ${index + 1}, start time`} onChange={(event) => setSlot(day.idx, index, { start_time: event.target.value })} className="h-11 w-full min-w-0 rounded-lg border border-border/40 bg-muted/30 px-2 text-base text-foreground touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+                                <span className="mt-1 block text-xs tabular-nums text-primary">{formatTime12h(slot.start_time)}</span>
+                              </div>
+                              <span className="pb-11 text-muted-foreground" aria-hidden="true">to</span>
+                              <div className="min-w-0">
+                                <label htmlFor={`availability-${day.idx}-${index}-end`} className="mb-1 block text-xs text-muted-foreground">Until</label>
+                                <input id={`availability-${day.idx}-${index}-end`} type="time" value={slot.end_time} aria-label={`${day.long}, window ${index + 1}, end time`} onChange={(event) => setSlot(day.idx, index, { end_time: event.target.value })} className="h-11 w-full min-w-0 rounded-lg border border-border/40 bg-muted/30 px-2 text-base text-foreground touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+                                <span className="mt-1 block text-xs tabular-nums text-primary">{formatTime12h(slot.end_time)}{slot.end_day_offset === 1 ? ' · next day' : ''}</span>
+                              </div>
+                              <Button type="button" variant="ghost" onClick={() => removeSlot(day.idx, index)} aria-label={`Remove ${day.long} window ${index + 1}`} className="mb-7 h-11 w-11 p-0 text-muted-foreground hover:text-red-300"><Trash2 className="h-4 w-4" /></Button>
+                            </div>
+                            <label className="mt-3 flex min-h-11 items-center gap-2 rounded-lg text-xs text-muted-foreground touch-manipulation">
+                              <input type="checkbox" checked={slot.end_day_offset === 1} onChange={(event) => setSlot(day.idx, index, { end_day_offset: event.target.checked ? 1 : 0 })} className="h-4 w-4 accent-[var(--primary)]" aria-label={`${day.long}, window ${index + 1}, ends the next day`} />
+                              Ends the next day
+                            </label>
+                            {!slotIsValid(slot) && <p className="mt-1 text-xs text-amber-200" role="alert">{slot.end_day_offset === 1 ? 'Choose an end time earlier than the start time for an overnight window.' : 'End time must be later than the start time.'}</p>}
+                          </div>
+                        ))}
+                      </div>
+                      <Button type="button" variant="ghost" onClick={() => addSlot(day.idx)} className="mt-2 min-h-11 gap-2 px-2 text-sm text-primary hover:bg-primary/5">
+                        <Plus className="h-4 w-4" aria-hidden="true" /> Add a time window
+                      </Button>
+
+                      {copyFromDay === day.idx && (
+                        <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                          <p className="text-xs text-muted-foreground">Copy {day.long}'s windows to:</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {DAYS.filter((target) => target.idx !== day.idx).map((target) => (
+                              <button key={target.idx} type="button" aria-pressed={copyTargets.has(target.idx)} onClick={() => toggleCopyTarget(target.idx)} className={cn('min-h-10 min-w-11 rounded-lg border px-3 text-xs touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', copyTargets.has(target.idx) ? 'border-primary/50 bg-primary/15 text-primary' : 'border-border/40 bg-background/50 text-muted-foreground')}>
+                                {target.short}
+                              </button>
+                            ))}
+                          </div>
+                          <Button type="button" onClick={applyCopy} disabled={copyTargets.size === 0} className="mt-3 min-h-10 bg-primary px-3 text-xs text-primary-foreground disabled:opacity-40">Copy to {copyTargets.size || 'selected'} day{copyTargets.size === 1 ? '' : 's'}</Button>
+                        </div>
+                      )}
+                    </section>
+                  )
+                })}
+              </div>
+            )}
+
+            {invalidCount > 0 && <p className="text-xs text-amber-200" role="status">Fix {invalidCount} time window{invalidCount === 1 ? '' : 's'} to save your changes.</p>}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Button type="button" onClick={handleSave} disabled={!dirty || !isValid || saving} aria-busy={saving} className="min-h-12 flex-1 rounded-xl bg-primary text-primary-foreground glow-gold disabled:cursor-not-allowed disabled:opacity-40">
+                {saving ? 'Saving…' : 'Save availability'}
+                {!saving && <Check className="ml-2 h-4 w-4" aria-hidden="true" />}
+              </Button>
+              {dirty && <span className="text-center text-xs text-muted-foreground sm:text-left">Changes aren’t shared until saved.</span>}
+            </div>
+            {successMessage && !dirty && mySlots.length > 0 && canFindGoldenWindow && (
+              <Button type="button" onClick={onFindGoldenWindow} disabled={findingGoldenWindow} className="min-h-12 w-full rounded-xl border border-primary/30 bg-transparent text-primary hover:bg-primary/5" aria-busy={findingGoldenWindow}>
+                {findingGoldenWindow ? 'Finding a shared time…' : 'Find Golden Window'}
+              </Button>
+            )}
+            {mySlots.length > 0 && !canFindGoldenWindow && goldenWindowHelp && <p className="rounded-xl border border-border/30 bg-muted/15 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground" role="status">{goldenWindowHelp}</p>}
+          </>
         )}
       </GlassCard>
 
-      {/* Group summary */}
-      <GlassCard className="p-4 space-y-3">
+      <GlassCard className="space-y-3 p-4 sm:p-5">
         <div>
-          <p className="font-medium">Group availability</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            What everyone in this group has submitted.
-          </p>
+          <h2 className="text-sm font-medium text-foreground">Circle availability</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Your schedule is private to Circle members.</p>
         </div>
-
-        {loading ? (
-          <p className="text-xs text-muted-foreground" role="status">Loading Circle availability…</p>
-        ) : loadError ? (
-          <p className="text-xs text-amber-100" role="alert">Circle availability could not be refreshed.</p>
-        ) : summaryByMember.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No one has shared availability yet. Be the first.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {summaryByMember.map((m) => {
-              const dayList = Array.from(m.days)
-                .sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)) // Mon-first ordering
-                .map((d) => dayLabelByIdx.get(d) ?? '?')
-                .join(', ')
-              const isMe = m.user_id === currentUserId
-              return (
-                <div
-                  key={m.user_id}
-                  className="flex items-center justify-between rounded-xl bg-muted/30 px-3 py-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">
-                      {m.name}
-                      {isMe && <span className="text-muted-foreground"> (you)</span>}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {dayList}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground ml-3 shrink-0">
-                    {m.count} slot{m.count === 1 ? '' : 's'}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
+        {loading ? <p className="text-sm text-muted-foreground" role="status">Loading member status…</p> : loadError ? <p className="text-xs text-amber-100" role="alert">Member status couldn’t load. Retry above to refresh.</p> : members.map((member) => {
+          const submitted = savedMemberIds.has(member.user_id)
+          const memberRows = groupRows.filter((row) => row.user_id === member.user_id)
+          const memberDays = Array.from(new Set(memberRows.map((row) => row.day_of_week)))
+            .sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7))
+            .map((day) => dayLabelByIdx.get(day) ?? '?').join(', ')
+          return (
+            <div key={member.user_id} className="flex items-center justify-between gap-3 rounded-xl border border-border/25 bg-muted/15 px-3 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{displayName(member)}{member.user_id === currentUserId ? <span className="text-muted-foreground"> · you</span> : null}</p>
+                {submitted && <p className="mt-0.5 truncate text-xs text-muted-foreground">{memberDays || 'No active time windows'}</p>}
+              </div>
+              <span className={cn('shrink-0 rounded-full border px-2.5 py-1 text-[11px]', submitted ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200' : 'border-border/40 bg-background/30 text-muted-foreground')}>
+                {submitted ? 'Availability saved' : 'Waiting for availability'}
+              </span>
+            </div>
+          )
+        })}
       </GlassCard>
     </div>
   )

@@ -191,6 +191,12 @@ function timeIsValid(value: unknown): value is string {
   return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
+function timeZoneIsValid(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 64) return false;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: value }).format(); return true; }
+  catch { return false; }
+}
+
 async function handle(request: Request, env: Env): Promise<ApiResult | Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -641,7 +647,7 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
   }
 
   if (path === "/v1/circles" && request.method === "GET") {
-    const result = await env.DB.prepare(`SELECT c.id,c.name,c.emoji,c.activity_id,c.created_by,c.created_at,cm.role,
+    const result = await env.DB.prepare(`SELECT c.id,c.name,c.emoji,c.activity_id,c.created_by,c.created_at,c.timezone,cm.role,
       (SELECT COUNT(*) FROM circle_members m WHERE m.circle_id=c.id) AS member_count
       FROM circles c JOIN circle_members cm ON cm.circle_id=c.id WHERE cm.user_id=?1 ORDER BY c.updated_at DESC`)
       .bind(user.id).all();
@@ -651,12 +657,14 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
   if (path === "/v1/circles" && request.method === "POST") {
     const body = await readJson(request);
     if (typeof body?.name !== "string" || body.name.trim().length < 1 || body.name.trim().length > 80) return fail(400, "invalid_circle", "Circle name must be 1 to 80 characters.");
+    const timezone = body.timezone === undefined ? "Europe/London" : body.timezone;
+    if (!timeZoneIsValid(timezone)) return fail(400, "invalid_timezone", "Choose a valid Circle time zone.");
     const circleId = id();
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO circles(id,name,emoji,activity_id,created_by) VALUES(?1,?2,?3,?4,?5)").bind(circleId, body.name.trim(), typeof body.emoji === "string" ? body.emoji.slice(0, 8) : "👥", typeof body.activityId === "string" ? body.activityId.slice(0, 80) : null, user.id),
+      env.DB.prepare("INSERT INTO circles(id,name,emoji,activity_id,created_by,timezone) VALUES(?1,?2,?3,?4,?5,?6)").bind(circleId, body.name.trim(), typeof body.emoji === "string" ? body.emoji.slice(0, 8) : "👥", typeof body.activityId === "string" ? body.activityId.slice(0, 80) : null, user.id, timezone),
       env.DB.prepare("INSERT INTO circle_members(circle_id,user_id,role) VALUES(?1,?2,'owner')").bind(circleId, user.id),
     ]);
-    return { status: 201, body: { circle: { id: circleId, name: body.name.trim(), emoji: typeof body.emoji === "string" ? body.emoji.slice(0, 8) : "👥", activity_id: typeof body.activityId === "string" ? body.activityId : null, created_by: user.id, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), role: "owner", member_count: 1 } } };
+    return { status: 201, body: { circle: { id: circleId, name: body.name.trim(), emoji: typeof body.emoji === "string" ? body.emoji.slice(0, 8) : "👥", activity_id: typeof body.activityId === "string" ? body.activityId : null, timezone, created_by: user.id, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), role: "owner", member_count: 1 } } };
   }
 
   const inviteMatch = path.match(/^\/v1\/circles\/([^/]+)\/invitations$/);
@@ -699,7 +707,7 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
 
     if (!sub && request.method === "GET") {
       const circle = await env.DB.prepare(`SELECT id,name,emoji,activity_id,created_by,planning_location_json,created_at,updated_at,
-        (SELECT role FROM circle_members WHERE circle_id=?1 AND user_id=?2) AS role
+        timezone,(SELECT role FROM circle_members WHERE circle_id=?1 AND user_id=?2) AS role
         FROM circles WHERE id=?1`).bind(circleId, user.id).first<Record<string, unknown>>();
       if (!circle) return fail(404, "circle_not_found", "Circle not found.");
       return { body: { circle: { ...circle, planning_location: circle.planning_location_json ? JSON.parse(String(circle.planning_location_json)) : null } } };
@@ -713,31 +721,46 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
     }
 
     if (sub === "availability" && request.method === "GET") {
-      const result = await env.DB.prepare(`SELECT a.user_id,a.day_of_week,a.start_time,a.end_time,p.display_name,NULL AS email
-        FROM availability a JOIN profiles p ON p.user_id=a.user_id JOIN users u ON u.id=a.user_id
-        WHERE a.circle_id=?1 ORDER BY a.day_of_week,a.start_time`).bind(circleId).all();
-      return { body: { slots: result.results } };
+      const [result, submissions] = await Promise.all([
+        env.DB.prepare(`SELECT a.user_id,a.day_of_week,a.start_time,a.end_time,a.end_day_offset,p.display_name,NULL AS email
+          FROM availability a JOIN circle_members cm ON cm.circle_id=a.circle_id AND cm.user_id=a.user_id
+          LEFT JOIN profiles p ON p.user_id=a.user_id JOIN users u ON u.id=a.user_id
+          WHERE a.circle_id=?1 ORDER BY a.day_of_week,a.start_time`).bind(circleId).all(),
+        env.DB.prepare(`SELECT s.user_id FROM circle_availability_submissions s
+          JOIN circle_members cm ON cm.circle_id=s.circle_id AND cm.user_id=s.user_id
+          WHERE s.circle_id=?1`).bind(circleId).all<{ user_id: string }>(),
+      ]);
+      return { body: { slots: result.results, submitted_user_ids: submissions.results.map((row) => row.user_id) } };
     }
 
     if (sub === "availability" && request.method === "PUT") {
       const body = await readJson(request);
       const slots = body?.slots;
-      if (!Array.isArray(slots) || slots.length > 84 || !slots.every((s) => s && typeof s === "object" && Number.isInteger((s as any).dayOfWeek) && (s as any).dayOfWeek >= 0 && (s as any).dayOfWeek <= 6 && timeIsValid((s as any).startTime) && timeIsValid((s as any).endTime) && (s as any).startTime < (s as any).endTime)) {
-        return fail(400, "invalid_availability", "Availability must contain valid weekday time ranges.");
+      if (!Array.isArray(slots) || slots.length > 84 || !slots.every((s) => {
+        if (!s || typeof s !== "object" || !Number.isInteger((s as any).dayOfWeek) || (s as any).dayOfWeek < 0 || (s as any).dayOfWeek > 6 || !timeIsValid((s as any).startTime) || !timeIsValid((s as any).endTime)) return false;
+        const offset = (s as any).endDayOffset ?? 0;
+        if (offset !== 0 && offset !== 1) return false;
+        return offset === 0 ? (s as any).startTime < (s as any).endTime : (s as any).endTime < (s as any).startTime;
+      })) {
+        return fail(400, "invalid_availability", "Choose a valid time range. Overnight windows must end earlier on the following day.");
       }
       const statements = [env.DB.prepare("DELETE FROM availability WHERE circle_id=?1 AND user_id=?2").bind(circleId, user.id),
-        ...slots.map((s: any) => env.DB.prepare("INSERT INTO availability(id,circle_id,user_id,day_of_week,start_time,end_time) VALUES(?1,?2,?3,?4,?5,?6)").bind(id(), circleId, user.id, s.dayOfWeek, s.startTime, s.endTime))];
+        ...slots.map((s: any) => env.DB.prepare("INSERT INTO availability(id,circle_id,user_id,day_of_week,start_time,end_time,end_day_offset) VALUES(?1,?2,?3,?4,?5,?6,?7)").bind(id(), circleId, user.id, s.dayOfWeek, s.startTime, s.endTime, s.endDayOffset ?? 0)),
+        env.DB.prepare(`INSERT INTO circle_availability_submissions(circle_id,user_id) VALUES(?1,?2)
+          ON CONFLICT(circle_id,user_id) DO UPDATE SET submitted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`).bind(circleId, user.id)];
       await env.DB.batch(statements);
       return { body: { ok: true, count: slots.length } };
     }
 
     if (sub === "golden-window" && request.method === "GET") {
       const membersResult = await env.DB.prepare("SELECT u.id,p.display_name AS name FROM circle_members cm JOIN users u ON u.id=cm.user_id LEFT JOIN profiles p ON p.user_id=u.id WHERE cm.circle_id=?1").bind(circleId).all<GoldenWindowMember>();
-      const slotsResult = await env.DB.prepare("SELECT user_id,day_of_week,start_time,end_time FROM availability WHERE circle_id=?1").bind(circleId).all<GoldenWindowAvailabilityRow>();
+      const slotsResult = await env.DB.prepare(`SELECT a.user_id,a.day_of_week,a.start_time,a.end_time,a.end_day_offset FROM availability a
+        JOIN circle_members cm ON cm.circle_id=a.circle_id AND cm.user_id=a.user_id WHERE a.circle_id=?1`).bind(circleId).all<GoldenWindowAvailabilityRow>();
       // Public Golden Window results must reflect an actual shared interval.
       // The legacy engine still supports explicit compromise suggestions for
       // other callers, but this API never presents a synthesized time as free.
-      const windows = computeGoldenWindows(membersResult.results, slotsResult.results, { allowCompromise: false });
+      const circle = await env.DB.prepare("SELECT timezone FROM circles WHERE id=?1").bind(circleId).first<{ timezone: string }>();
+      const windows = computeGoldenWindows(membersResult.results, slotsResult.results, { allowCompromise: false, timeZone: circle?.timezone });
       const best = windows[0];
       if (best) await env.DB.prepare("INSERT INTO golden_windows(id,circle_id,result_json) VALUES(?1,?2,?3)").bind(id(), circleId, JSON.stringify(best)).run();
       return { body: { windows, computed_at: new Date().toISOString(), source: "member-submitted availability" } };
@@ -771,7 +794,11 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
     if (sub === "members" && request.method === "DELETE") {
       const role = await env.DB.prepare("SELECT role FROM circle_members WHERE circle_id=?1 AND user_id=?2").bind(circleId, user.id).first<{ role: string }>();
       if (role?.role === "owner") return fail(409, "owner_cannot_leave", "Transfer Circle ownership before leaving.");
-      await env.DB.prepare("DELETE FROM circle_members WHERE circle_id=?1 AND user_id=?2").bind(circleId, user.id).run();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM availability WHERE circle_id=?1 AND user_id=?2").bind(circleId, user.id),
+        env.DB.prepare("DELETE FROM circle_availability_submissions WHERE circle_id=?1 AND user_id=?2").bind(circleId, user.id),
+        env.DB.prepare("DELETE FROM circle_members WHERE circle_id=?1 AND user_id=?2").bind(circleId, user.id),
+      ]);
       return { body: { ok: true } };
     }
 
@@ -785,12 +812,16 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
       if (typeof body?.title !== "string" || body.title.trim().length < 1 || body.title.trim().length > 120 || typeof body.startsAt !== "string" || !Number.isFinite(Date.parse(body.startsAt))) return fail(400, "invalid_plan", "Provide a title and valid start time.");
       if (body.goldenWindow === true) {
         const members = await env.DB.prepare("SELECT u.id,u.id AS name FROM circle_members cm JOIN users u ON u.id=cm.user_id WHERE cm.circle_id=?1").bind(circleId).all<GoldenWindowMember>();
-        const availability = await env.DB.prepare("SELECT user_id,day_of_week,start_time,end_time FROM availability WHERE circle_id=?1").bind(circleId).all<GoldenWindowAvailabilityRow>();
-        const best = computeGoldenWindows(members.results, availability.results)[0];
+        const [availability, circle] = await Promise.all([
+          env.DB.prepare(`SELECT a.user_id,a.day_of_week,a.start_time,a.end_time,a.end_day_offset FROM availability a
+            JOIN circle_members cm ON cm.circle_id=a.circle_id AND cm.user_id=a.user_id WHERE a.circle_id=?1`).bind(circleId).all<GoldenWindowAvailabilityRow>(),
+          env.DB.prepare("SELECT timezone FROM circles WHERE id=?1").bind(circleId).first<{ timezone: string }>(),
+        ]);
+        const best = computeGoldenWindows(members.results, availability.results, { allowCompromise: false, timeZone: circle?.timezone })[0];
         if (!best) return fail(409, "availability_required", "Add availability from at least two Circle members before making this plan.");
         const startsAt = new Date(body.startsAt);
         const requested = body.window && typeof body.window === "object" ? body.window as Record<string, unknown> : {};
-        if (requested.dayOfWeek !== best.day_of_week || requested.startTime !== best.start_time || requested.endTime !== best.end_time) return fail(409, "golden_window_changed", "Availability changed. Find the Golden Window again before confirming this plan.");
+        if (requested.dayOfWeek !== best.day_of_week || requested.startTime !== best.start_time || requested.endTime !== best.end_time || (requested.endDayOffset ?? 0) !== (best.end_day_offset ?? 0)) return fail(409, "golden_window_changed", "Availability changed. Find the Golden Window again before confirming this plan.");
         const endsAt = typeof body.endsAt === "string" && Number.isFinite(Date.parse(body.endsAt)) ? new Date(body.endsAt) : new Date(startsAt.getTime() + best.duration_minutes * 60_000);
         if (endsAt <= startsAt || endsAt.getTime() - startsAt.getTime() > 24 * 60 * 60_000) return fail(400, "invalid_plan", "Plan end time must follow its start time within 24 hours.");
         const key = `${startsAt.toISOString().slice(0, 16)}:${best.day_of_week}:${best.start_time}:${best.end_time}`;

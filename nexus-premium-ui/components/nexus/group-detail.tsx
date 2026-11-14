@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TopHeader } from './navigation'
 import { GlassCard, AvatarStack, StatBadge } from './glass-card'
 import { GoldenRing } from './golden-ring'
@@ -38,12 +38,13 @@ import { ActivityBadge } from './activity-picker'
 import { InviteMemberModal } from './invite-member-modal'
 import { AvailabilityEditor } from './availability-editor'
 import { useAuth } from '@/lib/auth-context'
-import { getGroupAvailability, type GroupAvailabilityRow } from '@/lib/availability-service'
+import { getGroupAvailabilitySnapshot, type GroupAvailabilityRow } from '@/lib/availability-service'
 import type { AvailabilitySlot } from '@/lib/availability-service'
 import {
   computeGoldenWindows,
   checkGoldenWindowRequirements,
   formatTime12h,
+  formatTimeZoneLabel,
   formatDuration,
   dayLabel,
   type GoldenWindow,
@@ -136,6 +137,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   const [realMembers, setRealMembers] = useState<GroupMember[]>([])
   const [loading, setLoading]         = useState(realMode)
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
+  const [availabilityDirty, setAvailabilityDirty] = useState(false)
+  const [noOverlapFound, setNoOverlapFound] = useState(false)
   const [availabilityError, setAvailabilityError] = useState<string | null>(null)
   const [goldenWindowError, setGoldenWindowError] = useState<string | null>(null)
   const [availabilityLoadAttempt, setAvailabilityLoadAttempt] = useState(0)
@@ -147,6 +150,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
   // Raw availability rows — kept in state so we can compute on demand.
   const [allAvailability, setAllAvailability] = useState<GroupAvailabilityRow[]>([])
+  const [availabilitySubmittedUserIds, setAvailabilitySubmittedUserIds] = useState<Set<string>>(new Set())
 
   // ── Persisted Golden Window (from DB) ────────────────────────────────────
   const [savedWindow, setSavedWindow]               = useState<GoldenWindow | null>(null)
@@ -209,6 +213,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     setAvailabilityLoaded(false)
     setAvailabilityError(null)
     setGoldenWindowError(null)
+    setAllAvailability([])
+    setAvailabilitySubmittedUserIds(new Set())
     setActiveWindow(null)
     setSavedWindow(null)
     setSavedWindowStale(false)
@@ -217,14 +223,16 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     Promise.all([
       getGroup(groupId),
       listGroupMembers(groupId),
-      getGroupAvailability(groupId),
+      getGroupAvailabilitySnapshot(groupId),
       loadSavedGoldenWindow(groupId),
-    ]).then(([g, m, avail, saved]) => {
+    ]).then(([g, m, availabilitySnapshot, saved]) => {
       if (cancelled) return
+      const avail = availabilitySnapshot.slots
       setRealGroup(g)
       setPlanningLocation(g ? extractPlanningLocation(g) : null)
       setRealMembers(m)
       setAllAvailability(avail)
+      setAvailabilitySubmittedUserIds(new Set(availabilitySnapshot.submittedUserIds))
       setSavedWindow(saved.window)
       setSavedWindowStale(saved.isStale)
       setSavedWindowComputedAt(saved.computedAt)
@@ -297,6 +305,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
     // Reset venues if recalculating.
     setVenuesRevealed(false)
+    setNoOverlapFound(false)
     const wasRecalculation = !!activeWindow
     const storageKey = `nexus:revealed:${groupId}`
     const prefersReducedMotion =
@@ -320,13 +329,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
       if (!best) {
         setRevealPhase('idle')
         setActiveWindow(null)
-        const requirements = checkGoldenWindowRequirements(
-          realMembers.map((member) => ({ id: member.user_id, name: member.display_name })),
-          allAvailability,
-        )
-        toast.error(requirements.canCompute
-          ? 'No shared time overlaps yet. Ask Circle members to adjust their availability and try again.'
-          : requirements.missingExplanation ?? 'Add availability before searching for a Golden Window.')
+        setNoOverlapFound(true)
         return
       }
 
@@ -377,6 +380,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
         email: null,
       })),
     ])
+    setAvailabilitySubmittedUserIds((current) => new Set([...current, user.id]))
+    setAvailabilityDirty(false)
+    setNoOverlapFound(false)
     // A saved schedule invalidates any previously displayed calculation.
     setActiveWindow(null)
     setSavedWindow(null)
@@ -386,6 +392,21 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     setVenuesRevealed(false)
     setAvailabilityError(null)
     setGoldenWindowError(null)
+  }
+
+  const onAvailabilityDirtyChange = useCallback((dirty: boolean) => setAvailabilityDirty(dirty), [])
+  const confirmDiscardAvailability = () => {
+    if (!availabilityDirty) return true
+    return window.confirm('Discard your unsaved availability changes?')
+  }
+  const navigateSection = (section: typeof activeSection) => {
+    if (activeSection === 'availability' && section !== 'availability' && !confirmDiscardAvailability()) return
+    if (activeSection === 'availability' && section !== 'availability') setAvailabilityDirty(false)
+    setActiveSection(section)
+  }
+  const handleBack = () => {
+    if (!confirmDiscardAvailability()) return
+    onBack()
   }
 
   useEffect(() => {
@@ -581,6 +602,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   const emoji       = realMode ? realGroup?.emoji ?? '👥' : mockGroup.emoji
   const memberCount = realMode ? realMembers.length : mockGroup.memberCount
   const inviteCode  = realMode ? realGroup?.invite_code ?? null : null
+  const isSoloWindow = activeWindow?.total_member_count === 1
+  const membersWithoutAvailability = realMembers.filter((member) => !availabilitySubmittedUserIds.has(member.user_id)).length
+  const circleTimezone = realGroup?.timezone || 'Europe/London'
 
   const rawActivityId     = realMode ? realGroup?.activity_id : null
   const activityDef       = rawActivityId && !rawActivityId.startsWith('custom:') ? getActivityById(rawActivityId) : null
@@ -652,7 +676,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
       <TopHeader
         title={name}
         showBack
-        onBack={onBack}
+        onBack={handleBack}
         showNotifications={false}
       />
 
@@ -675,8 +699,10 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             )}
           </div>
           <button
-            onClick={() => onNavigate?.('profile')}
-            className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+            type="button"
+            onClick={() => { if (confirmDiscardAvailability()) onNavigate?.('profile') }}
+            aria-label="Open profile settings"
+            className="min-h-11 min-w-11 rounded-full hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Settings className="w-5 h-5 text-muted-foreground" />
           </button>
@@ -743,12 +769,21 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               <span className="text-sm font-medium text-foreground">Golden Window</span>
             </div>
 
-            {gwRequirements?.canCompute ? (
+            {gwRequirements?.canCompute && realMembers.length === 1 ? (
+              <>
+                <p className="mb-3 text-sm leading-relaxed text-foreground" role="status">
+                  Your schedule is ready. Invite a friend to discover your first shared Golden Window.
+                </p>
+                <Button type="button" onClick={() => setInviteOpen(true)} className="w-full min-h-11 rounded-xl bg-primary text-primary-foreground">
+                  <Plus className="mr-2 h-4 w-4" /> Invite a friend
+                </Button>
+              </>
+            ) : gwRequirements?.canCompute ? (
               <>
                 <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                   {realMembers.length === 1
-                    ? 'This is a personal Golden Window for your one-member Circle. Invite a friend when you want Nexus to find a shared time.'
-                    : 'Nexus checks availability saved by Circle members and only returns a time when at least two members are genuinely free together.'}
+                    ? 'Add your times, then invite a friend to find your first shared Golden Window.'
+                    : 'Nexus compares saved member schedules and only shows a time that genuinely overlaps.'}
                 </p>
                 <Button
                   type="button"
@@ -780,13 +815,24 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setActiveSection('availability')}
+                  onClick={() => navigateSection('availability')}
                   aria-controls="circle-availability-editor"
                   className="mt-2 w-full h-9 rounded-xl bg-muted/30 hover:bg-muted/50 text-muted-foreground text-xs border-0"
                 >
                   Set your availability
                 </Button>
               </>
+            )}
+            {noOverlapFound && realMembers.length > 1 && (
+              <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-3" role="status" aria-live="polite">
+                <p className="text-sm font-medium text-amber-100">No shared time yet</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {membersWithoutAvailability > 0
+                    ? `${membersWithoutAvailability} Circle member${membersWithoutAvailability === 1 ? ' hasn’t' : 's haven’t'} shared a schedule. Ask them to add availability, then search again.`
+                    : 'Your saved times do not overlap yet. Try adjusting a day or time window, then search again.'}
+                </p>
+                <Button type="button" onClick={() => navigateSection('availability')} className="mt-2 min-h-10 px-3 text-xs text-primary">Review availability</Button>
+              </div>
             )}
           </GlassCard>
           </div>
@@ -802,36 +848,42 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             for a true crossfade. Active window may be perfect, strong,
             partial, or a compromise — the card adapts to the quality. */}
         {showRevealedContent && activeWindow && !isRouteActivity && (
-          <GlassCard
+            <GlassCard
             glow
             className={cn(
-              'mb-6 p-5 cursor-pointer',
+              'mb-6 p-5',
+              !isSoloWindow && 'cursor-pointer',
               shouldAnimateReveal && 'animate-scale-in',
             )}
-            onClick={handleRevealVenues}
+            onClick={isSoloWindow ? undefined : handleRevealVenues}
           >
             {/* Header row */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
                 <span className="text-sm text-primary font-medium">
-                  {activeWindow.total_member_count === 1
-                    ? 'Your Golden Window ✨'
+                  {isSoloWindow
+                    ? 'Schedule ready'
                     : QUALITY_HEADER[activeWindow.match_quality]}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              {!isSoloWindow && <div className="flex items-center gap-2">
                 <span className={cn(
                   'text-xs px-2 py-1 rounded-full font-medium',
                   QUALITY_CLASSES[activeWindow.match_quality],
                 )}>
                   {QUALITY_LABELS[activeWindow.match_quality]}
                 </span>
-              </div>
+              </div>}
             </div>
 
             {/* Time + date */}
-            <div className="flex items-center gap-4">
+            {isSoloWindow ? (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" onClick={(event) => event.stopPropagation()}>
+                <p className="text-sm leading-relaxed text-foreground">Your schedule is ready. Invite a friend to discover your first shared Golden Window.</p>
+                <Button type="button" onClick={() => setInviteOpen(true)} className="mt-3 min-h-11 w-full rounded-xl bg-primary text-primary-foreground">Invite a friend</Button>
+              </div>
+            ) : <div className="flex items-center gap-4">
               <GoldenRing size="md" intensity="normal" />
               <div className="flex-1">
                 <p className="text-2xl font-bold">{formatTime12h(activeWindow.start_time)}</p>
@@ -843,12 +895,13 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                   {' · '}
                   {formatTime12h(activeWindow.start_time)}
                   {' – '}
-                  {formatTime12h(activeWindow.end_time)}
+                  {formatTime12h(activeWindow.end_time)}{activeWindow.end_day_offset === 1 ? ' next day' : ''}
+                  {' · '}{formatTimeZoneLabel(circleTimezone)}
                 </p>
-            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} />
+            <GoldenWindowCountdown daysUntil={activeWindow.days_until} startTime={activeWindow.start_time} endTime={activeWindow.end_time} endDayOffset={activeWindow.end_day_offset} timeZone={circleTimezone} />
               </div>
               <ChevronRight className="w-5 h-5 text-muted-foreground" />
-            </div>
+            </div>}
 
             {/* Compromise / partial explanation */}
             {activeWindow.compromise_note && (
@@ -862,7 +915,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             )}
 
             {/* Member availability */}
-            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/30">
+            {!isSoloWindow && <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/30">
               <AvatarStack avatars={avatars} max={5} />
               <div className="flex items-center gap-1 text-emerald-500 text-sm">
                 <Check className="w-4 h-4" />
@@ -872,9 +925,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                     : `${activeWindow.available_member_count} of ${activeWindow.total_member_count} free`}
                 </span>
               </div>
-            </div>
+            </div>}
 
-            <div className="grid grid-cols-2 gap-2 mt-3">
+            {!isSoloWindow && <div className="grid grid-cols-2 gap-2 mt-3">
               <div className="rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5">
                 <p className="text-[11px] text-muted-foreground">Confidence</p>
                 <p className="mt-0.5 text-sm font-semibold tabular-nums text-primary">{activeWindow.confidence_score}%</p>
@@ -883,12 +936,14 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                 <p className="text-[11px] text-muted-foreground">Fairness</p>
                 <p className="mt-0.5 text-sm font-semibold tabular-nums text-primary">{activeWindow.fairness_score}%</p>
               </div>
-            </div>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            </div>}
+            {!isSoloWindow && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               {activeWindow.is_compromise
                 ? activeWindow.compromise_note
-                : `${activeWindow.available_member_count} of ${activeWindow.total_member_count} Circle members can make this ${formatDuration(activeWindow.duration_minutes)} window.`}
-            </p>
+                : activeWindow.available_member_count === activeWindow.total_member_count
+                  ? `The whole Circle overlaps for ${formatDuration(activeWindow.duration_minutes)}. This is the strongest available shared window, with the longest overlap used to break ties.`
+                  : `${activeWindow.available_member_count} of ${activeWindow.total_member_count} members overlap for ${formatDuration(activeWindow.duration_minutes)}. ${membersWithoutAvailability ? `${membersWithoutAvailability} member${membersWithoutAvailability === 1 ? ' has' : 's have'} not submitted a schedule yet.` : 'This is a partial Circle match.'}`}
+            </p>}
 
             {/* Weather chip */}
             {(weatherLoading || (weather && !weather.error)) && (
@@ -905,7 +960,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
         {/* ── Recalculate button — shown below the revealed card ──
             Subtle so it doesn't compete with "Explore nearby fits". */}
-        {revealPhase === 'revealed' && activeWindow && !showStaleBanner && !isRouteActivity && (
+        {revealPhase === 'revealed' && activeWindow && !isSoloWindow && !showStaleBanner && !isRouteActivity && (
           <div className="flex justify-end mb-2">
             <button
               onClick={handleStartSearch}
@@ -1191,7 +1246,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveSection(tab.id)}
+              onClick={() => navigateSection(tab.id)}
               aria-pressed={activeSection === tab.id}
               className={cn(
                 'shrink-0 px-3 py-2.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap',
@@ -1211,10 +1266,15 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             <AvailabilityEditor
               groupId={groupId}
               currentUserId={user?.id ?? null}
-              canFindGoldenWindow={Boolean(gwRequirements?.canCompute)}
+              members={realMembers}
+              timezone={realGroup?.timezone || 'Europe/London'}
+              canFindGoldenWindow={Boolean(gwRequirements?.canCompute) && realMembers.length > 1}
               findingGoldenWindow={findingWindow}
-              goldenWindowHelp={gwRequirements?.missingExplanation ?? null}
+              goldenWindowHelp={realMembers.length === 1 && gwRequirements?.canCompute
+                ? 'Your schedule is ready. Invite a friend to discover your first shared Golden Window.'
+                : gwRequirements?.missingExplanation ?? null}
               onSaved={handleAvailabilitySaved}
+              onDirtyChange={onAvailabilityDirtyChange}
               onFindGoldenWindow={() => void handleStartSearch()}
             />
           </div>

@@ -11,6 +11,7 @@ export interface Group {
   created_by: string
   created_at: string
   updated_at: string
+  timezone?: string
   // ── Planning location (nullable until set) ────────────────────────────────
   planning_location_lat?:     number | null
   planning_location_lng?:     number | null
@@ -96,8 +97,9 @@ export async function createGroup(
   activityId?: string,
 ): Promise<CreateGroupResult> {
   try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/London'
     const { circle } = await nexusApi<{ circle: Group }>('/v1/circles', {
-      method: 'POST', body: JSON.stringify({ name: name.trim(), emoji: emoji || '👥', activityId }),
+      method: 'POST', body: JSON.stringify({ name: name.trim(), emoji: emoji || '👥', activityId, timezone }),
     })
     return { group: circle, errorMessage: null }
   } catch (error) {

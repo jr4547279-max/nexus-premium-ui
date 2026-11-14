@@ -10,7 +10,7 @@ const databasePath = process.env.NEXUS_PREVIEW_DB ?? '/tmp/nexus-api-preview.sql
 const database = new DatabaseSync(databasePath)
 database.exec('PRAGMA foreign_keys = ON')
 database.exec('CREATE TABLE IF NOT EXISTS _nexus_preview_migrations (name TEXT PRIMARY KEY)')
-for (const name of ['0001_initial.sql', '0002_social_live.sql', '0003_golden_plan_idempotency.sql']) {
+for (const name of ['0001_initial.sql', '0002_social_live.sql', '0003_golden_plan_idempotency.sql', '0004_circle_timezone_overnight.sql', '0005_availability_submission_status.sql']) {
   const applied = database.prepare('SELECT 1 FROM _nexus_preview_migrations WHERE name=?1').get(name)
   if (!applied) {
     database.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8'))

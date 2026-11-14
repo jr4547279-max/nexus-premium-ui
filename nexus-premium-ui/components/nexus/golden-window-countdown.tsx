@@ -7,15 +7,43 @@ interface GoldenWindowCountdownProps {
   daysUntil: number
   startTime: string
   endTime: string
+  endDayOffset?: number
+  timeZone?: string
 }
 
-function targetFromWindow(daysUntil: number, time: string): number {
+function targetFromWindow(daysUntil: number, time: string, timeZone?: string): number {
   const [hours, minutes] = time.split(':').map(Number)
-  const target = new Date()
-  target.setSeconds(0, 0)
-  target.setDate(target.getDate() + Math.max(0, daysUntil))
-  target.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0)
-  return target.getTime()
+  const hour = Number.isFinite(hours) ? hours : 0
+  const minute = Number.isFinite(minutes) ? minutes : 0
+  if (!timeZone) {
+    const target = new Date()
+    target.setSeconds(0, 0)
+    target.setDate(target.getDate() + Math.max(0, daysUntil))
+    target.setHours(hour, minute, 0, 0)
+    return target.getTime()
+  }
+  try {
+    const now = new Date()
+    const today = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now).map(({ type, value }) => [type, Number(value)])) as { year: number; month: number; day: number }
+    const civilDate = new Date(Date.UTC(today.year, today.month - 1, today.day + Math.max(0, daysUntil)))
+    const targetCivil = Date.UTC(civilDate.getUTCFullYear(), civilDate.getUTCMonth(), civilDate.getUTCDate(), hour, minute)
+    let guess = targetCivil
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    })
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(guess)).map(({ type, value }) => [type, Number(value)])) as {
+        year: number; month: number; day: number; hour: number; minute: number
+      }
+      const represented = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute)
+      guess += targetCivil - represented
+    }
+    return guess
+  } catch {
+    return targetFromWindow(daysUntil, time)
+  }
 }
 
 function formatRemaining(ms: number): string {
@@ -29,10 +57,10 @@ function formatRemaining(ms: number): string {
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
-export function GoldenWindowCountdown({ daysUntil, startTime, endTime }: GoldenWindowCountdownProps) {
+export function GoldenWindowCountdown({ daysUntil, startTime, endTime, endDayOffset = 0, timeZone }: GoldenWindowCountdownProps) {
   const [now, setNow] = useState(() => Date.now())
-  const startMs = useMemo(() => targetFromWindow(daysUntil, startTime), [daysUntil, startTime])
-  const endMs = useMemo(() => targetFromWindow(daysUntil, endTime), [daysUntil, endTime])
+  const startMs = useMemo(() => targetFromWindow(daysUntil, startTime, timeZone), [daysUntil, startTime, timeZone])
+  const endMs = useMemo(() => targetFromWindow(daysUntil + endDayOffset, endTime, timeZone), [daysUntil, endTime, endDayOffset, timeZone])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
