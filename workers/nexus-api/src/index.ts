@@ -734,7 +734,10 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
     if (sub === "golden-window" && request.method === "GET") {
       const membersResult = await env.DB.prepare("SELECT u.id,p.display_name AS name FROM circle_members cm JOIN users u ON u.id=cm.user_id LEFT JOIN profiles p ON p.user_id=u.id WHERE cm.circle_id=?1").bind(circleId).all<GoldenWindowMember>();
       const slotsResult = await env.DB.prepare("SELECT user_id,day_of_week,start_time,end_time FROM availability WHERE circle_id=?1").bind(circleId).all<GoldenWindowAvailabilityRow>();
-      const windows = computeGoldenWindows(membersResult.results, slotsResult.results);
+      // Public Golden Window results must reflect an actual shared interval.
+      // The legacy engine still supports explicit compromise suggestions for
+      // other callers, but this API never presents a synthesized time as free.
+      const windows = computeGoldenWindows(membersResult.results, slotsResult.results, { allowCompromise: false });
       const best = windows[0];
       if (best) await env.DB.prepare("INSERT INTO golden_windows(id,circle_id,result_json) VALUES(?1,?2,?3)").bind(id(), circleId, JSON.stringify(best)).run();
       return { body: { windows, computed_at: new Date().toISOString(), source: "member-submitted availability" } };

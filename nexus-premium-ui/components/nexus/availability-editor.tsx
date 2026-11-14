@@ -7,7 +7,6 @@ import { Plus, Trash2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
-  getMyAvailability,
   saveAvailability,
   getGroupAvailability,
   type AvailabilitySlot,
@@ -17,6 +16,11 @@ import {
 interface AvailabilityEditorProps {
   groupId: string
   currentUserId: string | null
+  canFindGoldenWindow: boolean
+  findingGoldenWindow: boolean
+  goldenWindowHelp: string | null
+  onSaved: (slots: AvailabilitySlot[]) => void
+  onFindGoldenWindow: () => void
 }
 
 const DAYS: { idx: number; short: string; long: string }[] = [
@@ -39,41 +43,43 @@ function displayName(row: { display_name: string | null; email: string | null })
   return row.display_name || row.email?.split('@')[0] || 'Member'
 }
 
-export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEditorProps) {
+export function AvailabilityEditor({ groupId, currentUserId, canFindGoldenWindow, findingGoldenWindow, goldenWindowHelp, onSaved, onFindGoldenWindow }: AvailabilityEditorProps) {
   const [mySlots, setMySlots] = useState<AvailabilitySlot[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [groupRows, setGroupRows] = useState<GroupAvailabilityRow[]>([])
-
-  const _loadAll = async () => {
-    setLoading(true)
-    const [mine, group] = await Promise.all([
-      getMyAvailability(groupId),
-      getGroupAvailability(groupId),
-    ])
-    setMySlots(mine)
-    setGroupRows(group)
-    setDirty(false)
-    setLoading(false)
-  }
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setLoadError(null)
+    setRefreshWarning(null)
     ;(async () => {
-      const [mine, group] = await Promise.all([
-        getMyAvailability(groupId),
-        getGroupAvailability(groupId),
-      ])
-      if (cancelled) return
-      setMySlots(mine)
-      setGroupRows(group)
-      setLoading(false)
+      try {
+        // One authorized Circle read provides both the member summary and the
+        // current user's editable rows, avoiding two competing snapshots.
+        const group = await getGroupAvailability(groupId)
+        if (cancelled) return
+        setGroupRows(group)
+        setMySlots(group
+          .filter((slot) => slot.user_id === currentUserId)
+          .map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time })))
+        setDirty(false)
+      } catch (error) {
+        if (cancelled) return
+        setLoadError(error instanceof Error ? error.message : 'Could not load availability. Try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     })()
     return () => {
       cancelled = true
     }
-  }, [groupId])
+  }, [groupId, currentUserId, loadAttempt])
 
   const slotsByDay = useMemo(() => {
     const map = new Map<number, AvailabilitySlot[]>()
@@ -145,9 +151,26 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
       inserted === 0 ? 'Availability cleared' : `Saved ${inserted} slot${inserted === 1 ? '' : 's'}`,
     )
     setDirty(false)
-    // Refresh group-wide summary so it reflects the new state.
-    const fresh = await getGroupAvailability(groupId)
-    setGroupRows(fresh)
+    onSaved(cleaned)
+    // The write is already confirmed. Refresh the summary, but never turn a
+    // successful save into a silent failure if this optional follow-up read
+    // has a transient network error.
+    try {
+      const fresh = await getGroupAvailability(groupId)
+      setGroupRows(fresh)
+      setRefreshWarning(null)
+    } catch {
+      setGroupRows((current) => [
+        ...current.filter((row) => row.user_id !== currentUserId),
+        ...cleaned.map((slot) => ({
+          ...slot,
+          user_id: currentUserId ?? '',
+          display_name: null,
+          email: null,
+        })),
+      ])
+      setRefreshWarning('Saved successfully. The Circle summary could not refresh; retry when your connection is back.')
+    }
   }
 
   // ── Group summary: aggregate slots per member.
@@ -177,8 +200,25 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
           </p>
         </div>
 
+        {refreshWarning && (
+          <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-amber-100" role="status">
+            {refreshWarning}
+          </p>
+        )}
+
         {/* Day chips */}
-        <div className="flex flex-wrap gap-2">
+        {loading ? (
+          <p className="text-sm text-muted-foreground" role="status" aria-live="polite">Loading saved availability…</p>
+        ) : loadError ? (
+          <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3" role="alert">
+            <p className="text-sm text-amber-100">{loadError}</p>
+            <button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)} className="mt-2 min-h-11 rounded-lg px-3 text-sm font-medium text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+              Retry loading
+            </button>
+          </div>
+        ) : (
+        <>
+        <div className="flex flex-wrap gap-2" aria-label="Days of the week">
           {DAYS.map((d) => {
             const on = activeDays.has(d.idx)
             return (
@@ -186,8 +226,10 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
                 key={d.idx}
                 type="button"
                 onClick={() => toggleDay(d.idx)}
+                aria-pressed={on}
+                aria-label={`${d.long}, ${on ? 'selected' : 'not selected'}`}
                 className={cn(
-                  'px-3 py-2 rounded-xl text-sm font-medium transition-all min-w-[3rem]',
+                  'min-h-11 min-w-11 px-3 py-2 rounded-xl text-sm font-medium transition-all touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                   on
                     ? 'bg-primary/15 text-primary border border-primary/40'
                     : 'bg-muted/30 text-muted-foreground border border-transparent hover:bg-muted/50',
@@ -200,9 +242,7 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
         </div>
 
         {/* Per-day time slots */}
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : activeDays.size === 0 ? (
+        {activeDays.size === 0 ? (
           <p className="text-xs text-muted-foreground">
             No days selected — tap a day above to add time windows.
           </p>
@@ -217,24 +257,30 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
                   </p>
                   {slots.map((slot, i) => (
                     <div key={i} className="flex items-center gap-2">
+                      <label className="sr-only" htmlFor={`availability-${d.idx}-${i}-start`}>Start time for {d.long}, slot {i + 1}</label>
                       <input
+                        id={`availability-${d.idx}-${i}-start`}
                         type="time"
                         value={slot.start_time}
+                        aria-label={`Start time for ${d.long}, slot ${i + 1}`}
                         onChange={(e) => updateSlot(slot, i, { start_time: e.target.value })}
-                        className="flex-1 h-10 px-3 rounded-lg bg-muted/40 border border-border/40 text-sm"
+                        className="flex-1 min-w-0 h-11 px-3 rounded-lg bg-muted/40 border border-border/40 text-base sm:text-sm touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       />
                       <span className="text-muted-foreground text-sm">→</span>
+                      <label className="sr-only" htmlFor={`availability-${d.idx}-${i}-end`}>End time for {d.long}, slot {i + 1}</label>
                       <input
+                        id={`availability-${d.idx}-${i}-end`}
                         type="time"
                         value={slot.end_time}
+                        aria-label={`End time for ${d.long}, slot ${i + 1}`}
                         onChange={(e) => updateSlot(slot, i, { end_time: e.target.value })}
-                        className="flex-1 h-10 px-3 rounded-lg bg-muted/40 border border-border/40 text-sm"
+                        className="flex-1 min-w-0 h-11 px-3 rounded-lg bg-muted/40 border border-border/40 text-base sm:text-sm touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       />
                       <button
                         type="button"
                         onClick={() => removeSlot(d.idx, i)}
-                        className="p-2 rounded-lg text-muted-foreground hover:bg-muted/40"
-                        aria-label="Remove time slot"
+                        className="h-11 w-11 shrink-0 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary touch-manipulation"
+                        aria-label={`Remove ${d.long} time slot ${i + 1}`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -243,7 +289,7 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
                   <button
                     type="button"
                     onClick={() => addSlot(d.idx)}
-                    className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80"
+                    className="min-h-11 flex items-center gap-1.5 rounded-lg pr-3 text-sm text-primary hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary touch-manipulation"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Add another time
@@ -255,6 +301,7 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
         )}
 
         <Button
+          type="button"
           onClick={handleSave}
           disabled={saving || loading || !dirty}
           className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl"
@@ -262,6 +309,20 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
           {saving ? 'Saving…' : dirty ? 'Save availability' : 'Saved'}
           {!saving && !dirty && <Check className="w-4 h-4 ml-2" />}
         </Button>
+        </>
+        )}
+        {!loading && !loadError && !dirty && mySlots.length > 0 && canFindGoldenWindow && (
+          <div className="space-y-2" aria-live="polite">
+            <Button type="button" onClick={onFindGoldenWindow} disabled={findingGoldenWindow} aria-busy={findingGoldenWindow} className="w-full min-h-11 rounded-xl bg-primary text-primary-foreground glow-gold">
+              <Check className="h-4 w-4" /> {findingGoldenWindow ? 'Checking saved availability…' : 'Find Golden Window'}
+            </Button>
+          </div>
+        )}
+        {!loading && !loadError && !dirty && mySlots.length > 0 && !canFindGoldenWindow && goldenWindowHelp && (
+          <p className="rounded-xl border border-border/30 bg-muted/20 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground" role="status">
+            {goldenWindowHelp}
+          </p>
+        )}
       </GlassCard>
 
       {/* Group summary */}
@@ -273,7 +334,11 @@ export function AvailabilityEditor({ groupId, currentUserId }: AvailabilityEdito
           </p>
         </div>
 
-        {summaryByMember.length === 0 ? (
+        {loading ? (
+          <p className="text-xs text-muted-foreground" role="status">Loading Circle availability…</p>
+        ) : loadError ? (
+          <p className="text-xs text-amber-100" role="alert">Circle availability could not be refreshed.</p>
+        ) : summaryByMember.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No one has shared availability yet. Be the first.
           </p>

@@ -39,6 +39,7 @@ import { InviteMemberModal } from './invite-member-modal'
 import { AvailabilityEditor } from './availability-editor'
 import { useAuth } from '@/lib/auth-context'
 import { getGroupAvailability, type GroupAvailabilityRow } from '@/lib/availability-service'
+import type { AvailabilitySlot } from '@/lib/availability-service'
 import {
   computeGoldenWindows,
   checkGoldenWindowRequirements,
@@ -135,6 +136,11 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   const [realMembers, setRealMembers] = useState<GroupMember[]>([])
   const [loading, setLoading]         = useState(realMode)
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
+  const [goldenWindowError, setGoldenWindowError] = useState<string | null>(null)
+  const [availabilityLoadAttempt, setAvailabilityLoadAttempt] = useState(0)
+  const availabilitySectionRef = useRef<HTMLDivElement | null>(null)
+  const goldenWindowRef = useRef<HTMLDivElement | null>(null)
 
   // ── Planning location (group-level, separate from profile location) ───────
   const [planningLocation, setPlanningLocation] = useState<PlanningLocation | null>(null)
@@ -149,6 +155,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
   // activeWindow = what is displayed. Set from DB on load, or freshly computed.
   const [activeWindow, setActiveWindow] = useState<GoldenWindow | null>(null)
+  const [findingWindow, setFindingWindow] = useState(false)
 
   // ── Weather ──────────────────────────────────────────────────────────────
   const [weather, setWeather]           = useState<Weather | null>(null)
@@ -200,6 +207,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     let cancelled = false
     setLoading(true)
     setAvailabilityLoaded(false)
+    setAvailabilityError(null)
+    setGoldenWindowError(null)
     setActiveWindow(null)
     setSavedWindow(null)
     setSavedWindowStale(false)
@@ -219,14 +228,18 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
       setSavedWindow(saved.window)
       setSavedWindowStale(saved.isStale)
       setSavedWindowComputedAt(saved.computedAt)
-      if (saved.window) {
-        setActiveWindow(saved.window)
-      }
+      if (saved.window) setActiveWindow(saved.window)
+      if (saved.errorMessage) setGoldenWindowError(saved.errorMessage)
+    }).catch((error) => {
+      if (cancelled) return
+      setAvailabilityError(error instanceof Error ? error.message : 'Could not load Circle availability. Check your connection and retry.')
+    }).finally(() => {
+      if (cancelled) return
       setAvailabilityLoaded(true)
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [groupId, realMode])
+  }, [groupId, realMode, availabilityLoadAttempt])
 
   // ── Auto-reveal when DB window is loaded ─────────────────────────────────
   //
@@ -280,7 +293,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
   // overlay ends the save is already done.
 
   const handleStartSearch = async () => {
-    if (revealPhase === 'searching' || revealPhase === 'closing') return
+    if (findingWindow || revealPhase === 'searching' || revealPhase === 'closing') return
 
     // Reset venues if recalculating.
     setVenuesRevealed(false)
@@ -295,13 +308,25 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     // availability for current Circle members and persists the selected result.
     setRevealMode(prefersReducedMotion ? 'instant' : 'cinematic')
     setRevealPhase(prefersReducedMotion ? 'idle' : 'searching')
+    setFindingWindow(true)
+    requestAnimationFrame(() => goldenWindowRef.current?.scrollIntoView({
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      block: 'start',
+    }))
     try {
       const result = await loadSavedGoldenWindow(groupId)
+      if (result.errorMessage) throw new Error(result.errorMessage)
       const best = result.window
       if (!best) {
         setRevealPhase('idle')
         setActiveWindow(null)
-        toast.error('Add availability from at least two Circle members to find a shared time.')
+        const requirements = checkGoldenWindowRequirements(
+          realMembers.map((member) => ({ id: member.user_id, name: member.display_name })),
+          allAvailability,
+        )
+        toast.error(requirements.canCompute
+          ? 'No shared time overlaps yet. Ask Circle members to adjust their availability and try again.'
+          : requirements.missingExplanation ?? 'Add availability before searching for a Golden Window.')
         return
       }
 
@@ -309,6 +334,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
       setSavedWindow(best)
       setSavedWindowStale(false)
       setSavedWindowComputedAt(result.computedAt)
+      setGoldenWindowError(null)
       if (wasRecalculation && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('nexus:recalibrate-venues'))
       }
@@ -332,9 +358,44 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
     } catch (error) {
       console.error('[golden-window] server calculation failed', error)
       setRevealPhase('idle')
-      toast.error('Could not calculate a Golden Window. Check your connection and try again.')
+      setGoldenWindowError(error instanceof Error ? error.message : 'Could not calculate a Golden Window. Check your connection and retry.')
+      toast.error(error instanceof Error ? error.message : 'Could not calculate a Golden Window. Check your connection and try again.')
+    } finally {
+      setFindingWindow(false)
     }
   }
+
+  const handleAvailabilitySaved = (slots: AvailabilitySlot[]) => {
+    if (!user?.id) return
+    const member = realMembers.find((entry) => entry.user_id === user.id)
+    setAllAvailability((current) => [
+      ...current.filter((row) => row.user_id !== user.id),
+      ...slots.map((slot) => ({
+        ...slot,
+        user_id: user.id,
+        display_name: member?.display_name ?? null,
+        email: null,
+      })),
+    ])
+    // A saved schedule invalidates any previously displayed calculation.
+    setActiveWindow(null)
+    setSavedWindow(null)
+    setSavedWindowStale(false)
+    setSavedWindowComputedAt(null)
+    setRevealPhase('idle')
+    setVenuesRevealed(false)
+    setAvailabilityError(null)
+    setGoldenWindowError(null)
+  }
+
+  useEffect(() => {
+    if (activeSection !== 'availability') return
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    requestAnimationFrame(() => availabilitySectionRef.current?.scrollIntoView({
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      block: 'start',
+    }))
+  }, [activeSection])
 
   // ── Reveal venues ─────────────────────────────────────────────────────────
 
@@ -632,6 +693,22 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
           />
         )}
 
+        {realMode && availabilityError && availabilityLoaded && (
+          <div className="mb-4 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3" role="alert">
+            <p className="text-sm font-medium text-amber-100">Circle availability could not be loaded</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{availabilityError}</p>
+            <Button type="button" onClick={() => setAvailabilityLoadAttempt((attempt) => attempt + 1)} className="mt-2 min-h-11 rounded-lg bg-muted/30 px-3 text-sm text-foreground hover:bg-muted/50">
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {realMode && goldenWindowError && availabilityLoaded && (
+          <p className="mb-4 rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-amber-100" role="status">
+            The Golden Window could not be refreshed. Check your connection and try again.
+          </p>
+        )}
+
         {/* ── Stale banner ── shown when a saved window exists but availability
             changed after it was computed. Never overwrites automatically. */}
         {showStaleBanner && (
@@ -658,7 +735,8 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
             user never hits a dead end.
             Hidden for route activities (jogging etc.) — they go straight to
             the route planner and don't need a Golden Window. */}
-        {realMode && availabilityLoaded && !activeWindow && revealPhase === 'idle' && !isRouteActivity && (
+        {realMode && availabilityLoaded && !availabilityError && !activeWindow && revealPhase === 'idle' && !isRouteActivity && (
+          <div ref={goldenWindowRef} className="scroll-mt-4">
           <GlassCard className="mb-6 p-5">
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -669,15 +747,18 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               <>
                 <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                   {realMembers.length === 1
-                    ? "Nexus will find your best available time — timed to fit your schedule."
-                    : "Nexus will find the best time for your group — even if there\u2019s no perfect overlap, it\u2019ll find the closest option and explain the match."}
+                    ? 'This is a personal Golden Window for your one-member Circle. Invite a friend when you want Nexus to find a shared time.'
+                    : 'Nexus checks availability saved by Circle members and only returns a time when at least two members are genuinely free together.'}
                 </p>
                 <Button
+                  type="button"
                   onClick={handleStartSearch}
+                  disabled={findingWindow}
+                  aria-busy={findingWindow}
                   className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl glow-gold"
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
-                  {realMembers.length === 1 ? 'Find My Golden Window' : 'Find Golden Window'}
+                  {findingWindow ? 'Checking saved availability…' : realMembers.length === 1 ? 'Find My Golden Window' : 'Find Golden Window'}
                 </Button>
               </>
             ) : (
@@ -690,6 +771,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                       : 'Add your availability so Nexus can find the best time for your group.')}
                 </p>
                 <Button
+                  type="button"
                   disabled
                   className="w-full h-11 rounded-xl opacity-40 cursor-not-allowed"
                 >
@@ -697,7 +779,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
                   {realMembers.length === 1 ? 'Find My Golden Window' : 'Find Golden Window'}
                 </Button>
                 <Button
+                  type="button"
                   onClick={() => setActiveSection('availability')}
+                  aria-controls="circle-availability-editor"
                   className="mt-2 w-full h-9 rounded-xl bg-muted/30 hover:bg-muted/50 text-muted-foreground text-xs border-0"
                 >
                   Set your availability
@@ -705,6 +789,7 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
               </>
             )}
           </GlassCard>
+          </div>
         )}
 
         {/* ── Cinematic searching overlay ── */}
@@ -1105,7 +1190,9 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
           ).filter(t => t.show).map(tab => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveSection(tab.id)}
+              aria-pressed={activeSection === tab.id}
               className={cn(
                 'shrink-0 px-3 py-2.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap',
                 activeSection === tab.id
@@ -1120,10 +1207,17 @@ export function GroupDetail({ groupId, onBack, onViewGoldenWindow, onNavigate, o
 
         {/* ── Availability editor (real groups only) ── */}
         {realMode && activeSection === 'availability' && (
-          <AvailabilityEditor
-            groupId={groupId}
-            currentUserId={user?.id ?? null}
-          />
+          <div id="circle-availability-editor" ref={availabilitySectionRef} className="scroll-mt-4">
+            <AvailabilityEditor
+              groupId={groupId}
+              currentUserId={user?.id ?? null}
+              canFindGoldenWindow={Boolean(gwRequirements?.canCompute)}
+              findingGoldenWindow={findingWindow}
+              goldenWindowHelp={gwRequirements?.missingExplanation ?? null}
+              onSaved={handleAvailabilitySaved}
+              onFindGoldenWindow={() => void handleStartSearch()}
+            />
+          </div>
         )}
 
         {/* ── Members list ── */}

@@ -5,6 +5,7 @@ export interface SavedGoldenWindowResult {
   window: GoldenWindow | null
   isStale: boolean
   computedAt: string | null
+  errorMessage: string | null
 }
 
 function normalizeWindowTiming(window: GoldenWindow): GoldenWindow {
@@ -41,10 +42,15 @@ export async function loadSavedGoldenWindow(groupId: string): Promise<SavedGolde
     const result = await nexusApi<{ windows: GoldenWindow[]; computed_at: string; source: string }>(`/v1/circles/${encodeURIComponent(groupId)}/golden-window`)
     const best = result.windows[0] ? normalizeWindowTiming(result.windows[0]) : null
     cacheForCountdown(best)
-    return { window: best, isStale: false, computedAt: result.computed_at }
+    return { window: best, isStale: false, computedAt: result.computed_at, errorMessage: null }
   } catch (error) {
     console.error('[golden-window-persistence] load failed', error)
-    return { window: null, isStale: false, computedAt: null }
+    return {
+      window: null,
+      isStale: false,
+      computedAt: null,
+      errorMessage: error instanceof Error ? error.message : 'Could not load the Golden Window. Check your connection and try again.',
+    }
   }
 }
 

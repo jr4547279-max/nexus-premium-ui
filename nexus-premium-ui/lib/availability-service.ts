@@ -17,19 +17,22 @@ export interface SaveAvailabilityResult {
   errorMessage: string | null
 }
 
+export class AvailabilityServiceError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AvailabilityServiceError'
+  }
+}
+
 type AvailabilityResponse = { slots: GroupAvailabilityRow[] }
 
 export async function getMyAvailability(circleId: string): Promise<AvailabilitySlot[]> {
-  try {
-    const [{ slots }, { user }] = await Promise.all([
-      nexusApi<AvailabilityResponse>(`/v1/circles/${encodeURIComponent(circleId)}/availability`),
-      nexusApi<{ user: { id: string } }>('/v1/auth/me'),
-    ])
-    return slots.filter((slot) => slot.user_id === user.id).map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time }))
-  } catch (error) {
-    console.error('[availability-service] getMyAvailability failed', error)
-    return []
-  }
+  const [{ slots }, { user }] = await Promise.all([
+    nexusApi<AvailabilityResponse>(`/v1/circles/${encodeURIComponent(circleId)}/availability`),
+    nexusApi<{ user: { id: string } }>('/v1/auth/me'),
+  ])
+  if (!user?.id || !Array.isArray(slots)) throw new AvailabilityServiceError('Could not load your saved availability. Please try again.')
+  return slots.filter((slot) => slot.user_id === user.id).map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time }))
 }
 
 export async function saveAvailability(circleId: string, slots: AvailabilitySlot[]): Promise<SaveAvailabilityResult> {
@@ -47,11 +50,7 @@ export async function saveAvailability(circleId: string, slots: AvailabilitySlot
 }
 
 export async function getGroupAvailability(circleId: string): Promise<GroupAvailabilityRow[]> {
-  try {
-    const { slots } = await nexusApi<AvailabilityResponse>(`/v1/circles/${encodeURIComponent(circleId)}/availability`)
-    return slots
-  } catch (error) {
-    console.error('[availability-service] getGroupAvailability failed', error)
-    return []
-  }
+  const { slots } = await nexusApi<AvailabilityResponse>(`/v1/circles/${encodeURIComponent(circleId)}/availability`)
+  if (!Array.isArray(slots)) throw new AvailabilityServiceError('Could not load Circle availability. Please try again.')
+  return slots
 }

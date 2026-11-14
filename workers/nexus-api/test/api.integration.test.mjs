@@ -131,6 +131,18 @@ test('authenticated Circle planning journey uses saved availability and enforces
   assert.equal(aliceProfile.response.status, 200)
   assert.equal(bobProfile.response.status, 200)
 
+  const soloCircle = await request('/v1/circles', { method: 'POST', cookie: alice, body: { name: 'Personal planning', emoji: '🧡' } })
+  assert.equal(soloCircle.response.status, 201)
+  const soloAvailability = await request(`/v1/circles/${soloCircle.data.circle.id}/availability`, {
+    method: 'PUT', cookie: alice,
+    body: { slots: [{ dayOfWeek: 2, startTime: '18:30', endTime: '21:00' }] },
+  })
+  assert.equal(soloAvailability.response.status, 200)
+  const soloWindow = await request(`/v1/circles/${soloCircle.data.circle.id}/golden-window`, { cookie: alice })
+  assert.equal(soloWindow.response.status, 200)
+  assert.equal(soloWindow.data.windows[0]?.available_member_count, 1, 'single-member Circles can find a personal window')
+  assert.equal(soloWindow.data.windows[0]?.total_member_count, 1)
+
   const created = await request('/v1/circles', { method: 'POST', cookie: alice, body: { name: 'Friday plans', emoji: '🧡' } })
   assert.equal(created.response.status, 201)
   const circleId = created.data.circle.id
@@ -146,6 +158,16 @@ test('authenticated Circle planning journey uses saved availability and enforces
   assert.equal(joined.response.status, 200)
 
   const day = (new Date().getDay() + 2) % 7
+  for (const [cookie, startTime, endTime] of [[alice, '17:00', '18:00'], [bob, '20:00', '21:00']]) {
+    const saved = await request(`/v1/circles/${circleId}/availability`, {
+      method: 'PUT', cookie,
+      body: { slots: [{ dayOfWeek: day, startTime, endTime }] },
+    })
+    assert.equal(saved.response.status, 200)
+  }
+  const noOverlapWindow = await request(`/v1/circles/${circleId}/golden-window`, { cookie: alice })
+  assert.deepEqual(noOverlapWindow.data.windows, [], 'the API does not invent a compromise time when members are not simultaneously free')
+
   for (const cookie of [alice, bob]) {
     const saved = await request(`/v1/circles/${circleId}/availability`, {
       method: 'PUT', cookie,
@@ -153,6 +175,27 @@ test('authenticated Circle planning journey uses saved availability and enforces
     })
     assert.equal(saved.response.status, 200)
   }
+  const persistedAvailability = await request(`/v1/circles/${circleId}/availability`, { cookie: alice })
+  assert.equal(persistedAvailability.response.status, 200)
+  assert.deepEqual(new Set(persistedAvailability.data.slots.map((slot) => slot.user_id)), new Set([
+    sqlite.prepare('SELECT id FROM users WHERE email=?').get('alice@nexus.test').id,
+    sqlite.prepare('SELECT id FROM users WHERE email=?').get('bob@nexus.test').id,
+  ]), 'availability is read back from the D1-backed store for both Circle members')
+  assert.equal(sqlite.prepare('SELECT count(*) AS count FROM availability WHERE circle_id=?').get(circleId).count, 2)
+
+  // Editing availability replaces only the caller's rows and is immediately
+  // visible to the server-side calculation without changing another member.
+  const aliceId = sqlite.prepare('SELECT id FROM users WHERE email=?').get('alice@nexus.test').id
+  const editedAliceAvailability = await request(`/v1/circles/${circleId}/availability`, {
+    method: 'PUT', cookie: alice,
+    body: { slots: [{ dayOfWeek: day, startTime: '19:00', endTime: '21:30' }, { dayOfWeek: day, startTime: '22:00', endTime: '23:00' }] },
+  })
+  assert.equal(editedAliceAvailability.response.status, 200)
+  const editedRows = await request(`/v1/circles/${circleId}/availability`, { cookie: alice })
+  assert.deepEqual(editedRows.data.slots.filter((slot) => slot.user_id === aliceId).map((slot) => [slot.start_time, slot.end_time]), [
+    ['19:00', '21:30'], ['22:00', '23:00'],
+  ])
+  assert.equal(editedRows.data.slots.filter((slot) => slot.user_id !== aliceId).length, 1, 'editing Alice does not overwrite Bob')
   const windowResult = await request(`/v1/circles/${circleId}/golden-window`, { cookie: alice })
   assert.equal(windowResult.response.status, 200)
   assert.equal(windowResult.data.source, 'member-submitted availability')
@@ -202,6 +245,11 @@ test('authenticated Circle planning journey uses saved availability and enforces
   assert.equal((await request(`/v1/circles/${circleId}/messages`, { cookie: alice })).data.messages.at(-1).body, 'See you there!')
 
   const charlie = await signIn('charlie@nexus.test')
+  assert.equal((await request(`/v1/circles/${circleId}/availability`, { cookie: charlie })).response.status, 404, 'non-members cannot read private availability')
+  assert.equal((await request(`/v1/circles/${circleId}/availability`, {
+    method: 'PUT', cookie: charlie,
+    body: { slots: [{ dayOfWeek: day, startTime: '18:00', endTime: '20:00' }] },
+  })).response.status, 404, 'non-members cannot write availability')
   const forbidden = await request(`/v1/circles/${circleId}/messages`, { cookie: charlie })
   assert.equal(forbidden.response.status, 404, 'non-members cannot read private Circle chat')
 })

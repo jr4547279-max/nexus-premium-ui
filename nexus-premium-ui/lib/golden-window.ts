@@ -60,6 +60,8 @@ export interface ComputeOptions {
   minDurationMinutes?: number
   /** Minimum number of members that must overlap. Defaults to 2. */
   minMembers?: number
+  /** Only return real shared intervals. When false, do not synthesize compromise times. */
+  allowCompromise?: boolean
 }
 
 /** Minimum data required to attempt a Golden Window computation. */
@@ -267,6 +269,7 @@ export function computeGoldenWindows(
   // For a single-member group the only requirement is that the member is available.
   // For 2+ members we require at least 2 to overlap (the classic group behaviour).
   const minMembers  = options.minMembers ?? (total === 1 ? 1 : 2)
+  const allowCompromise = options.allowCompromise ?? true
 
   const memberIdSet = new Set(members.map((m) => m.id))
 
@@ -354,7 +357,7 @@ export function computeGoldenWindows(
 
     // If this day had 2+ members' availability but zero qualifying direct
     // overlaps, generate a compromise window so the day isn't left blank.
-    if (!foundDirectOverlap) {
+    if (allowCompromise && !foundDirectOverlap) {
       const uniqueMembers = new Set(dayRows.map((r) => r.user_id)).size
       if (uniqueMembers >= 2) {
         const compromise = buildCompromiseWindow(day, dayRows, total, todayDow)
