@@ -1,4 +1,5 @@
-const accountId = '4d654fd2fae39e00cc7e5a534cf6d741';
+const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+if (!accountId || !/^[0-9a-f]{32}$/i.test(accountId)) throw new Error('Missing or invalid CLOUDFLARE_ACCOUNT_ID repository variable.');
 const token = process.env.CLOUDFLARE_API_TOKEN;
 const missing = [];
 
@@ -15,7 +16,7 @@ if (isResendTestSender) {
   missing.push('Set NEXUS_EMAIL_SENDER_VERIFIED=true only after the sender domain is verified at the email provider.');
 }
 if (process.env.NEXUS_RESEND_OVERAGES_DISABLED !== 'true') missing.push('Disable Resend paid overages and set NEXUS_RESEND_OVERAGES_DISABLED=true.');
-if (process.env.NEXUS_BILLING_READ_CONFIRMED !== 'true') missing.push('Add Billing Read and set NEXUS_BILLING_READ_CONFIRMED=true after confirming the scope in Cloudflare.');
+// Manual Free-plan and usage confirmations are required below; Billing Read is optional.
 if (process.env.NEXUS_FREE_PLAN_CONFIRMED !== 'true') missing.push('Reconfirm the account is on Workers Free in Cloudflare and set NEXUS_FREE_PLAN_CONFIRMED=true.');
 if (process.env.NEXUS_RESOURCE_USAGE_REVIEWED !== 'true') missing.push('Review current Workers/D1/Durable Objects usage in the Cloudflare dashboard (or reconnect with Account Analytics Read) and set NEXUS_RESOURCE_USAGE_REVIEWED=true.');
 
@@ -50,11 +51,10 @@ if (token) {
   if (verify?.result?.status && verify.result.status !== 'active') missing.push('The Cloudflare API token is not active.');
   if (verify?.result?.expires_on && Date.parse(verify.result.expires_on) <= Date.now()) missing.push('The Cloudflare API token has expired.');
 
-  const [workers, databases, durableObjects, billing] = await Promise.all([
+  const [workers, databases, durableObjects] = await Promise.all([
     request(`/accounts/${accountId}/workers/scripts?page=1&per_page=100`, 'Workers inventory read'),
     request(`/accounts/${accountId}/d1/database?page=1&per_page=100`, 'D1 inventory read'),
     request(`/accounts/${accountId}/workers/durable_objects/namespaces?page=1&per_page=100`, 'Durable Objects inventory read'),
-    request(`/accounts/${accountId}/billing/usage`, 'Billing usage read'),
   ]);
 
   const workerList = Array.isArray(workers?.result) ? workers.result : [];
@@ -78,7 +78,7 @@ if (token) {
   if (newWorkerCount === 0 && process.env.NEXUS_WORKERS_EDIT_CONFIRMED !== 'true') {
     missing.push('Confirm this token has Editor/Scripts Edit access to both exact Nexus Workers.');
   }
-  if (billing) console.log('PASS Cloudflare billing usage endpoint is readable.');
+  console.log('INFO Billing API access is not required; Free-plan and usage were manually confirmed.');
   if (workers) console.log(`PASS Workers inventory readable (${workerList.length} scripts; no names outside Nexus targets are printed).`);
   if (databases) console.log(`PASS D1 inventory readable (${dbList.length} databases; only the Nexus target is inspected).`);
   if (durableObjects) console.log(`PASS Durable Objects inventory readable (${durableObjectList.length} namespaces; names are not printed).`);
