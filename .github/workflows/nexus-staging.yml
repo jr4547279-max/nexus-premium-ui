@@ -75,6 +75,7 @@ jobs:
         id: preflight
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           NEXUS_RESEND_API_KEY: ${{ secrets.NEXUS_RESEND_API_KEY }}
           NEXUS_EMAIL_FROM: ${{ vars.NEXUS_EMAIL_FROM }}
           NEXUS_EMAIL_SENDER_VERIFIED: ${{ vars.NEXUS_EMAIL_SENDER_VERIFIED }}
