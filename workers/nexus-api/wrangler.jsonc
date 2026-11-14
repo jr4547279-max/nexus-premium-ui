@@ -2,6 +2,7 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration/",
   "name": "nexus-api-dev",
   "main": "src/index.ts",
+  "workers_dev": false,
   "compatibility_date": "2026-11-13",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
@@ -12,7 +13,8 @@
       "migrations_dir": "migrations"
     }
   ],
-  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "nexus-uploads-dev" }],
+  // Staging intentionally has no R2 binding. Add a Nexus-only bucket and set
+  // ALLOW_UPLOADS=true only after uploads are explicitly enabled later.
   "durable_objects": {
     "bindings": [
       { "name": "CIRCLE_ROOM", "class_name": "CircleRoom" },
@@ -21,8 +23,11 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CircleRoom"] }],
   "vars": {
-    "APP_ORIGIN": "http://localhost:3000",
-    "AUTH_MODE": "development",
-    "ALLOW_DEV_AUTH": "false"
+    "APP_ORIGIN": "https://nexus-web-dev.workers.dev",
+    "PUBLIC_APP_URL": "https://nexus-web-dev.workers.dev",
+    "AUTH_MODE": "production",
+    "ALLOW_DEV_AUTH": "false",
+    "ALLOW_UPLOADS": "false",
+    "EMAIL_API_URL": "https://api.resend.com/emails"
   }
 }

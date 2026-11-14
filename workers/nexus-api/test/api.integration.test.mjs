@@ -44,6 +44,7 @@ function testEnvironment() {
   const objects = new Map()
   return {
     sqlite,
+    objects,
     env: {
       DB: localD1(sqlite),
       UPLOADS: {
@@ -60,6 +61,7 @@ function testEnvironment() {
       PUBLIC_APP_URL: 'https://app.nexus.test',
       AUTH_MODE: 'development',
       ALLOW_DEV_AUTH: 'false',
+      ALLOW_UPLOADS: 'false',
       EMAIL_FROM: 'Nexus <hello@nexus.test>',
       EMAIL_API_URL: 'https://mailer.nexus.test/send',
       EMAIL_API_TOKEN: 'test-only-token',
@@ -68,7 +70,7 @@ function testEnvironment() {
 }
 
 test('authenticated Circle planning journey uses saved availability and enforces membership', async (t) => {
-  const { env, sqlite } = testEnvironment()
+  const { env, sqlite, objects } = testEnvironment()
   t.after(() => sqlite.close())
   const realFetch = globalThis.fetch
   const sentMail = []
@@ -108,6 +110,22 @@ test('authenticated Circle planning journey uses saved availability and enforces
 
   const alice = await signIn('alice@nexus.test')
   const bob = await signIn('bob@nexus.test')
+  const uploadBody = new FormData()
+  uploadBody.set('kind', 'avatar')
+  uploadBody.set('file', new File([new Uint8Array([0xff, 0xd8, 0xff])], 'avatar.jpg', { type: 'image/jpeg' }))
+  const blockedUpload = await worker.fetch(new Request('https://api.nexus.test/v1/uploads', {
+    method: 'POST', headers: { origin: env.APP_ORIGIN, cookie: alice }, body: uploadBody,
+  }), env)
+  assert.equal(blockedUpload.status, 503)
+  assert.equal((await blockedUpload.json()).error.code, 'uploads_disabled')
+  assert.equal(objects.size, 0, 'staging rejects upload before writing to R2')
+  const uploadBinding = env.UPLOADS
+  delete env.UPLOADS
+  const blockedWithoutR2 = await worker.fetch(new Request('https://api.nexus.test/v1/uploads', {
+    method: 'POST', headers: { origin: env.APP_ORIGIN, cookie: alice }, body: uploadBody,
+  }), env)
+  assert.equal(blockedWithoutR2.status, 503)
+  env.UPLOADS = uploadBinding
   const aliceProfile = await request('/v1/profile', { method: 'PATCH', cookie: alice, body: { display_name: 'Alice', username: 'alice' } })
   const bobProfile = await request('/v1/profile', { method: 'PATCH', cookie: bob, body: { display_name: 'Bob', username: 'bob' } })
   assert.equal(aliceProfile.response.status, 200)

@@ -8,7 +8,11 @@
     "prebuild": "node ./scripts/copy-maplibre-worker.mjs",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "dev:vinext": "vite dev --port 3001",
+    "build:vinext": "vite build",
+    "start:vinext": "vite preview",
+    "deploy:vinext": "vinext-cloudflare deploy"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -40,6 +44,7 @@
     "@radix-ui/react-toggle-group": "1.1.11",
     "@radix-ui/react-tooltip": "1.2.8",
     "@types/leaflet": "^1.9.22",
+    "@vinext/cloudflare": "^1.3.4",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -50,26 +55,31 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.564.0",
     "maplibre-gl": "^6.3.0",
-    "next": "16.2.6",
+    "next": "16.4.6",
     "next-themes": "^0.4.6",
-    "react": "^19.1.0",
+    "react": "^19.3.1",
     "react-day-picker": "9.13.2",
-    "react-dom": "^19.1.0",
+    "react-dom": "^19.3.1",
     "react-hook-form": "^7.54.1",
     "react-resizable-panels": "^2.1.7",
+    "react-server-dom-webpack": "19.3.1",
     "recharts": "2.15.0",
     "sonner": "^1.7.1",
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
+    "vinext": "1.4.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "1.69.1",
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.3.0",
+    "@vitejs/plugin-rsc": "0.5.39",
     "eslint": "^10.7.0",
     "eslint-config-next": "^16.2.11",
     "eslint-plugin-react": "^7.37.5",
@@ -79,6 +89,9 @@
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3",
-    "typescript-eslint": "^8.65.0"
-  }
+    "typescript-eslint": "^8.65.0",
+    "vite": "8.3.0",
+    "wrangler": "4.161.0"
+  },
+  "type": "module"
 }

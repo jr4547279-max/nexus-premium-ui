@@ -3,7 +3,10 @@ APP_ORIGIN=http://localhost:3000
 PUBLIC_APP_URL=http://localhost:3000
 AUTH_MODE=development
 ALLOW_DEV_AUTH=false
-EMAIL_FROM="Nexus <hello@example.test>"
-# Configure a provider only in a local secret store or after approved infrastructure setup.
-EMAIL_API_URL=
+# Uploads remain disabled unless both the explicit flag and a private R2 binding exist.
+ALLOW_UPLOADS=false
+# Resend is the selected free-tier transactional provider; use a Nexus-only sending key.
+EMAIL_FROM="Nexus <hello@your-verified-domain.example>"
+EMAIL_API_URL=https://api.resend.com/emails
+# Store EMAIL_API_TOKEN in .dev.vars locally or a secret manager. Never commit its value.
 EMAIL_API_TOKEN=

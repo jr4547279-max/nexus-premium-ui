@@ -18,8 +18,8 @@ import { hasValidProviderLocation, venueDistanceKm } from '@/lib/venue-location'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export const FALLBACK_LAT = 50.7686
-export const FALLBACK_LNG = 0.2906
+const FALLBACK_LAT = 50.7686
+const FALLBACK_LNG = 0.2906
 
 const ACTIVITY_SEARCH: Record<string, { query: string; type?: string }> = {
   'gym': { query: 'gyms', type: 'gym' },

@@ -4,9 +4,9 @@ Isolated backend package for the recovered Nexus app. It is configured for local
 
 ## Components
 
-- Workers REST API: email-link authentication, profiles, friends, Circles, invitations, availability, Golden Window results, saved venues, plans, RSVPs, venue votes, chat, notifications, live events, presence and private uploads.
+- Workers REST API: email-link authentication, profiles, friends, Circles, invitations, availability, Golden Window results, saved venues, plans, RSVPs, venue votes, chat, notifications, live events, presence and private uploads. Staging disables the direct `workers.dev` endpoint; the frontend Worker forwards `/v1/*` and WebSocket upgrades over a service binding so session cookies stay same-origin.
 - D1: persistent records and explicit membership checks in the Worker handlers.
-- R2: authenticated private image storage for avatars and Circle chat attachments.
+- R2: private upload implementation is retained in source, but has no staging binding; upload routes return `503 uploads_disabled` unless a binding and explicit enable flag are both configured.
 - Durable Objects: Circle- and event-scoped WebSocket fanout. D1 remains the source of truth.
 - Golden Window: imports the existing pure TypeScript calculation engine in `nexus-premium-ui/lib/golden-window.ts`.
 
@@ -46,4 +46,4 @@ The harness invokes the real Worker request handlers with local SQLite and in-me
 
 ## Deployment prerequisites
 
-`wrangler.jsonc` contains local-only placeholder D1 metadata and the Nexus-only bucket name `nexus-uploads-dev`. Before a future deployment, create and approve Nexus-specific Worker, D1, R2 and Durable Object bindings; configure a production app origin and a verified email provider; then replace the local placeholder IDs. No remote resource is provisioned by this repository state.
+`wrangler.jsonc` is configured for the Nexus-only staging names, D1 and SQLite-backed Durable Objects. The frontend routes `/v1/*` and WebSocket traffic through its service binding, keeping Lax session cookies same-origin; the API's public `workers.dev` endpoint is disabled. The API intentionally has no R2 binding, keeps uploads disabled, uses production auth mode and contains a placeholder D1 ID that prevents accidental deployment. Before deployment, verify Cloudflare permissions and billing visibility, create the Nexus D1 database and replace its ID, configure `EMAIL_FROM` with a sender on a verified Nexus domain, and add a Nexus-only Resend sending key as the `EMAIL_API_TOKEN` Worker secret. No remote resource is provisioned by this repository state. Historical NumerVault resources and credentials are not referenced.

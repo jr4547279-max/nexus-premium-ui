@@ -2,15 +2,21 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const appDir = path.dirname(fileURLToPath(import.meta.url))
 
 const nextConfig = {
+  // Preserve the existing standalone output for non-Cloudflare hosting tools.
   output: 'standalone',
+
+  // The app's pnpm symlinks resolve from the workspace root. Keep Turbopack's
+  // package resolution inside that workspace when the app is built from its
+  // nested directory.
+  turbopack: { root: path.join(appDir, '..') },
 
   // The Next.js app lives inside a pnpm workspace. Its node_modules are
   // symlinked through the workspace root, so standalone tracing must include
   // the repository root or the generated server can miss `next` at runtime.
-  outputFileTracingRoot: path.join(__dirname, '..'),
+  outputFileTracingRoot: path.join(appDir, '..'),
 
   images: {
     unoptimized: true,

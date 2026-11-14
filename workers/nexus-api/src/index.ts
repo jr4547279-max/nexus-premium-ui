@@ -2,13 +2,14 @@ import { computeGoldenWindows, type GoldenWindowAvailabilityRow, type GoldenWind
 
 interface Env {
   DB: D1Database;
-  UPLOADS: R2Bucket;
+  UPLOADS?: R2Bucket;
   CIRCLE_ROOM: DurableObjectNamespace;
   LIVE_EVENT_ROOM: DurableObjectNamespace;
   APP_ORIGIN: string;
   PUBLIC_APP_URL?: string;
   AUTH_MODE?: string;
   ALLOW_DEV_AUTH?: string;
+  ALLOW_UPLOADS?: string;
   EMAIL_FROM?: string;
   EMAIL_API_URL?: string;
   EMAIL_API_TOKEN?: string;
@@ -929,6 +930,9 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
   }
 
   if (path === "/v1/uploads" && request.method === "POST") {
+    // Staging deliberately keeps R2 writes disabled. Reject before parsing a
+    // multipart body so no object or metadata row can be created accidentally.
+    if (env.ALLOW_UPLOADS !== "true" || !env.UPLOADS) return fail(503, "uploads_disabled", "File uploads are not available in this staging environment.");
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File) || file.size < 1 || file.size > 10 * 1024 * 1024 || !["image/jpeg","image/png","image/webp"].includes(file.type)) return fail(400, "invalid_upload", "Upload a JPG, PNG or WebP image up to 10 MB.");
@@ -946,7 +950,7 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
   if(avatarDelete && request.method==="DELETE"){
     if(avatarDelete[1]!==user.id) return fail(403,"own_avatar_only","You can only remove your own avatar.");
     const row=await env.DB.prepare("SELECT avatar_key FROM profiles WHERE user_id=?1").bind(user.id).first<{avatar_key:string|null}>();
-    if(row?.avatar_key){await env.UPLOADS.delete(row.avatar_key);await env.DB.prepare("DELETE FROM upload_metadata WHERE object_key=?1 AND owner_id=?2").bind(row.avatar_key,user.id).run();}
+    if(row?.avatar_key){if(env.UPLOADS) await env.UPLOADS.delete(row.avatar_key);await env.DB.prepare("DELETE FROM upload_metadata WHERE object_key=?1 AND owner_id=?2").bind(row.avatar_key,user.id).run();}
     await env.DB.prepare("UPDATE profiles SET avatar_key=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id=?1").bind(user.id).run();
     return {body:{ok:true}};
   }
@@ -958,7 +962,7 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
     if(!profile?.avatar_key) return fail(404,"avatar_not_found","Avatar not found.");
     const canSee=targetId===user.id || profile.visibility==="public" || !!await env.DB.prepare("SELECT 1 FROM friend_requests WHERE status='accepted' AND ((requester_id=?1 AND recipient_id=?2) OR (requester_id=?2 AND recipient_id=?1))").bind(user.id,targetId).first() || !!await env.DB.prepare("SELECT 1 FROM circle_members a JOIN circle_members b ON b.circle_id=a.circle_id WHERE a.user_id=?1 AND b.user_id=?2").bind(user.id,targetId).first();
     if(!canSee) return fail(404,"avatar_not_found","Avatar not found.");
-    const object=await env.UPLOADS.get(profile.avatar_key);
+    const object=await env.UPLOADS?.get(profile.avatar_key);
     return object?new Response(object.body,{headers:{"content-type":object.httpMetadata?.contentType??"image/jpeg","cache-control":"private,max-age=300","x-content-type-options":"nosniff"}}):fail(404,"avatar_not_found","Avatar not found.");
   }
 
@@ -967,7 +971,7 @@ async function handle(request: Request, env: Env): Promise<ApiResult | Response>
     const key = decodeURIComponent(uploadMatch[1]!);
     const metadata = await env.DB.prepare("SELECT circle_id,content_type FROM upload_metadata WHERE object_key=?1").bind(key).first<{ circle_id: string | null; content_type: string }>();
     if (!metadata?.circle_id || !await memberOf(env, metadata.circle_id, user.id)) return fail(404, "upload_not_found", "Image not found.");
-    const object = await env.UPLOADS.get(key);
+    const object = await env.UPLOADS?.get(key);
     if (!object) return fail(404, "upload_not_found", "Image not found.");
     return new Response(object.body, { headers: { "content-type": metadata.content_type, "cache-control": "private, max-age=300", "x-content-type-options": "nosniff" } });
   }
@@ -1021,6 +1025,3 @@ export class CircleRoom {
       return new Response(null, { status: 204 });
     }
     return new Response("Not found", { status: 404 });
-  }
-
-}

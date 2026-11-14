@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nexus-web-dev",
+  "compatibility_date": "2026-11-14",
+  "main": "./cloudflare-entry.ts",
+  "services": [{ "binding": "NEXUS_API", "service": "nexus-api-dev" }],
+  "assets": {
+    "directory": "dist/client",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/*",
+      "!/_next/static/*",
+      "!/*/_next/static/*"
+    ]
+  }
+}
