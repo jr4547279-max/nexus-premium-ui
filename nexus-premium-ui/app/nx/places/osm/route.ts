@@ -54,7 +54,8 @@ export async function GET(req: Request) {
 
   try {
     const provider = new OpenStreetMapVenueProvider(radius)
-    const venues = await provider.getVenues(activityId, { lat, lng }, meeting)
+    const result = await provider.searchVenues(activityId, { lat, lng }, meeting)
+    const venues = result.venues
 
     const payload = {
       venues: venues.slice(0, limit).map((venue) => ({
@@ -76,19 +77,33 @@ export async function GET(req: Request) {
         score: Math.max(0, 100 - venue.distanceFromCentre * 20),
       })),
       vibe,
-      cached: false,
+      cached: result.cached,
+      stale: result.stale,
       provider: 'OpenStreetMap',
     }
 
     return NextResponse.json(payload, {
-      headers: { 'Cache-Control': 'private, max-age=300' },
+      headers: { 'Cache-Control': result.stale ? 'private, max-age=30' : 'private, max-age=300' },
     })
   } catch (error) {
+    const typedError = error as Error & { category?: string; status?: number | null; retryAfterSeconds?: number }
     const message = error instanceof Error ? error.message : 'OpenStreetMap venue search failed.'
-    console.error('[api/places/osm] venue search failed', message)
+    console.error('[api/places/osm] provider unavailable', {
+      category: typedError.category ?? 'provider_unavailable',
+      status: typedError.status ?? null,
+    })
+    const headers = new Headers({ 'Cache-Control': 'no-store' })
+    if (typedError.retryAfterSeconds) headers.set('Retry-After', String(typedError.retryAfterSeconds))
     return NextResponse.json(
-      { venues: [], vibe, cached: false, error: message },
-      { status: 502 },
+      {
+        venues: [],
+        vibe,
+        cached: false,
+        provider: 'OpenStreetMap',
+        error: `${message} No venue results were confirmed.`,
+        error_code: typedError.category ?? 'provider_unavailable',
+      },
+      { status: 502, headers },
     )
   }
 }
