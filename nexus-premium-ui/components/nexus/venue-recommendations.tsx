@@ -11,10 +11,12 @@ import {
   computeMidpoint,
   buildDirectionsUrl,
   VIBE_LABEL,
+  venueSelectionKey,
   type Vibe,
   type Venue,
 } from '@/lib/venue-service'
 import { VenueDetailSheet } from './venue-detail-sheet'
+import { VenuePhoto } from './venue-photo'
 import type { Weather } from '@/lib/weather-service'
 import { confirmNexusPlan, createGoldenWindowPlan, recordVenueVote } from '@/lib/plan-service'
 import {
@@ -337,7 +339,7 @@ export function VenueRecommendations({
         </div>
       )}
 
-      {!midpoint.fallback && <VenuesMap center={{ lat: midpoint.lat, lng: midpoint.lng }} venues={mapVenues} selectedId={selectedMapVenueId} onSelect={(venue) => { setSelectedMapVenueId(venue.id ?? `${venue.name}|${venue.lat}|${venue.lng}`); setSelectedVenue(venue) }} />}
+      {!midpoint.fallback && <VenuesMap center={{ lat: midpoint.lat, lng: midpoint.lng }} venues={mapVenues} selectedId={selectedMapVenueId} onSelect={(venue) => setSelectedMapVenueId(venueSelectionKey(venue))} onOpenDetails={setSelectedVenue} />}
 
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5">
         {VIBES.map((v) => {
@@ -363,7 +365,7 @@ export function VenueRecommendations({
         <GlassCard className="p-4"><p className="text-xs text-muted-foreground">No venues found for this vibe in the search area.</p></GlassCard>
       ) : (
         <div className="space-y-2.5">
-          {listResults.map((result, idx) => <VenueCard key={`${result.venue.name}-${result.venue.address ?? idx}`} result={result} isTopPick={idx === 0} vote={votes[result.venue.name] ?? 0} onVote={(dir) => void handleVenueVote(result.venue, dir)} onOpen={() => { setSelectedMapVenueId(result.venue.id ?? `${result.venue.name}|${result.venue.lat}|${result.venue.lng}`); setSelectedVenue(result.venue) }} />)}
+          {listResults.map((result, idx) => <VenueCard key={`${result.venue.name}-${result.venue.address ?? idx}`} result={result} isTopPick={idx === 0} selected={selectedMapVenueId === venueSelectionKey(result.venue)} vote={votes[result.venue.name] ?? 0} onVote={(dir) => void handleVenueVote(result.venue, dir)} onOpen={() => { setSelectedMapVenueId(venueSelectionKey(result.venue)); setSelectedVenue(result.venue) }} />)}
         </div>
       )}
 
@@ -405,7 +407,7 @@ export function VenueRecommendations({
   )
 }
 
-function VenueCard({ result, isTopPick, isAlternative, vote, onVote, onOpen }: { result: ScoredVenueResult; isTopPick: boolean; isAlternative?: boolean; vote: 1 | -1 | 0; onVote: (dir: 1 | -1) => void; onOpen: () => void }) {
+function VenueCard({ result, isTopPick, isAlternative, selected, vote, onVote, onOpen }: { result: ScoredVenueResult; isTopPick: boolean; isAlternative?: boolean; selected?: boolean; vote: 1 | -1 | 0; onVote: (dir: 1 | -1) => void; onOpen: () => void }) {
   const { venue, explanation } = result
   const isOpen = venue.open_now === true
   const distance = venue.distance_km != null ? venue.distance_km < 1 ? `${Math.round(venue.distance_km * 1000)}m` : `${venue.distance_km.toFixed(1)}km` : null
@@ -416,22 +418,20 @@ function VenueCard({ result, isTopPick, isAlternative, vote, onVote, onOpen }: {
   const primaryExplanation = explanation[0] ?? null
 
   return (
-    <div className={cn('glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer transition-colors select-none touch-manipulation', isAlternative ? 'hover:border-blue-400/30 border-blue-400/10' : 'hover:border-amber-400/30')} onClick={handleOpen} onKeyDown={handleKey} role="button" tabIndex={0} data-testid="venue-card" aria-label={`Open ${venue.name} details`}>
+    <div className={cn('glass-card rounded-xl p-3 text-left w-full relative overflow-hidden cursor-pointer transition-colors select-none touch-manipulation', selected && 'border-primary/50 shadow-[0_0_18px_rgba(229,98,48,.12)]', isAlternative ? 'hover:border-blue-400/30 border-blue-400/10' : 'hover:border-amber-400/30')} onClick={handleOpen} onKeyDown={handleKey} role="button" tabIndex={0} data-testid="venue-card" aria-label={`Open ${venue.name} details`} aria-pressed={selected}>
       {isTopPick && <div className="absolute top-0 left-0 z-10 px-2 py-1 rounded-br-lg bg-rose-500/90 text-white text-[9px] font-semibold tracking-wide flex items-center gap-1 shadow-lg"><Sparkles className="w-3 h-3" aria-hidden="true" />TOP PICK</div>}
       {isAlternative && <div className="absolute top-0 left-0 z-10 px-2 py-1 rounded-br-lg bg-blue-500/80 text-white text-[9px] font-semibold tracking-wide">INDOOR ALT</div>}
       <div className="flex gap-3">
-        <div className="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-muted/40">
-          {venue.photo_url ? <img src={venue.photo_url} alt={venue.name} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { ;(e.currentTarget as HTMLImageElement).style.display = 'none' }} /> : <div className="w-full h-full flex items-center justify-center"><MapPin className="w-6 h-6 text-muted-foreground/40" aria-hidden="true" /></div>}
-        </div>
+        <VenuePhoto venue={venue} className="h-[4.5rem] w-[4.5rem] shrink-0 rounded-lg" />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2"><h3 className="font-medium text-sm truncate flex-1">{venue.name}</h3><div className="flex shrink-0 flex-wrap justify-end gap-1">{venue.open_at_meeting_known && <span className={cn('rounded-full border px-2 py-0.5 text-[9px]', venue.open_at_meeting ? 'border-emerald-400/40 text-emerald-300' : 'border-rose-400/40 text-rose-300')}>{venue.open_at_meeting ? 'OPEN AT PLAN TIME' : 'CLOSED AT PLAN TIME'}</span>}{isOpen && <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-400/50 text-emerald-400">OPEN NOW</span>}</div></div>
           <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{[venue.category, distance].filter(Boolean).join(' · ') || '—'}</p>
           {primaryExplanation && <p className="text-[11px] text-muted-foreground/90 mt-1 line-clamp-2 leading-relaxed">{primaryExplanation}</p>}
-          <div className="flex items-center justify-between mt-1.5">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
             {venue.rating != null ? <span className="text-[11px] text-amber-400 flex items-center gap-0.5" aria-label={`${venue.rating.toFixed(1)} out of 5 stars`}><Star className="w-3 h-3 fill-current" aria-hidden="true" />{venue.rating.toFixed(1)}</span> : <span />}
-            <div className="flex items-center gap-1">
-              {venue.maps_url && <a href={venue.maps_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex min-h-10 items-center gap-1 px-2 py-1 rounded-md border border-border/40 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-all" aria-label={`Open ${venue.name} on OpenStreetMap`}><ExternalLink className="w-3 h-3" aria-hidden="true" />Map</a>}
-              {directionsUrl && <a href={directionsUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex min-h-10 items-center gap-1 px-2 py-1 rounded-md border border-primary/30 text-[11px] text-primary" aria-label={`Get directions to ${venue.name}`}><Navigation className="w-3 h-3" aria-hidden="true" />Go</a>}
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              {venue.maps_url && <a href={venue.maps_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex min-h-11 items-center gap-1 px-2 py-1 rounded-md border border-border/40 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-all" aria-label={`Open ${venue.name} on OpenStreetMap`}><ExternalLink className="w-3 h-3" aria-hidden="true" />Map</a>}
+              {directionsUrl && <a href={directionsUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex min-h-11 items-center gap-1 px-2 py-1 rounded-md border border-primary/30 text-[11px] text-primary" aria-label={`Get directions to ${venue.name}`}><Navigation className="w-3 h-3" aria-hidden="true" />Go</a>}
               <VoteButton active={vote === 1} onClick={(e) => { e.stopPropagation(); onVote(1) }} icon="up" venueName={venue.name} />
               <VoteButton active={vote === -1} onClick={(e) => { e.stopPropagation(); onVote(-1) }} icon="down" venueName={venue.name} />
             </div>
@@ -446,5 +446,5 @@ function VoteButton({ active, icon, venueName, onClick }: { active: boolean; ico
   const Icon = icon === 'up' ? ThumbsUp : ThumbsDown
   const activeColor = icon === 'up' ? 'border-emerald-400/60 text-emerald-400' : 'border-rose-400/60 text-rose-400'
   const label = icon === 'up' ? `Vote up ${venueName}` : `Vote down ${venueName}`
-  return <button type="button" onClick={onClick} aria-label={label} aria-pressed={active} className={cn('flex items-center justify-center p-1.5 rounded-md border transition-all', active ? activeColor : 'border-border/40 text-muted-foreground hover:text-foreground')}><Icon className="w-3 h-3" aria-hidden="true" /></button>
+  return <button type="button" onClick={onClick} aria-label={label} aria-pressed={active} className={cn('flex min-h-11 min-w-11 items-center justify-center rounded-md border p-1.5 transition-all', active ? activeColor : 'border-border/40 text-muted-foreground hover:text-foreground')}><Icon className="w-3.5 h-3.5" aria-hidden="true" /></button>
 }

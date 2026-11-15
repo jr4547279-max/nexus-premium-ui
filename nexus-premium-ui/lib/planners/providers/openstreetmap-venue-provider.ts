@@ -3,6 +3,7 @@ import { getOsmTagsForActivity } from './venue-provider'
 import { hasValidProviderLocation } from '../../venue-location'
 import { buildOverpassQuery, fetchOverpassElements, getOverpassEndpoints, isValidSearchLocation, normalizeOverpassElements } from './overpass-client.mjs'
 import { evaluateOsmOpeningHours } from './osm-opening-hours.mjs'
+import { buildVenuePhotoLookupUrl } from '../../commons-photo.mjs'
 
 /** OSM-only adapter implementing the existing provider-neutral planner contract. */
 export class OpenStreetMapVenueProvider implements VenueProvider {
@@ -56,6 +57,7 @@ export class OpenStreetMapVenueProvider implements VenueProvider {
           tags: [...new Set([...category, ...tags])],
           distanceFromCentre: venue.distanceKm,
           mapsUrl: venue.mapUrl,
+          photoLookupUrl: buildVenuePhotoLookupUrl(venue.tags),
           address: venue.address,
           website: venue.website,
           isRealData: true,

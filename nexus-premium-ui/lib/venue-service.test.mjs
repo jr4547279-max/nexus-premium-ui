@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildDirectionsUrl, computeMidpoint, fetchVenues } from './venue-service.ts'
+import { buildDirectionsUrl, buildVenueSearchUrl, computeMidpoint, fetchVenues, VENUE_CACHE_CONTROL, venueIsSelected, venueResponseCacheControl, venueSelectionKey } from './venue-service.ts'
 
 test('an absent Circle location stays absent instead of becoming a default town', () => {
   assert.deepEqual(computeMidpoint([]), { lat: null, lng: null, fallback: true })
@@ -52,4 +52,28 @@ test('invalid or missing locations are rejected before the provider is called', 
 test('directions links require valid venue coordinates', () => {
   assert.equal(buildDirectionsUrl({ lat: null, lng: null }), null)
   assert.match(buildDirectionsUrl({ lat: 50.77, lng: 0.29 }), /destination=50\.77%2C0\.29/)
+})
+
+test('venue edge-cache URLs round location and separate category, radius and Golden Window', () => {
+  const base = { vibe: 'food', activityId: 'restaurant', lat: 50.76861, lng: 0.29061, radius: 3500, limit: 8, meetingDay: 5, meetingTime: '18:00' }
+  const nearby = { ...base, lat: 50.76864, lng: 0.29063 }
+  assert.equal(buildVenueSearchUrl(base), buildVenueSearchUrl(nearby))
+  assert.notEqual(buildVenueSearchUrl(base), buildVenueSearchUrl({ ...base, activityId: 'coffee' }))
+  assert.notEqual(buildVenueSearchUrl(base), buildVenueSearchUrl({ ...base, radius: 5000 }))
+  assert.notEqual(buildVenueSearchUrl(base), buildVenueSearchUrl({ ...base, meetingTime: '19:00' }))
+  assert.match(buildVenueSearchUrl(base), /lat=50\.769/)
+  assert.match(VENUE_CACHE_CONTROL, /max-age=300/)
+  assert.match(VENUE_CACHE_CONTROL, /stale-while-revalidate=86400/)
+  assert.match(VENUE_CACHE_CONTROL, /stale-if-error=86400/)
+  assert.equal(venueResponseCacheControl(false), VENUE_CACHE_CONTROL)
+  assert.equal(venueResponseCacheControl(true), 'no-store')
+})
+
+test('venue-card and map-pin selection share the same stable venue key', () => {
+  const venue = { id: 'osm-node-15', name: 'The Anchor', lat: 50.77, lng: 0.29 }
+  const selection = venueSelectionKey(venue)
+  assert.equal(venueIsSelected(venue, selection), true)
+  assert.equal(venueIsSelected({ ...venue, name: 'Renamed display label' }, selection), true)
+  assert.equal(venueIsSelected({ ...venue, id: 'osm-node-16' }, selection), false)
+  assert.equal(venueIsSelected(venue, null), false)
 })

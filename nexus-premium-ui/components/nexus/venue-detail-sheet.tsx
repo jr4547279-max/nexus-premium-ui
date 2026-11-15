@@ -8,6 +8,7 @@ import { VIBE_LABEL, buildDirectionsUrl, type Venue, type Vibe } from '@/lib/ven
 import { buildWeatherReason, type Weather } from '@/lib/weather-service'
 import type { ActivityIntent } from '@/lib/activity-intelligence'
 import { listVenueGroups, listSavedVenueGroupIds, saveVenueToGroup, removeVenueFromGroupByPlace, type GroupChoice } from '@/lib/saved-venue-service'
+import { VenuePhoto } from './venue-photo'
 
 interface Props {
   venue: Venue | null
@@ -131,7 +132,7 @@ export function VenueDetailSheet({ venue, groupId, activityId, vibe, goldenWindo
     <div role="dialog" aria-modal="true" aria-label={`${venue.name} details`} className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
       <div ref={sheetRef} onClick={(e) => e.stopPropagation()} className="relative w-full sm:max-w-md sm:max-h-[92vh] max-h-[96vh] overflow-y-auto bg-[#05080f] text-foreground sm:rounded-2xl rounded-t-2xl border border-amber-400/15 shadow-[0_0_60px_rgba(251,191,36,0.10)] animate-in slide-in-from-bottom-8 duration-300">
         <div className="relative w-full aspect-[16/10] bg-[radial-gradient(ellipse_at_center,#0c1626,#05080f)] overflow-hidden">
-          {venue.photo_url ? <img src={venue.photo_url.replace('w=200&h=200', 'w=800&h=500')} alt={venue.name} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} /> : <div className="absolute inset-0 flex items-center justify-center"><MapPin className="w-12 h-12 text-muted-foreground/30" /></div>}
+          <VenuePhoto venue={venue} className="absolute inset-0 rounded-none border-0" />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#05080f] via-[#05080f]/30 to-transparent" />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-transparent" />
           {venue.open_now !== null && <div className={cn('absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wide backdrop-blur', venue.open_now ? 'bg-emerald-500/15 border border-emerald-400/50 text-emerald-300' : 'bg-rose-500/15 border border-rose-400/50 text-rose-300')}><span className={cn('w-1.5 h-1.5 rounded-full', venue.open_now ? 'bg-emerald-400' : 'bg-rose-400')} />{venue.open_now ? 'OPEN NOW' : 'CLOSED NOW'}</div>}

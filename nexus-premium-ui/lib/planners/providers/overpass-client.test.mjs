@@ -54,17 +54,25 @@ test('normalizes real OSM records, removes duplicates and rejects invalid or dis
 test('uses the configured alternate endpoint after one failure and caches successful results', async () => {
   clearOverpassCache()
   const calls = []
+  const logs = []
   const fakeFetch = async (url) => {
     calls.push(url)
     if (url === 'https://first.example/api') return new Response('busy', { status: 503 })
     return Response.json({ elements: [{ type: 'node', id: 1, lat: location.lat, lon: location.lng, tags: { name: 'Real Place' } }] })
   }
   const query = buildOverpassQuery(tags, location, 1000)
-  const first = await fetchOverpassElements(query, { endpoints: ['https://first.example/api', 'https://second.example/api'], fetchImpl: fakeFetch, minIntervalMs: 0 })
-  const second = await fetchOverpassElements(query, { endpoints: ['https://first.example/api', 'https://second.example/api'], fetchImpl: fakeFetch, minIntervalMs: 0 })
+  const first = await fetchOverpassElements(query, { endpoints: ['https://first.example/api', 'https://second.example/api'], fetchImpl: fakeFetch, logger: (record) => logs.push(record), minIntervalMs: 0 })
+  const second = await fetchOverpassElements(query, { endpoints: ['https://first.example/api', 'https://second.example/api'], fetchImpl: fakeFetch, logger: (record) => logs.push(record), minIntervalMs: 0 })
   assert.equal(first.elements.length, 1)
   assert.equal(second.cached, true)
   assert.deepEqual(calls, ['https://first.example/api', 'https://second.example/api'])
+  assert.deepEqual(logs.map(({ event, category, state }) => [event, category ?? state]), [
+    ['nexus_overpass_attempt_failed', 'upstream_server_error'],
+    ['nexus_overpass_attempt_succeeded', 'success'],
+    ['nexus_overpass_cache', 'fresh'],
+  ])
+  assert.equal(JSON.stringify(logs).includes(query), false)
+  assert.equal(JSON.stringify(logs).includes('50.7686'), false)
 })
 
 test('backs off after HTTP 429 and returns empty only for an empty successful response', async () => {
@@ -152,7 +160,7 @@ test('rejects malformed JSON and invalid response shapes before accepting fallba
     },
   })
   assert.equal(result.elements[0].id, 9)
-  assert.deepEqual(logs.map((record) => record.category), ['invalid_response', 'invalid_response'])
+  assert.deepEqual(logs.map((record) => record.category), ['invalid_response', 'invalid_response', 'success'])
 })
 
 test('surfaces a helpful total provider failure rather than returning a false empty result', async () => {

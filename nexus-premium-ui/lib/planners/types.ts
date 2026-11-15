@@ -92,6 +92,8 @@ export interface PlannerVenue {
   /** Human-readable address or district */
   address?: string | null
   photoUrl?: string | null
+  /** Same-origin resolver for a provider-matched, licence-verified photo. */
+  photoLookupUrl?: string | null
   /** Venue website URL */
   website?: string | null
   /** true when sourced from a real-world provider (OSM etc); false/undefined = mock */

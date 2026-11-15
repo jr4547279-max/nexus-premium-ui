@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { OpenStreetMapVenueProvider } from '@/lib/planners/providers/openstreetmap-venue-provider'
+import { venueResponseCacheControl } from '@/lib/venue-service'
 
 /**
  * Real venue fallback using OpenStreetMap + Overpass.
@@ -52,10 +53,17 @@ export async function GET(req: Request) {
     ? { dayOfWeek: meetingDay, startTime: meetingTime }
     : undefined
 
+  const searchStartedAt = Date.now()
   try {
     const provider = new OpenStreetMapVenueProvider(radius)
     const result = await provider.searchVenues(activityId, { lat, lng }, meeting)
     const venues = result.venues
+    console.info('[api/places/osm] search completed', {
+      provider: 'OpenStreetMap',
+      elapsedMs: Date.now() - searchStartedAt,
+      resultCount: venues.length,
+      cacheState: result.stale ? 'stale' : result.cached ? 'fresh' : 'miss',
+    })
 
     const payload = {
       venues: venues.slice(0, limit).map((venue) => ({
@@ -74,6 +82,7 @@ export async function GET(req: Request) {
         lat: venue.lat,
         lng: venue.lng,
         photo_url: null,
+        photo_lookup_url: venue.photoLookupUrl ?? null,
         score: Math.max(0, 100 - venue.distanceFromCentre * 20),
       })),
       vibe,
@@ -83,7 +92,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json(payload, {
-      headers: { 'Cache-Control': result.stale ? 'private, max-age=30' : 'private, max-age=300' },
+      headers: { 'Cache-Control': venueResponseCacheControl(result.stale) },
     })
   } catch (error) {
     const typedError = error as Error & { category?: string; status?: number | null; retryAfterSeconds?: number }
@@ -91,6 +100,7 @@ export async function GET(req: Request) {
     console.error('[api/places/osm] provider unavailable', {
       category: typedError.category ?? 'provider_unavailable',
       status: typedError.status ?? null,
+      elapsedMs: Date.now() - searchStartedAt,
     })
     const headers = new Headers({ 'Cache-Control': 'no-store' })
     if (typedError.retryAfterSeconds) headers.set('Retry-After', String(typedError.retryAfterSeconds))

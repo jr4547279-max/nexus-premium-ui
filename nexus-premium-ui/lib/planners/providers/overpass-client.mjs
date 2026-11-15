@@ -96,7 +96,34 @@ function writeDiagnostic(logger, { endpoint, status = null, elapsedMs, category 
     category,
   }
   try {
-    logger(record)
+    if (logger) logger(record)
+    else console.warn(JSON.stringify(record))
+  } catch {
+    // Diagnostics must not change the venue search result.
+  }
+}
+
+function writeSuccessDiagnostic(logger, endpoint, status, elapsedMs) {
+  const record = {
+    event: 'nexus_overpass_attempt_succeeded',
+    endpoint: safeEndpointLabel(endpoint),
+    status,
+    elapsedMs,
+    category: 'success',
+  }
+  try {
+    if (logger) logger(record)
+    else console.info(JSON.stringify(record))
+  } catch {
+    // Diagnostics must not change the venue search result.
+  }
+}
+
+function writeCacheDiagnostic(logger, state) {
+  const record = { event: 'nexus_overpass_cache', state, elapsedMs: 0 }
+  try {
+    if (logger) logger(record)
+    else console.info(JSON.stringify(record))
   } catch {
     // Diagnostics must not change the venue search result.
   }
@@ -187,6 +214,7 @@ async function requestEndpoint(endpoint, query, options) {
         writeDiagnostic(logger, { endpoint, status: response.status, elapsedMs: Date.now() - startedAt, category: 'invalid_response' })
         return { kind: 'failure', status: response.status, category: 'invalid_response' }
       }
+      writeSuccessDiagnostic(logger, endpoint, response.status, Date.now() - startedAt)
       return { kind: 'success', elements: data.elements }
     } catch (error) {
       const timedOut = controller.signal.aborted || error?.name === 'AbortError'
@@ -211,14 +239,20 @@ export async function fetchOverpassElements(query, options = {}) {
   }).slice(0, options.maxEndpoints ?? MAX_ENDPOINTS)
   const fetchImpl = options.fetchImpl ?? fetch
   const timeoutMs = options.timeoutMs ?? 8_000
-  const logger = options.logger ?? ((record) => console.warn(JSON.stringify(record)))
+  const logger = options.logger
   const minIntervalMs = options.minIntervalMs ?? MIN_REQUEST_INTERVAL_MS
   const cacheTtlMs = options.cacheTtlMs ?? CACHE_TTL_MS
   const staleTtlMs = options.staleTtlMs ?? STALE_TTL_MS
   const now = Date.now()
   const cached = cache.get(query)
-  if (cached && cached.expiresAt > now) return { elements: cached.elements, cached: true, stale: false }
-  if (inFlight.has(query)) return inFlight.get(query)
+  if (cached && cached.expiresAt > now) {
+    writeCacheDiagnostic(logger, 'fresh')
+    return { elements: cached.elements, cached: true, stale: false }
+  }
+  if (inFlight.has(query)) {
+    writeCacheDiagnostic(logger, 'in_flight')
+    return inFlight.get(query)
+  }
 
   const request = (async () => {
     const failures = []

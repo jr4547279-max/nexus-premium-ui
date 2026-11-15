@@ -16,6 +16,8 @@ export interface Venue {
   lat: number | null
   lng: number | null
   photo_url: string | null
+  /** Opaque same-origin endpoint for lazy, licensed image metadata resolution. */
+  photo_lookup_url?: string | null
   score: number
   open_at_meeting?: boolean | null
   open_at_meeting_known?: boolean
@@ -47,6 +49,42 @@ export interface VenueProviderAdapter {
   search(request: VenueSearchRequest): Promise<VenuesResult>
   /** Providers with a details API may enrich a selected normalized venue. */
   getDetails?(providerId: string): Promise<Venue | null>
+}
+
+export const VENUE_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400'
+
+export function venueResponseCacheControl(stale: boolean): string {
+  return stale ? 'no-store' : VENUE_CACHE_CONTROL
+}
+
+/** Round planning coordinates to roughly 100 m before putting them in cacheable URLs. */
+export function roundVenueCoordinate(value: number): string {
+  return (Math.round(value * 1000) / 1000).toFixed(3)
+}
+
+/** Stable request URL partitions browser HTTP caches and compatible edge caches by every result dimension. */
+export function buildVenueSearchUrl(opts: VenueSearchRequest): string {
+  const qs = new URLSearchParams({
+    vibe: opts.vibe,
+    lat: roundVenueCoordinate(opts.lat ?? 0),
+    lng: roundVenueCoordinate(opts.lng ?? 0),
+    radius: String(opts.radius ?? 3500),
+    limit: String(opts.limit ?? 8),
+  })
+  if (opts.activityId) qs.set('activity', opts.activityId)
+  if (Number.isInteger(opts.meetingDay) && opts.meetingDay! >= 0 && opts.meetingDay! <= 6 && opts.meetingTime) {
+    qs.set('meetingDay', String(opts.meetingDay))
+    qs.set('meetingTime', opts.meetingTime)
+  }
+  return `/nx/places?${qs.toString()}`
+}
+
+export function venueSelectionKey(venue: Pick<Venue, 'id' | 'name' | 'lat' | 'lng'>): string {
+  return venue.id ?? `${venue.name}|${venue.lat}|${venue.lng}`
+}
+
+export function venueIsSelected(venue: Pick<Venue, 'id' | 'name' | 'lat' | 'lng'>, selectedKey: string | null | undefined): boolean {
+  return Boolean(selectedKey && venueSelectionKey(venue) === selectedKey)
 }
 
 export type Midpoint =
@@ -114,17 +152,6 @@ async function requestJson(url: string): Promise<{ response: Response; json: Ven
  * Provider selection and secrets stay on the server; coordinates are mandatory.
  */
 export async function fetchVenues(opts: VenueSearchRequest): Promise<VenuesResult> {
-  const qs = new URLSearchParams({ vibe: opts.vibe })
-  if (opts.activityId) qs.set('activity', opts.activityId)
-  if (opts.lat != null) qs.set('lat', String(opts.lat))
-  if (opts.lng != null) qs.set('lng', String(opts.lng))
-  if (opts.radius != null) qs.set('radius', String(opts.radius))
-  if (opts.limit != null) qs.set('limit', String(opts.limit))
-  if (Number.isInteger(opts.meetingDay) && opts.meetingDay! >= 0 && opts.meetingDay! <= 6 && opts.meetingTime) {
-    qs.set('meetingDay', String(opts.meetingDay))
-    qs.set('meetingTime', opts.meetingTime)
-  }
-
   const requestedLimit = Math.max(1, Math.min(opts.limit ?? 8, 18))
   if (opts.lat == null || opts.lng == null || !Number.isFinite(opts.lat) || !Number.isFinite(opts.lng)
     || opts.lat < -90 || opts.lat > 90 || opts.lng < -180 || opts.lng > 180) {
@@ -132,7 +159,7 @@ export async function fetchVenues(opts: VenueSearchRequest): Promise<VenuesResul
   }
 
   try {
-    const primary = await requestJson(`/nx/places?${qs.toString()}`)
+    const primary = await requestJson(buildVenueSearchUrl(opts))
     const primaryVenues = primary.response.ok && primary.json ? primary.json.venues : []
     if (primary.response.ok && primary.json) return { ...primary.json, venues: primaryVenues.slice(0, requestedLimit) }
     return { venues: [], vibe: opts.vibe, cached: false, provider: primary.json?.provider, error: primary.json?.error ?? `Venue search failed (HTTP ${primary.response.status})` }
